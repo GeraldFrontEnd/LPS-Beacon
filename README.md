@@ -1,8 +1,10 @@
+<h1>LPS Beacon Agentic Forecast Bot </h1>
+
 Resource Planning Forecast Chatbot — an AI-powered assistant that turns messy project, pipeline, workforce and financial planning files into headcount forecasts, supply-versus-demand analysis, resource matching and monthly forecast reports, all through a natural-language chat interface.
 
 Upload your planning files, ask questions in plain English, and get cleaned data, forecasts, charts and downloadable reports back in the same conversation.
 
-Table of contents
+<h2>Table of contents</h2>
 What the chatbot does
 Capabilities and features
 Example conversations
@@ -24,8 +26,8 @@ What the chatbot does
 
 LPS-Beacon is the single front door for resource planning work. Instead of manually reconciling spreadsheets, a planner opens the web app, signs in, drops in their files and talks to the assistant.
 
+<h2>Overall Workflow</h2>
 Behind the chat window, serverless AWS services:
-
 Receive the uploaded files (typically 10–12 CSV/XLSX files per batch).
 Clean and standardise them: duplicates, shifted headers, inconsistent names, Excel date serials and wide month columns are all handled automatically.
 Match demand (quote lines, resource plans, project pipeline) against supply (staff lists, HR headcount, utilisation) by grade, month and location.
@@ -35,7 +37,8 @@ Return charts, tables, a data-quality report and downloadable reports to the cha
 
 The assistant is the Resource Planning Forecast Agent: a Bedrock-hosted Claude model that decides which tool to call (run a forecast, fetch results, run a what-if) while the numerical work is done by deterministic Python code. This keeps forecasts repeatable and auditable; the model explains and reasons over the numbers rather than computing them.
 
-Capabilities and features
+<h2>Capabilities and features</h2>
+
 1. Conversational interface
 Feature	Description
 Natural-language chat	Ask for forecasts, comparisons, explanations and what-if scenarios in everyday language.
@@ -44,6 +47,7 @@ Chat history sidebar	Every conversation is saved per user and listed newest-firs
 Auto-titled chats	The first message generates a short title (for example, "Grade 7 shortfall Q3").
 Rename and delete chats	Users manage their own history; chats expire automatically under a configurable retention period.
 Run references	Answers cite the forecast run they came from, so every number can be traced back.
+
 2. File upload and ingestion
 Feature	Description
 Batch uploads	Drag and drop 10–12 CSV/XLSX files at once; the batch is treated as one unit of work.
@@ -51,6 +55,8 @@ Direct-to-storage upload	Files go straight from the browser to S3 using short-li
 One run per batch	A manifest.json written last signals that the batch is complete, so a 12-file upload triggers one pipeline run, not twelve.
 Duplicate-file detection	Identical files (matched by SHA-256 fingerprint) are skipped.
 Format-agnostic detection	Sheets and header rows are found by column signature, not by file name or fixed position.
+
+
 3. Data cleaning and standardisation
 
 The pipeline is built for noisy planning data, including:
@@ -74,12 +80,14 @@ Capacity analysis	Capacity and utilisation trends, bench cost shown separately f
 Monthly and quarterly forecasts	Scheduled runs on the latest cleaned data, including a quarter-horizon view.
 What-if scenarios	Change an assumption in chat (add hires, slip a project, change a start date) and get the result as a delta against the baseline.
 Stated assumptions	Forecasts list the assumptions and data limits behind them; thin history is flagged, and synthetic data, where used, is clearly marked.
+
 5. Reports and notifications
 Feature	Description
 Monthly forecast report	Excel and CSV outputs written to storage for each run (PDF is on the roadmap).
 In-chat results	The same forecast table and charts, rendered in the conversation.
 Email notifications	Run complete, shortfall detected, stale-data reminder and failure alerts, sent through Amazon SNS with a link back to the app.
 Audit trail	Accept, edit and reject actions are logged with user and timestamp.
+
 6. Security and administration
 Email and password sign-in with required authenticator-app MFA (Amazon Cognito).
 Per-user data isolation: uploads and chat history are scoped by the verified user ID.
