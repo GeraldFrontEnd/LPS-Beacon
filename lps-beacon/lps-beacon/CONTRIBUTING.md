@@ -1,4 +1,4 @@
-# Contributing to LPS-Beacon
+# Contributing to LPS-Beacon FrontEnd
 
 This repository is the single source of truth for the LPS-Beacon frontend. **You never need to zip the project and
 send it.** Make your change, save it to GitHub, and everyone else gets it with one click.
