@@ -1,0 +1,613 @@
+/* src/index.css - all styling for the chat screen. Replaces the file Vite generated. */
+
+/* Colour and font choices live here so you can change the look in one place. */
+:root {
+  --bg: #f2f4f7; /* page background and assistant bubbles */
+  --surface: #ffffff; /* the chat panel */
+  --ink: #1c2733; /* main text */
+  --muted: #5b6877; /* secondary text */
+  --line: #d5dbe3; /* borders */
+  --accent: #1f4e79; /* user bubbles and the Send button */
+  --accent-ink: #ffffff; /* text on top of the accent colour */
+  --error-bg: #fbeaea;
+  --error: #8e1f1f;
+  --success: #1f6b3a; /* text for finished uploads */
+  --accent-soft: #e8eef5; /* light highlight while dragging files */
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink);
+}
+
+/* Make width/height include padding and borders, which is easier to reason about. */
+* {
+  box-sizing: border-box;
+}
+
+/* Let the app fill the full browser window and remove default margins. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+}
+
+/* The app shell stacks the navigation bar on top and the current page below it. */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* The navigation bar with links to each page. */
+.nav {
+  display: flex;
+  gap: 4px;
+  padding: 0 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.nav-link {
+  padding: 12px 14px;
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+}
+
+/* The link for the page you are on. */
+.nav-link.active {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+
+/* Both pages are a centred column that fills the space under the navigation bar.
+   min-height: 0 lets the inside scroll instead of stretching the page. */
+.chat-page,
+.upload-page,
+.dashboard-page,
+.notice-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+
+.chat-header,
+.page-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.chat-header h1,
+.page-header h1 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.chat-header p,
+.page-header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+/* The scrolling message area takes all the space between header and input. */
+.message-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Shared bubble style. pre-wrap keeps line breaks; overflow-wrap stops long words breaking the layout. */
+.message {
+  max-width: 80%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* User bubbles sit on the right in the accent colour. */
+.message-user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-bottom-right-radius: 4px;
+}
+
+/* Assistant bubbles sit on the left with a light fill and border. */
+.message-assistant {
+  align-self: flex-start;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-bottom-left-radius: 4px;
+}
+
+.message-pending {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.error-banner {
+  margin: 0 20px 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--error-bg);
+  color: var(--error);
+  font-size: 0.875rem;
+}
+
+/* Input bar: textarea grows, button stays its natural width. */
+.message-input {
+  display: flex;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+}
+
+.message-input textarea {
+  flex: 1;
+  resize: none;
+  padding: 10px 12px;
+  font: inherit;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.message-input button,
+.primary-button {
+  padding: 0 20px;
+  font: inherit;
+  font-weight: 600;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+
+.message-input button:disabled,
+.primary-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* A visible outline when navigating with the keyboard. */
+.message-input textarea:focus-visible,
+.message-input button:focus-visible,
+.primary-button:focus-visible,
+.dropzone:focus-visible,
+.file-remove:focus-visible,
+.nav-link:focus-visible,
+.secondary-button:focus-visible,
+.chip:focus-visible,
+.nav-signout:focus-visible,
+.link-button:focus-visible,
+.field input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Hides text visually but keeps it available to screen readers. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* On narrow phone screens, let bubbles use more of the width. */
+@media (max-width: 600px) {
+  .message {
+    max-width: 90%;
+  }
+}
+
+/* ---- Upload page ---- */
+
+/* The scrolling middle part of the upload page. */
+.upload-body,
+.dashboard-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* The dashed box users click or drop files onto. */
+.dropzone {
+  padding: 32px 20px;
+  font: inherit;
+  color: var(--ink);
+  text-align: center;
+  border: 2px dashed var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.dropzone strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.dropzone span {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+/* Highlight while files are being dragged over it. */
+.dropzone.dragging {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* The error banner already has side margins in the chat; inside this padded area it needs none. */
+.upload-body .error-banner {
+  margin: 0;
+}
+
+/* The list of chosen files. */
+.file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+/* min-width: 0 lets long file names wrap instead of pushing the Remove button out. */
+.file-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-name {
+  overflow-wrap: anywhere;
+}
+
+.file-meta {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.file-status-done {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.file-status-error {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.file-error {
+  margin-top: 4px;
+  color: var(--error);
+  font-size: 0.8125rem;
+}
+
+/* Remove looks like a small text link, not a big button. */
+.file-remove {
+  padding: 4px;
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--muted);
+  text-decoration: underline;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.file-remove:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* The bar at the bottom with the summary and the Upload button. */
+.upload-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+}
+
+.note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+/* The shared button style gets vertical padding here because it is not stretched by a flex row. */
+.primary-button {
+  padding: 10px 20px;
+}
+
+/* ---- Navigation: user name and Sign out ---- */
+
+/* margin-left: auto pushes this and everything after it to the right edge. */
+.nav-user {
+  margin-left: auto;
+  align-self: center;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.nav-signout {
+  align-self: center;
+  margin-left: 12px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* On narrow screens hide the name so the Sign out button still fits. */
+@media (max-width: 600px) {
+  .nav-user {
+    display: none;
+  }
+  .nav-signout {
+    margin-left: auto;
+  }
+}
+
+/* ---- Login page ---- */
+
+/* Centres the login card in the space under the (hidden) navigation bar. */
+.login-page {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  padding: 28px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.login-card h1 {
+  margin: 0 0 4px;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.login-card .subtitle {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+/* A label and its input stacked vertically. */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.field input {
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: 400;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.login-card .error-banner {
+  margin: 0 0 14px;
+}
+
+.login-card .primary-button {
+  width: 100%;
+}
+
+/* The practice accounts list at the bottom of the card. */
+.demo-box {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.demo-box ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.demo-box li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* A button that looks like a text link. */
+.link-button {
+  padding: 4px;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--accent);
+  text-decoration: underline;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+/* ---- Chat extras: New chat button and suggestion chips ---- */
+
+.chat-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.secondary-button {
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.secondary-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 20px 12px;
+}
+
+.chip {
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  text-align: left;
+}
+
+/* ---- Dashboard ---- */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.stat {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.stat-label {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+  padding: 10px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.data-table th {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.data-table .num {
+  text-align: right;
+}
+
+/* The staffing bar: a grey track with an accent fill (red when over-staffed). */
+.bar {
+  min-width: 100px;
+  height: 8px;
+  margin-top: 6px;
+  overflow: hidden;
+  background: var(--bg);
+  border-radius: 4px;
+}
+
+.bar-fill {
+  height: 100%;
+  background: var(--accent);
+}
+
+.bar-fill.over {
+  background: var(--error);
+}
+
+.over-text {
+  color: var(--error);
+  font-weight: 600;
+}
+
+/* ---- P&L colours ---- */
+.profit {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.loss {
+  color: var(--error);
+  font-weight: 600;
+}
