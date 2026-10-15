@@ -61,13 +61,14 @@ export interface ProjectSummary {
   costPerMonth?: number; // optional: the backend must only send this to finance users
 }
 
-// ---- Added for the P&L (profit and loss) page ----
+// ---- Added for the Analysis page (the capacity plan) ----
 
-// One project's figures for the month. Profit and margin are worked out on screen from these.
-export interface PnlRow {
-  id: string;
-  name: string;
-  revenue: number; // money coming in
-  manpowerCost: number; // staff cost
-  otherCosts: number; // everything else
+// The numbers of the capacity plan. The layout (which rows and columns exist) lives in
+// src/analysis/capacityPlanLayout.ts; the backend only sends values, looked up by id.
+export interface CapacityPlan {
+  // rowId -> column key -> number. For example values["joiners:b7"]["Oct'26"] = 2.
+  // A missing entry or null means "no value", and the cell is shown empty.
+  values: Record<string, Record<string, number | null>>;
+  // band id (for example "b9") -> day rates in SGD.
+  bandRates: Record<string, { fy26: number | null; fy27: number | null }>;
 }

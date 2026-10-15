@@ -50,7 +50,7 @@ designed but not yet in this repository.
 | Chat screen (suggested questions, new chat, session ID) | Implemented, answers are mocked until the backend exists | `frontend/` |
 | Upload screen (CSV/Excel up to 20 MB, pre-signed S3 upload, per-file status) | Implemented, mocked until the backend exists | `frontend/` |
 | Dashboard (people needed, assigned and open per project; cost for finance) | Implemented, mock data | `frontend/` |
-| P&L screen (revenue, manpower cost, other costs, profit, margin; finance only) | Implemented, mock data | `frontend/` |
+| Analysis screen (read-only capacity plan; finance only) | Layout implemented, fields empty until the backend generates the plan | `frontend/` |
 | Backend contract the web app expects | Documented | [`frontend/API_CONTRACT.md`](frontend/API_CONTRACT.md) |
 | API Lambda, Pipeline Lambda, Bedrock agent, schedules, notifications, infrastructure | Designed | [Architecture](#architecture) |
 | Chat history sidebar, charts in chat, what-if scenarios, report downloads | Designed | [Capabilities](#capabilities-and-features) |
@@ -186,10 +186,10 @@ The role comes from the user's Cognito group.
 | Chat | Yes | Yes | Yes (including cost questions) |
 | Dashboard | Yes | Yes | Yes, plus monthly cost per project |
 | Upload files | Yes | No | Yes |
-| P&L | No | No | Yes |
+| Analysis | No | No | Yes |
 
 Upload access for HR and finance is an assumption to confirm; it is set in one place,
-`frontend/src/auth/permissions.ts`. Screen rules are a convenience only. The backend must withhold cost and P&L data from
+`frontend/src/auth/permissions.ts`. Screen rules are a convenience only. The backend must withhold cost and capacity plan data from
 anyone outside the finance group.
 
 ---
@@ -255,7 +255,7 @@ The full diagram with every service, the nine pipeline steps and cost tags is in
 
 | Component | Role |
 |---|---|
-| **Chatbot web app** | React single-page app: chat, history sidebar, file upload, dashboard, P&L. Hosted in a private S3 bucket. |
+| **Chatbot web app** | React single-page app: chat, history sidebar, file upload, dashboard, Analysis (capacity plan). Hosted in a private S3 bucket. |
 | **Amazon CloudFront + AWS WAF** | HTTPS entry point for both the app and `/api/*`. WAF filters bad IPs, common exploits and request floods. |
 | **Amazon Cognito** | Sign-up, sign-in and required MFA; issues the JWT used on every API call. |
 | **API Gateway (HTTP API)** | Routes API calls; the JWT authorizer rejects unauthenticated calls. |
@@ -413,7 +413,7 @@ Defined in [`frontend/API_CONTRACT.md`](frontend/API_CONTRACT.md) and implemente
 | `POST` | `/chat` | Send `{ sessionId, message }`; returns `{ reply }` |
 | `POST` | `/upload-url` | Send `{ fileName, contentType }`; returns a pre-signed `{ uploadUrl, key }` |
 | `GET` | `/dashboard` | Project staffing summary; cost fields only for finance |
-| `GET` | `/pnl` | Profit and loss rows; finance only (`403` otherwise) |
+| `GET` | `/capacity-plan` | Generated capacity plan values; finance only (`403` otherwise). Planned: the web app does not call it yet |
 
 ### Planned additions
 
@@ -564,7 +564,7 @@ lps-beacon/
     │   ├── api/              # all backend calls (mock + real) and data types
     │   ├── auth/             # Cognito / practice sign-in, session, role permissions
     │   ├── components/       # NavBar, RequireAuth, MessageList, MessageInput, FileList
-    │   ├── pages/            # Chat, Dashboard, Upload, P&L, Login
+    │   ├── pages/            # Chat, Dashboard, Upload, Analysis, Login
     │   ├── uploads/          # upload queue shared across pages
     │   ├── App.tsx
     │   ├── main.tsx
@@ -608,7 +608,7 @@ This project processes HR headcount, staff cost and project revenue data.
   (CONTINUE_SIGN_IN_WITH_TOTP_SETUP)". Use Amplify's `<Authenticator>` component or handle the step with
   `confirmSignIn()` before relying on required MFA. See `frontend/src/auth/authService.ts`.
 - Users who must change their temporary password are told to ask an administrator to set a permanent one.
-- Chat, upload, dashboard and P&L use mock data until the backend exists.
+- Chat, upload and dashboard use mock data until the backend exists. The Analysis tab shows the capacity plan layout with empty fields.
 - Practice accounts (`DEMO_ACCOUNTS`) should be removed before a production release.
 - The backend, infrastructure code and tests are not in this repository yet.
 

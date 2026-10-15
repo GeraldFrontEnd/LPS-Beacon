@@ -18,5 +18,5 @@ export const ROLE_LABELS: Record<Role, string> = {
   finance: "Finance",
 };
 
-// Roles that are allowed to open the P&L page. Finance only, because it shows revenue and cost.
-export const PNL_ROLES: Role[] = ["finance"];
+// Roles that are allowed to open the Analysis page (the capacity plan). Finance only, because it shows revenue, cost and margin.
+export const ANALYSIS_ROLES: Role[] = ["finance"];

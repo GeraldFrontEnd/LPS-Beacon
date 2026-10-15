@@ -6,13 +6,13 @@
 // Navigate sends the user somewhere else.
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import AuthProvider from "./auth/AuthProvider";
-import { PNL_ROLES, UPLOAD_ROLES } from "./auth/permissions";
+import { ANALYSIS_ROLES, UPLOAD_ROLES } from "./auth/permissions";
 import NavBar from "./components/NavBar";
 import RequireAuth from "./components/RequireAuth";
+import AnalysisPage from "./pages/AnalysisPage";
 import ChatPage from "./pages/ChatPage";
 import DashboardPage from "./pages/DashboardPage";
 import LoginPage from "./pages/LoginPage";
-import PnlPage from "./pages/PnlPage";
 import UploadPage from "./pages/UploadPage";
 import UploadProvider from "./uploads/UploadProvider";
 
@@ -57,12 +57,12 @@ export default function App() {
                   </RequireAuth>
                 }
               />
-              {/* The P&L page is limited to the roles in PNL_ROLES (finance). */}
+              {/* The Analysis page (the capacity plan) is limited to the roles in ANALYSIS_ROLES (finance). */}
               <Route
-                path="/pnl"
+                path="/analysis"
                 element={
-                  <RequireAuth allowedRoles={PNL_ROLES}>
-                    <PnlPage />
+                  <RequireAuth allowedRoles={ANALYSIS_ROLES}>
+                    <AnalysisPage />
                   </RequireAuth>
                 }
               />

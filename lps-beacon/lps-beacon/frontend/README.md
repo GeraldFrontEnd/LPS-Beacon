@@ -1,7 +1,7 @@
 # LPS-Beacon frontend
 
 The browser front end for LPS-Beacon: chat with the Resource Planning Forecast assistant, upload planning files,
-and view project staffing and (for finance) profit and loss.
+and view project staffing and (for finance) the generated capacity plan.
 
 Built with React 19, TypeScript, Vite, React Router and AWS Amplify (Cognito sign-in only).
 
@@ -36,7 +36,7 @@ Settings live in `.env` (copied from `.env.example`). Restart `npm run dev` afte
 
 | Variable | Purpose |
 |---|---|
-| `VITE_USE_MOCK` | `true` = fake data for chat, upload, dashboard and P&L. `false` = call the real API. |
+| `VITE_USE_MOCK` | `true` = fake data for chat, upload and dashboard. `false` = call the real API. |
 | `VITE_USE_MOCK_AUTH` | Sign-in only. `false` = real Amazon Cognito, `true` = practice accounts. If omitted, follows `VITE_USE_MOCK`. |
 | `VITE_API_URL` | Base URL of API Gateway. Not needed in mock mode. |
 | `VITE_COGNITO_USER_POOL_ID` | Cognito user pool ID (AWS console). |
@@ -67,10 +67,10 @@ The role comes from the user's Cognito group (`hr`, `pm` or `finance`).
 | Chat | `/` | Yes | Yes | Yes |
 | Dashboard (people needed, assigned and open per project) | `/dashboard` | Yes | Yes | Yes, plus monthly cost |
 | Upload (CSV or Excel, up to 20 MB each) | `/upload` | Yes | No | Yes |
-| P&L (revenue, manpower cost, other costs, profit, margin) | `/pnl` | No | No | Yes |
+| Analysis (the capacity plan the system generates; read only) | `/analysis` | No | No | Yes |
 
 Rules are set in `src/auth/permissions.ts`. These only control what the **screens** show. The backend must enforce
-the same rules, especially for cost and P&L data.
+the same rules, especially for cost and capacity plan data.
 
 ## Project structure
 
@@ -80,7 +80,7 @@ frontend/
 │   ├── api/            # client.ts (all backend calls, mock + real) and types.ts
 │   ├── auth/           # Cognito/mock sign-in, session context, role permissions
 │   ├── components/     # NavBar, RequireAuth, MessageList, MessageInput, FileList
-│   ├── pages/          # ChatPage, DashboardPage, UploadPage, PnlPage, LoginPage
+│   ├── pages/          # ChatPage, DashboardPage, UploadPage, AnalysisPage, LoginPage
 │   ├── uploads/        # upload queue shared across pages
 │   ├── App.tsx         # routes and role guards
 │   └── main.tsx

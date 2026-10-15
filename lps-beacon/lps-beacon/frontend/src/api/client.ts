@@ -9,7 +9,7 @@ import type {
   UploadUrlRequest,
   UploadUrlResponse,
   ProjectSummary,
-  PnlRow,
+  CapacityPlan,
 } from "./types";
 
 // import.meta.env reads values from the .env file. Vite only exposes names that start with VITE_.
@@ -175,30 +175,13 @@ export async function getDashboard(token?: string): Promise<ProjectSummary[]> {
   return (await response.json()) as ProjectSummary[];
 }
 
-// ---- Added for the P&L page ----
+// ---- Added for the Analysis page ----
 
-// Loads the monthly profit and loss figures per project. Finance only.
-export async function getPnl(token?: string): Promise<PnlRow[]> {
-  if (USE_MOCK) {
-    await wait(500);
-    // Imitates the backend refusing anyone who is not finance.
-    if (!tokenIsFinance(token)) {
-      throw new Error("You don't have access to this data.");
-    }
-    return [
-      { id: "a", name: "Project A", revenue: 140000, manpowerCost: 96000, otherCosts: 12000 },
-      { id: "b", name: "Project B", revenue: 70000, manpowerCost: 54000, otherCosts: 8000 },
-      { id: "c", name: "Project C", revenue: 52000, manpowerCost: 40000, otherCosts: 6000 },
-      { id: "d", name: "Project D", revenue: 60000, manpowerCost: 63000, otherCosts: 5000 },
-    ];
-  }
-
-  const response = await fetch(`${requireApiUrl()}/pnl`, { headers: buildHeaders(token) });
-  if (response.status === 403) {
-    throw new Error("You don't have access to this data.");
-  }
-  if (!response.ok) {
-    throw new Error(`Could not load the P&L (${response.status}).`);
-  }
-  return (await response.json()) as PnlRow[];
+// Loads the capacity plan the system generated. Finance only.
+// TODO: the backend does not generate the plan yet, so for now this returns an empty plan and the page shows
+// empty fields. When it does, call GET /capacity-plan here (same pattern as getDashboard) and return its JSON.
+// A 403 should become the message "You don't have access to this data."
+export async function getCapacityPlan(token?: string): Promise<CapacityPlan> {
+  void token; // will be sent as the login token once the real call exists
+  return { values: {}, bandRates: {} };
 }

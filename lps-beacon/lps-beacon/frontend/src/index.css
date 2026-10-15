@@ -601,7 +601,7 @@ body {
   font-weight: 600;
 }
 
-/* ---- P&L colours ---- */
+/* ---- Positive and negative number colours ---- */
 .profit {
   color: var(--success);
   font-weight: 600;
@@ -610,4 +610,180 @@ body {
 .loss {
   color: var(--error);
   font-weight: 600;
+}
+
+/* ---- Analysis page (capacity plan) ---- */
+
+/* Unlike the other pages this one uses the full window width, because the plan has about 30 columns. */
+.analysis-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  background: var(--surface);
+}
+
+.analysis-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.analysis-toolbar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.analysis-banner {
+  margin: 12px 20px 0;
+}
+
+/* Two buttons joined into one control, used to switch between the two sheets. */
+.segmented {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.segmented button {
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 0;
+  cursor: pointer;
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--line);
+}
+
+.segmented button[aria-pressed="true"] {
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+.segmented button:focus-visible,
+.plan-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* This box scrolls in both directions, so the sticky header and first column stay in view. */
+.plan-scroll {
+  flex: 1;
+  min-height: 0;
+  margin-top: 12px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+}
+
+.plan-table {
+  min-width: 100%;
+  font-size: 0.8125rem;
+  border-collapse: separate; /* sticky cells keep their borders only with separate borders */
+  border-spacing: 0;
+}
+
+.plan-table th,
+.plan-table td {
+  padding: 6px 10px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+}
+
+.plan-table td {
+  min-width: 84px;
+}
+
+/* The header stays at the top while the rows scroll. */
+.plan-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+.plan-table thead th {
+  min-width: 84px;
+  color: var(--muted);
+  font-weight: 600;
+  background: var(--bg);
+}
+
+/* The first header row: long group names may wrap onto several lines. */
+.plan-table th.plan-group {
+  height: 64px;
+  font-size: 0.7rem;
+  line-height: 1.25;
+  text-align: center;
+  white-space: normal;
+  vertical-align: middle;
+}
+
+.plan-table .plan-group-start {
+  border-left: 1px solid var(--line);
+}
+
+/* The first column stays at the left while the table scrolls sideways. */
+.plan-table .plan-label {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  min-width: 260px;
+  text-align: left;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+
+.plan-table thead .plan-label {
+  z-index: 4; /* above both the sticky header and the sticky column */
+  background: var(--bg);
+}
+
+.plan-table .plan-section th,
+.plan-table .plan-section td {
+  font-weight: 600;
+  background: #f8f9fb;
+}
+
+.plan-table .plan-band .plan-label {
+  padding-left: 36px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* The open/close button on a metric row looks like plain bold text with an arrow. */
+.plan-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+/* Metric rows without bands have no arrow; this keeps their text lined up with the others. */
+.plan-toggle-spacer {
+  padding-left: 18px;
+}
+
+.plan-rates {
+  min-width: 0;
+  width: auto;
+}
+
+.plan-rates .plan-label {
+  min-width: 160px;
 }
