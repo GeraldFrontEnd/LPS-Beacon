@@ -1,19 +1,24 @@
 // src/analysis/capacityPlanLayout.ts
-// The SHAPE of the capacity plan: which columns (months, quarters, FY) and which rows (metrics and bands) it has.
-// It mirrors Capacity_Plan_template.xlsx. It holds no numbers. The numbers come from the backend later
-// (see getCapacityPlan in src/api/client.ts) and are looked up by the ids defined here.
+// The SHAPE of the capacity plan: which columns (months, quarters, financial years) and which rows (metrics and bands)
+// it has, and which cells a person may edit. It mirrors Capacity_Plan_template.xlsx and holds no numbers.
+// The numbers come from the backend (see getCapacityPlan in src/api/client.ts) and are looked up by the ids defined here.
 
-// How a number is shown on screen.
-export type ValueFormat = "int" | "dec1" | "usd" | "pct0" | "pct1";
+// How a number is shown on screen. "usdM" means dollars shown in millions (1,000,000 is shown as 1.00).
+export type ValueFormat = "int" | "dec1" | "usdM" | "pct0" | "pct1";
 
-// One column of the plan. "key" is the id the backend will use for this column, for example "Apr'26".
+// One column of the plan. "key" is the id the backend uses for this column, for example "Apr'26" or "Q1'26".
 export interface PlanColumn {
   key: string;
   label: string;
-  // The text shown above the column in the first header row. Neighbouring columns with the same group are merged.
-  group: string;
-  // A month, a quarter (Q1'26) or the financial year (FY'26). Charts plot months; quarters and FY are totals of them.
+  // A month, a quarter (Q1'26) or a whole financial year (FY'26). Quarters and the year are totals of the months.
   kind: "month" | "quarter" | "fy";
+  // The financial year the column belongs to. FY'26 runs from Apr'26 to Mar'27.
+  fiscalYear: string;
+  // 1 to 4. For a month it is the quarter the month is in; for a quarter column it is the quarter itself.
+  quarter?: number;
+  // How firm the numbers of this month are in the template. Only the dashboard charts use it, to shade forecasts.
+  // The Analysis table does not show it.
+  stage: string;
 }
 
 // One metric (for example "Joiners"). If "bands" is true it also has one row per band underneath it.
@@ -33,34 +38,47 @@ const QL_RP = "Actual + Open Hiring Requests + QL RP";
 const ASSUMED = "Actual + Open Hiring Requests + QL RP + Assumed (Opp Pipeline)";
 const FORMULA = "Formula";
 
-function cols(labels: string[], group: string): PlanColumn[] {
-  return labels.map((label) => ({
-    key: label,
-    label,
-    group,
-    kind: /^Q\d/.test(label) ? "quarter" : label.startsWith("FY") ? "fy" : "month",
-  }));
+// The financial year starts in April.
+const MONTH_NAMES = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
+
+// Stages come from the template's header row: Apr to Aug'26 are actual, and everything later is a forecast.
+function stageFor(startYear: number, monthIndex: number): string {
+  if (startYear !== 2026) return ASSUMED;
+  if (monthIndex < 5) return ACTUAL;
+  if (monthIndex < 8) return OPEN_HIRING;
+  if (monthIndex === 8) return QL_RP;
+  return ASSUMED;
 }
 
-export const PLAN_COLUMNS: PlanColumn[] = [
-  ...cols(["Apr'26", "May'26", "Jun'26", "Jul'26", "Aug'26"], ACTUAL),
-  ...cols(["Sep'26", "Oct'26", "Nov'26"], OPEN_HIRING),
-  ...cols(["Dec'26"], QL_RP),
-  ...cols(["Jan'27", "Feb'27", "Mar'27"], ASSUMED),
-  ...cols(["Q1'26", "Q2'26", "Q3'26", "Q4'26", "FY'26"], FORMULA),
-  // The template only labels Apr'27 to Jun'27. Jul'27 to Mar'28 are assumed to belong to the same group.
-  ...cols(
-    ["Apr'27", "May'27", "Jun'27", "Jul'27", "Aug'27", "Sep'27", "Oct'27", "Nov'27", "Dec'27", "Jan'28", "Feb'28", "Mar'28"],
-    ASSUMED
-  ),
-];
+// The 12 months of one financial year, followed by its four quarters and the year total.
+function fiscalYearColumns(startYear: number): PlanColumn[] {
+  const yy = (year: number) => String(year).slice(2);
+  const fiscalYear = `FY'${yy(startYear)}`;
+
+  const months = MONTH_NAMES.map((name, i): PlanColumn => {
+    const label = `${name}'${yy(startYear + (i >= 9 ? 1 : 0))}`; // Jan to Mar fall in the next calendar year
+    return { key: label, label, kind: "month", fiscalYear, quarter: Math.floor(i / 3) + 1, stage: stageFor(startYear, i) };
+  });
+  const quarters = [1, 2, 3, 4].map((q): PlanColumn => {
+    const label = `Q${q}'${yy(startYear)}`;
+    return { key: label, label, kind: "quarter", fiscalYear, quarter: q, stage: FORMULA };
+  });
+  const year: PlanColumn = { key: fiscalYear, label: fiscalYear, kind: "fy", fiscalYear, stage: FORMULA };
+
+  return [...months, ...quarters, year];
+}
+
+// FY'26 (Apr'26 to Mar'27) and FY'27 (Apr'27 to Mar'28). The template has no quarter or year columns for FY'27.
+export const PLAN_COLUMNS: PlanColumn[] = [...fiscalYearColumns(2026), ...fiscalYearColumns(2027)];
+
+export const FISCAL_YEARS: string[] = [...new Set(PLAN_COLUMNS.map((c) => c.fiscalYear))];
 
 // Only the months, in order. This is the time axis of the dashboard charts.
 export const MONTH_COLUMNS: PlanColumn[] = PLAN_COLUMNS.filter((c) => c.kind === "month");
 
 // True for months the template marks as "Actual". Every other month is a forecast.
 export function isActualColumn(column: PlanColumn): boolean {
-  return column.group === ACTUAL;
+  return column.stage === ACTUAL;
 }
 
 // ---- Rows ----
@@ -81,10 +99,10 @@ export const PLAN_SECTIONS: PlanSection[] = [
   { id: "joiners", label: "Joiners", format: "int", bands: true },
   { id: "leavers", label: "Leavers", format: "int", bands: true },
   { id: "ending-hc", label: "Ending HC", format: "int", bands: true },
-  { id: "revenue-per-fte", label: "Revenue per FTE ($)", format: "usd", bands: true },
-  { id: "revenue", label: "Revenue ($)", format: "usd", bands: false },
-  { id: "resource-cost", label: "Resource Cost ($)", format: "usd", bands: true },
-  { id: "gross-margin", label: "Gross Margin ($)", format: "usd", bands: false },
+  { id: "revenue-per-fte", label: "Revenue per FTE ($ in M)", format: "usdM", bands: true },
+  { id: "revenue", label: "Revenue ($ in M)", format: "usdM", bands: false },
+  { id: "resource-cost", label: "Resource Cost ($ in M)", format: "usdM", bands: true },
+  { id: "gross-margin", label: "Gross Margin ($ in M)", format: "usdM", bands: false },
   { id: "gross-margin-pct", label: "Gross Margin %", format: "pct1", bands: false },
   { id: "billable-ur", label: "Billable UR %", format: "pct1", bands: true, bandFormat: "pct0" },
   { id: "billable-hc", label: "Billable HC", format: "dec1", bands: true },
@@ -97,4 +115,28 @@ export const PLAN_SECTIONS: PlanSection[] = [
 // The id the backend uses for a row's values: the section id, or "<section id>:<band id>" for a band row.
 export function rowId(sectionId: string, bandId?: string): string {
   return bandId ? `${sectionId}:${bandId}` : sectionId;
+}
+
+// ---- Editing ----
+
+const FIRST_MONTH_KEY = MONTH_COLUMNS[0].key;
+
+// Which cells hold an INPUT (typed in by a person or read from a report) and not a formula.
+// This follows Capacity_Plan_template.xlsx, where these are the only cells that are plain numbers:
+//  - Joiners, Leavers and Billable UR % for each band, in every month
+//  - Current HC for each band, in the first month only (the starting headcount; later months are formulas)
+//  - Revenue ($) and Standard Working days, in every month
+// The total rows of Joiners, Leavers and Billable UR % are not editable: they are sums or ratios of the band rows.
+// (In the template the Billable UR % total row is a typed number, but nothing depends on it, so editing it would
+// quietly disagree with the bands.)
+export function isEditableCell(sectionId: string, bandId: string | undefined, column: PlanColumn): boolean {
+  if (column.kind !== "month") return false; // quarters and years are always formulas
+  if (!bandId) return sectionId === "revenue" || sectionId === "working-days";
+  if (sectionId === "joiners" || sectionId === "leavers" || sectionId === "billable-ur") return true;
+  return sectionId === "current-hc" && column.key === FIRST_MONTH_KEY;
+}
+
+// The largest value a person may type into an editable row, where there is a natural limit.
+export function maxFor(sectionId: string): number | undefined {
+  return sectionId === "working-days" ? 31 : undefined;
 }

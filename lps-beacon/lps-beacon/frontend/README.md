@@ -1,7 +1,7 @@
 # LPS-Beacon frontend
 
 The browser front end for LPS-Beacon: chat with the Resource Planning Forecast assistant, upload planning files,
-and view project staffing and (for finance) the generated capacity plan.
+and view charts and the generated capacity plan.
 
 Built with React 19, TypeScript, Vite, React Router and AWS Amplify (Cognito sign-in only).
 
@@ -22,11 +22,9 @@ Open the address shown in the terminal (usually http://localhost:5173). With the
 **mock mode**: sign-in uses practice accounts and every screen shows fake data, so you can work on the interface
 without a backend.
 
-| Practice account | Password | Role |
-|---|---|---|
-| `hr@demo.com` | `demo123` | HR |
-| `pm@demo.com` | `demo123` | Project manager |
-| `finance@demo.com` | `demo123` | Finance |
+| Practice account | Password |
+|---|---|
+| `demo@demo.com` | `demo123` |
 
 These are fake accounts that only exist in mock mode.
 
@@ -36,7 +34,7 @@ Settings live in `.env` (copied from `.env.example`). Restart `npm run dev` afte
 
 | Variable | Purpose |
 |---|---|
-| `VITE_USE_MOCK` | `true` = fake data for chat, upload and dashboard, plus a made-up sample capacity plan for the Dashboard charts and the Analysis tab. `false` = call the real API. |
+| `VITE_USE_MOCK` | `true` = fake data for chat and upload, plus a made-up sample capacity plan for the Dashboard charts and the Analysis tab. `false` = call the real API. |
 | `VITE_USE_SAMPLE_PLAN` | `true` = only the capacity plan (Dashboard charts and Analysis tab) uses a made-up sample plan; chat, upload and sign-in stay as configured. For previewing before the backend generates a real plan. |
 | `VITE_USE_MOCK_AUTH` | Sign-in only. `false` = real Amazon Cognito, `true` = practice accounts. If omitted, follows `VITE_USE_MOCK`. |
 | `VITE_API_URL` | Base URL of API Gateway. Not needed in mock mode. |
@@ -59,19 +57,18 @@ Settings live in `.env` (copied from `.env.example`). Restart `npm run dev` afte
 | `npm run lint` | Run ESLint |
 | `npm run deploy` | Build, upload to S3 and clear the CloudFront cache (see below) |
 
-## Roles and pages
+## Pages
 
-The role comes from the user's Cognito group (`hr`, `pm` or `finance`).
+There are no roles in the web app. Anyone who can sign in can open every page.
 
-| Page | Route | HR | Project manager | Finance |
-|---|---|:---:|:---:|:---:|
-| Chat | `/` | Yes | Yes | Yes |
-| Dashboard (people needed, assigned and open per project) | `/dashboard` | Yes | Yes | Yes, plus monthly cost |
-| Upload (CSV or Excel, up to 20 MB each) | `/upload` | Yes | No | Yes |
-| Analysis (the capacity plan the system generates; read only) | `/analysis` | No | No | Yes |
+| Page | Route |
+|---|---|
+| Chat | `/` |
+| Dashboard (charts built from the capacity plan) | `/dashboard` |
+| Upload (CSV or Excel, up to 20 MB each) | `/upload` |
+| Analysis (the capacity plan the system generates; input cells can be edited, and the plan can be downloaded as CSV) | `/analysis` |
 
-Rules are set in `src/auth/permissions.ts`. These only control what the **screens** show. The backend must enforce
-the same rules, especially for cost and capacity plan data.
+If some data must be restricted, the **backend** has to do it. Hiding things in the screens is not security.
 
 ## Project structure
 
@@ -79,11 +76,11 @@ the same rules, especially for cost and capacity plan data.
 frontend/
 ├── src/
 │   ├── api/            # client.ts (all backend calls, mock + real) and types.ts
-│   ├── auth/           # Cognito/mock sign-in, session context, role permissions
+│   ├── auth/           # Cognito/mock sign-in, session context
 │   ├── components/     # NavBar, RequireAuth, MessageList, MessageInput, FileList
 │   ├── pages/          # ChatPage, DashboardPage, UploadPage, AnalysisPage, LoginPage
 │   ├── uploads/        # upload queue shared across pages
-│   ├── App.tsx         # routes and role guards
+│   ├── App.tsx         # routes and the sign-in guard
 │   └── main.tsx
 ├── public/             # favicon and icons
 ├── scripts/deploy.mjs  # build + publish script
