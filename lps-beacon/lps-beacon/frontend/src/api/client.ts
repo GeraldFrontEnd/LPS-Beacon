@@ -8,13 +8,20 @@ import type {
   SendMessageResponse,
   UploadUrlRequest,
   UploadUrlResponse,
+<<<<<<< HEAD
   ProjectSummary,
   CapacityPlan,
+=======
+  CapacityPlan,
+  CapacityPlanEdit,
+>>>>>>> Derek-v2
 } from "./types";
 
 // import.meta.env reads values from the .env file. Vite only exposes names that start with VITE_.
 // Values are always strings, so we compare to the text "true" instead of the boolean true.
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true";
+// Only the capacity plan (Dashboard charts and Analysis tab) uses made-up data; everything else stays real.
+const USE_SAMPLE_PLAN = import.meta.env.VITE_USE_SAMPLE_PLAN === "true";
 
 // The base URL of API Gateway, for example https://abc123.execute-api.ap-southeast-1.amazonaws.com
 const API_URL = import.meta.env.VITE_API_URL as string | undefined;
@@ -22,21 +29,6 @@ const API_URL = import.meta.env.VITE_API_URL as string | undefined;
 // A tiny helper that pauses for a number of milliseconds (used to fake network delay).
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// Used only by the fake (mock) data below. Decides whether a login token belongs to a finance user.
-// It reads the groups inside the token, which imitates what the real backend will do.
-function tokenIsFinance(token?: string): boolean {
-  if (!token) return false;
-  if (token === "mock-token-finance") return true; // the practice finance account
-  try {
-    // A token has three parts separated by dots; the middle part holds the user's details, encoded as text.
-    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
-    const claims = JSON.parse(atob(payload)) as { "cognito:groups"?: string[] };
-    return (claims["cognito:groups"] ?? []).some((g) => g.toLowerCase() === "finance");
-  } catch {
-    return false; // anything unreadable counts as "not finance"
-  }
 }
 
 // Returns the API address, or stops with a clear message if it was never configured.
@@ -147,34 +139,28 @@ export async function uploadFile(file: File, token?: string): Promise<void> {
   }
 }
 
-// ---- Added for the dashboard ----
+// ---- Added for the Analysis page ----
 
-// Loads the project staffing overview.
-export async function getDashboard(token?: string): Promise<ProjectSummary[]> {
-  if (USE_MOCK) {
-    await wait(500);
-    // Imitates the backend: only a finance login gets cost figures.
-    // The real backend must make this decision too, because hiding things in the screen is not security.
-    const includeCost = tokenIsFinance(token);
-    const rows = [
-      { id: "a", name: "Project A", needed: 12, assigned: 8, cost: 96000 },
-      { id: "b", name: "Project B", needed: 6, assigned: 6, cost: 54000 },
-      { id: "c", name: "Project C", needed: 10, assigned: 4, cost: 40000 },
-      { id: "d", name: "Project D", needed: 5, assigned: 7, cost: 63000 },
-    ];
-    // Remove "cost" from every row, and add it back as costPerMonth only for finance.
-    return rows.map(({ cost, ...row }) => (includeCost ? { ...row, costPerMonth: cost } : row));
-  }
+// Cells edited while the sample plan is in use. They live in memory only, so a page reload starts from scratch.
+const sampleEdits: Record<string, number> = {};
 
-  const response = await fetch(`${requireApiUrl()}/dashboard`, {
-    headers: buildHeaders(token),
-  });
-  if (!response.ok) {
-    throw new Error(`Could not load the dashboard (${response.status}).`);
+// Loads the capacity plan the system generated.
+// With VITE_USE_SAMPLE_PLAN=true (or VITE_USE_MOCK=true) it returns a made-up sample plan so the Dashboard and
+// Analysis screens can be previewed.
+// TODO: the backend does not generate the plan yet, so otherwise this returns an empty plan and the screens show
+// no data. When it does, call GET /capacity-plan here (same pattern as the chat call) and return its JSON.
+export async function getCapacityPlan(token?: string): Promise<CapacityPlan> {
+  if (USE_MOCK || USE_SAMPLE_PLAN) {
+    await wait(400);
+    // Loaded only when needed, so the sample code is not part of a normal build's main file.
+    const { buildSampleCapacityPlan } = await import("./sampleCapacityPlan");
+    return buildSampleCapacityPlan(sampleEdits);
   }
-  return (await response.json()) as ProjectSummary[];
+  void token; // will be sent as the login token once the real call exists
+  return { values: {} };
 }
 
+<<<<<<< HEAD
 // ---- Added for the Analysis page ----
 
 // Loads the capacity plan the system generated. Finance only.
@@ -184,4 +170,19 @@ export async function getDashboard(token?: string): Promise<ProjectSummary[]> {
 export async function getCapacityPlan(token?: string): Promise<CapacityPlan> {
   void token; // will be sent as the login token once the real call exists
   return { values: {}, bandRates: {} };
+=======
+// Saves one edited cell and returns the WHOLE plan again, because changing one input changes many formula cells
+// (ending headcount, revenue, cost, margin, quarter and year totals). The screen shows what comes back.
+// TODO: when the backend exists, send the edit (for example PATCH /capacity-plan with the edit as JSON) and return
+// the recalculated plan it answers with. Until then, only the sample plan can be edited.
+export async function saveCapacityPlanEdit(edit: CapacityPlanEdit, token?: string): Promise<CapacityPlan> {
+  if (USE_MOCK || USE_SAMPLE_PLAN) {
+    await wait(150);
+    const { buildSampleCapacityPlan, sampleEditKey } = await import("./sampleCapacityPlan");
+    sampleEdits[sampleEditKey(edit.rowId, edit.columnKey)] = edit.value;
+    return buildSampleCapacityPlan(sampleEdits);
+  }
+  void token;
+  throw new Error("Saving changes is not available yet, because the backend does not support it.");
+>>>>>>> Derek-v2
 }

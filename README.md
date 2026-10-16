@@ -46,11 +46,10 @@ designed but not yet in this repository.
 | Area | Status | Where |
 |---|---|---|
 | Sign-in with Amazon Cognito, plus practice accounts for offline work | Implemented | `frontend/` |
-| Role-based navigation and route guards (HR, project manager, finance) | Implemented | `frontend/` |
 | Chat screen (suggested questions, new chat, session ID) | Implemented, answers are mocked until the backend exists | `frontend/` |
 | Upload screen (CSV/Excel up to 20 MB, pre-signed S3 upload, per-file status) | Implemented, mocked until the backend exists | `frontend/` |
-| Dashboard (people needed, assigned and open per project; cost for finance) | Implemented, mock data | `frontend/` |
-| Analysis screen (read-only capacity plan; finance only) | Layout implemented, fields empty until the backend generates the plan | `frontend/` |
+| Dashboard (charts built from the capacity plan) | Implemented; shows sample data only when `VITE_USE_SAMPLE_PLAN=true` | `frontend/` |
+| Analysis screen (capacity plan with editable input cells, grouped by quarter and financial year, CSV download) | Layout implemented, fields empty until the backend generates the plan | `frontend/` |
 | Backend contract the web app expects | Documented | [`frontend/API_CONTRACT.md`](frontend/API_CONTRACT.md) |
 | API Lambda, Pipeline Lambda, Bedrock agent, schedules, notifications, infrastructure | Designed | [Architecture](#architecture) |
 | Chat history sidebar, charts in chat, what-if scenarios, report downloads | Designed | [Capabilities](#capabilities-and-features) |
@@ -110,7 +109,7 @@ The tables below describe the **target design**. See [Project status](#project-s
 | Feature | Description |
 |---|---|
 | Natural-language chat | Ask for forecasts, comparisons, explanations and what-if scenarios in everyday language. |
-| Suggested questions | One-click starter questions, tailored to the user's role (only finance sees cost questions). |
+| Suggested questions | One-click starter questions. |
 | Rich answers | Replies include rendered charts, forecast tables and data-quality summaries, not just text. |
 | Chat history sidebar | Every conversation is saved per user and listed newest-first; open any past chat to reload its messages and re-render its charts. |
 | Auto-titled chats | The first message generates a short title (for example, "Grade 7 shortfall Q3"). |
@@ -169,7 +168,7 @@ chat and is passed to the model, so the assistant can say "the Grade 7 gap exclu
 ### 6. Security and administration
 
 - Email and password sign-in through Amazon Cognito, with **required authenticator-app MFA** in the target design.
-- Role-based access (HR, project manager, finance), enforced by the backend as well as the screens.
+- Access control is enforced by the backend. The web app itself has no roles: every signed-in user can open every page.
 - Per-user data isolation: uploads and chat history are scoped by the verified user ID.
 - AWS WAF in front of the app, least-privilege IAM per function, encrypted private buckets and a full CloudTrail
   audit trail.
@@ -369,7 +368,7 @@ fiscal year; confirm this before building the schedule.
 
 | Layer | Control |
 |---|---|
-| **Identity** | Cognito user pool, email + password, **required authenticator-app (TOTP) MFA**; self sign-up can be disabled for invite-only use. Groups `hr`, `pm`, `finance`. |
+| **Identity** | Cognito user pool, email + password, **required authenticator-app (TOTP) MFA**; self sign-up can be disabled for invite-only use. |
 | **API** | JWT authorizer on every route; issuer and audience pinned to this user pool and app client. |
 | **Edge** | AWS WAF on CloudFront: managed core rule set, IP reputation list and a per-IP rate limit; Shield Standard DDoS protection included. |
 | **Uploads** | Pre-signed URLs expire in about 5 minutes, scoped to `raw/{user_sub}/`; file type and size validated before issuing. |
@@ -412,8 +411,8 @@ Defined in [`frontend/API_CONTRACT.md`](frontend/API_CONTRACT.md) and implemente
 |---|---|---|
 | `POST` | `/chat` | Send `{ sessionId, message }`; returns `{ reply }` |
 | `POST` | `/upload-url` | Send `{ fileName, contentType }`; returns a pre-signed `{ uploadUrl, key }` |
-| `GET` | `/dashboard` | Project staffing summary; cost fields only for finance |
-| `GET` | `/capacity-plan` | Generated capacity plan values; finance only (`403` otherwise). Planned: the web app does not call it yet |
+| `GET` | `/capacity-plan` | Generated capacity plan values. Planned: the web app does not call it yet |
+| `PATCH` | `/capacity-plan` | Edit one input cell; returns the recalculated plan. Planned: the web app does not call it yet |
 
 ### Planned additions
 
@@ -506,12 +505,12 @@ cp .env.example .env      # Windows (Command Prompt): copy .env.example .env
 npm run dev
 ```
 
-Sign in with a practice account such as `finance@demo.com` / `demo123`. Details, configuration and deployment are in
+Sign in with the practice account `demo@demo.com` / `demo123`. Details, configuration and deployment are in
 [`frontend/README.md`](frontend/README.md). To edit code and share changes with others, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Connect the web app to real AWS services
 
-1. Create a Cognito user pool with groups `hr`, `pm`, `finance` and a public app client (no secret).
+1. Create a Cognito user pool with a public app client (no secret).
 2. In `frontend/.env`, set `VITE_USE_MOCK_AUTH=false` and the two Cognito values to try real sign-in first.
 3. Once the API exists, set `VITE_USE_MOCK=false` and `VITE_API_URL`. The contract is in
    [`frontend/API_CONTRACT.md`](frontend/API_CONTRACT.md).
@@ -562,7 +561,7 @@ lps-beacon/
 └── frontend/                 # the complete web app (everything from the original project zip)
     ├── src/
     │   ├── api/              # all backend calls (mock + real) and data types
-    │   ├── auth/             # Cognito / practice sign-in, session, role permissions
+    │   ├── auth/             # Cognito / practice sign-in, session
     │   ├── components/       # NavBar, RequireAuth, MessageList, MessageInput, FileList
     │   ├── pages/            # Chat, Dashboard, Upload, Analysis, Login
     │   ├── uploads/          # upload queue shared across pages
@@ -608,7 +607,7 @@ This project processes HR headcount, staff cost and project revenue data.
   (CONTINUE_SIGN_IN_WITH_TOTP_SETUP)". Use Amplify's `<Authenticator>` component or handle the step with
   `confirmSignIn()` before relying on required MFA. See `frontend/src/auth/authService.ts`.
 - Users who must change their temporary password are told to ask an administrator to set a permanent one.
-- Chat, upload and dashboard use mock data until the backend exists. The Analysis tab shows the capacity plan layout with empty fields.
+- Chat and upload use mock data until the backend exists. The Dashboard and Analysis tabs show no data until the backend generates the capacity plan; set `VITE_USE_SAMPLE_PLAN=true` to preview made-up sample data.
 - Practice accounts (`DEMO_ACCOUNTS`) should be removed before a production release.
 - The backend, infrastructure code and tests are not in this repository yet.
 
