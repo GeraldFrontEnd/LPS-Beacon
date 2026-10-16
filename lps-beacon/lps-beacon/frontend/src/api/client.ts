@@ -178,10 +178,18 @@ export async function getDashboard(token?: string): Promise<ProjectSummary[]> {
 // ---- Added for the Analysis page ----
 
 // Loads the capacity plan the system generated. Finance only.
-// TODO: the backend does not generate the plan yet, so for now this returns an empty plan and the page shows
-// empty fields. When it does, call GET /capacity-plan here (same pattern as getDashboard) and return its JSON.
+// With VITE_USE_MOCK=true it returns a made-up sample plan so the Dashboard and Analysis screens can be previewed.
+// TODO: the backend does not generate the plan yet, so otherwise this returns an empty plan and the screens show
+// no data. When it does, call GET /capacity-plan here (same pattern as getDashboard) and return its JSON.
 // A 403 should become the message "You don't have access to this data."
 export async function getCapacityPlan(token?: string): Promise<CapacityPlan> {
+  if (USE_MOCK) {
+    await wait(400);
+    if (!tokenIsFinance(token)) throw new Error("You don't have access to this data.");
+    // Loaded only when needed, so the sample code is not part of a normal build's main file.
+    const { buildSampleCapacityPlan } = await import("./sampleCapacityPlan");
+    return buildSampleCapacityPlan();
+  }
   void token; // will be sent as the login token once the real call exists
   return { values: {}, bandRates: {} };
 }

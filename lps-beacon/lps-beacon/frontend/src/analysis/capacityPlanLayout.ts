@@ -12,6 +12,8 @@ export interface PlanColumn {
   label: string;
   // The text shown above the column in the first header row. Neighbouring columns with the same group are merged.
   group: string;
+  // A month, a quarter (Q1'26) or the financial year (FY'26). Charts plot months; quarters and FY are totals of them.
+  kind: "month" | "quarter" | "fy";
 }
 
 // One metric (for example "Joiners"). If "bands" is true it also has one row per band underneath it.
@@ -32,7 +34,12 @@ const ASSUMED = "Actual + Open Hiring Requests + QL RP + Assumed (Opp Pipeline)"
 const FORMULA = "Formula";
 
 function cols(labels: string[], group: string): PlanColumn[] {
-  return labels.map((label) => ({ key: label, label, group }));
+  return labels.map((label) => ({
+    key: label,
+    label,
+    group,
+    kind: /^Q\d/.test(label) ? "quarter" : label.startsWith("FY") ? "fy" : "month",
+  }));
 }
 
 export const PLAN_COLUMNS: PlanColumn[] = [
@@ -47,6 +54,14 @@ export const PLAN_COLUMNS: PlanColumn[] = [
     ASSUMED
   ),
 ];
+
+// Only the months, in order. This is the time axis of the dashboard charts.
+export const MONTH_COLUMNS: PlanColumn[] = PLAN_COLUMNS.filter((c) => c.kind === "month");
+
+// True for months the template marks as "Actual". Every other month is a forecast.
+export function isActualColumn(column: PlanColumn): boolean {
+  return column.group === ACTUAL;
+}
 
 // ---- Rows ----
 

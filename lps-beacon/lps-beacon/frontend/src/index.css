@@ -787,3 +787,197 @@ body {
 .plan-rates .plan-label {
   min-width: 160px;
 }
+
+/* ---- Dashboard charts ---- */
+
+/* Chart colours. Each one is also used in the legends, so change them here only. */
+:root {
+  --chart-1: #1f4e79; /* blue */
+  --chart-2: #d9822b; /* orange */
+  --chart-3: #2a9d8f; /* teal */
+  --chart-4: #8b95a1; /* grey */
+  /* One shade per band, darkest for band 9 and lightest for band 3. */
+  --band-9: #12304f;
+  --band-8: #1f4e79;
+  --band-7: #2f6da3;
+  --band-6: #4a8ac0;
+  --band-5: #6fa6d6;
+  --band-4: #97c0e6;
+  --band-3: #bdd8f0;
+}
+
+/* The dashboard now holds charts, so it is wider than the other pages. */
+.dashboard-page {
+  max-width: 1240px;
+}
+
+.dashboard-section,
+.staffing-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* The project staffing table stays as narrow as it always was. */
+.staffing-section {
+  width: 100%;
+  max-width: 720px;
+}
+
+.dashboard-heading {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+  gap: 16px;
+}
+
+.chart-card {
+  min-width: 0; /* lets a card shrink instead of stretching the grid */
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.chart-card-wide {
+  grid-column: 1 / -1;
+}
+
+.chart-title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.chart-subtitle {
+  margin: 2px 0 8px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.chart-empty {
+  padding: 24px 0;
+}
+
+.chart-gridline {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.chart-zero {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+
+.chart-tick {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.chart-forecast {
+  fill: var(--bg);
+  opacity: 0.8;
+}
+
+.chart-forecast-label {
+  fill: var(--muted);
+  font-size: 10px;
+  font-style: italic;
+}
+
+.chart-guide {
+  stroke: var(--muted);
+  stroke-dasharray: 3 3;
+}
+
+.chart-hover-band {
+  fill: var(--accent);
+  opacity: 0.08;
+}
+
+.chart-bar {
+  stroke: var(--surface);
+  stroke-width: 0.5;
+}
+
+.chart-tooltip rect {
+  fill: var(--surface);
+  stroke: var(--line);
+}
+
+.chart-tip-title {
+  fill: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chart-tip-sub {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.chart-tip-line {
+  fill: var(--ink);
+  font-size: 12px;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 8px 0 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  list-style: none;
+}
+
+.chart-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 2px;
+}
+
+.heat-empty {
+  fill: var(--bg);
+}
+
+.heat-text {
+  font-size: 10px;
+}
+
+.heat-forecast-line {
+  stroke: var(--muted);
+  stroke-dasharray: 3 3;
+}
+
+.heatmap-scale {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.heatmap-ramp {
+  width: 140px;
+  height: 8px;
+  border-radius: 4px;
+}
+
+.dashboard-banner {
+  margin: 0;
+}
