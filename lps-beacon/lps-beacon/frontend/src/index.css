@@ -557,59 +557,6 @@ body {
   font-size: 0.8125rem;
 }
 
-<<<<<<< HEAD
-.table-wrap {
-  overflow-x: auto;
-}
-
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.data-table th,
-.data-table td {
-  padding: 10px 8px;
-  text-align: left;
-  border-bottom: 1px solid var(--line);
-}
-
-.data-table th {
-  color: var(--muted);
-  font-size: 0.8125rem;
-  font-weight: 500;
-}
-
-.data-table .num {
-  text-align: right;
-}
-
-/* The staffing bar: a grey track with an accent fill (red when over-staffed). */
-.bar {
-  min-width: 100px;
-  height: 8px;
-  margin-top: 6px;
-  overflow: hidden;
-  background: var(--bg);
-  border-radius: 4px;
-}
-
-.bar-fill {
-  height: 100%;
-  background: var(--accent);
-}
-
-.bar-fill.over {
-  background: var(--error);
-}
-
-.over-text {
-  color: var(--error);
-  font-weight: 600;
-}
-
-=======
->>>>>>> Derek-v2
 /* ---- Positive and negative number colours ---- */
 .profit {
   color: var(--success);
@@ -623,11 +570,7 @@ body {
 
 /* ---- Analysis page (capacity plan) ---- */
 
-<<<<<<< HEAD
-/* Unlike the other pages this one uses the full window width, because the plan has about 30 columns. */
-=======
 /* Unlike the other pages this one uses the full window width, because the plan has about 40 columns. */
->>>>>>> Derek-v2
 .analysis-page {
   display: flex;
   flex-direction: column;
@@ -641,70 +584,23 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-<<<<<<< HEAD
-  justify-content: space-between;
-  gap: 12px;
-=======
   justify-content: flex-end;
   gap: 8px;
->>>>>>> Derek-v2
   padding: 12px 20px;
   border-bottom: 1px solid var(--line);
 }
 
-<<<<<<< HEAD
-.analysis-toolbar-actions {
-  display: flex;
-  gap: 8px;
-=======
 /* "Saving…" sits at the left end of the toolbar, away from the buttons. */
 .analysis-status {
   margin-right: auto;
   color: var(--muted);
   font-size: 0.875rem;
->>>>>>> Derek-v2
 }
 
 .analysis-banner {
   margin: 12px 20px 0;
 }
 
-<<<<<<< HEAD
-/* Two buttons joined into one control, used to switch between the two sheets. */
-.segmented {
-  display: inline-flex;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-
-.segmented button {
-  padding: 6px 14px;
-  font: inherit;
-  font-size: 0.875rem;
-  color: var(--ink);
-  background: var(--surface);
-  border: 0;
-  cursor: pointer;
-}
-
-.segmented button + button {
-  border-left: 1px solid var(--line);
-}
-
-.segmented button[aria-pressed="true"] {
-  color: var(--accent-ink);
-  background: var(--accent);
-}
-
-.segmented button:focus-visible,
-.plan-toggle:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-=======
->>>>>>> Derek-v2
 /* This box scrolls in both directions, so the sticky header and first column stay in view. */
 .plan-scroll {
   flex: 1;
@@ -747,20 +643,6 @@ body {
   background: var(--bg);
 }
 
-<<<<<<< HEAD
-/* The first header row: long group names may wrap onto several lines. */
-.plan-table th.plan-group {
-  height: 64px;
-  font-size: 0.7rem;
-  line-height: 1.25;
-  text-align: center;
-  white-space: normal;
-  vertical-align: middle;
-}
-
-.plan-table .plan-group-start {
-  border-left: 1px solid var(--line);
-=======
 /* The financial year title above its months, with the button that hides them. */
 .plan-table th.plan-fy {
   text-align: left;
@@ -779,7 +661,6 @@ body {
 .plan-table .plan-stub {
   min-width: 84px;
   background: var(--bg);
->>>>>>> Derek-v2
 }
 
 /* The first column stays at the left while the table scrolls sideways. */
@@ -804,24 +685,17 @@ body {
   background: #f8f9fb;
 }
 
-<<<<<<< HEAD
-=======
 .plan-table .plan-section td.plan-stub {
   background: var(--bg);
 }
 
->>>>>>> Derek-v2
 .plan-table .plan-band .plan-label {
   padding-left: 36px;
   color: var(--muted);
   font-weight: 400;
 }
 
-<<<<<<< HEAD
-/* The open/close button on a metric row looks like plain bold text with an arrow. */
-=======
 /* The open/close button on a metric row or a financial year looks like plain bold text with an arrow. */
->>>>>>> Derek-v2
 .plan-toggle {
   display: inline-flex;
   align-items: center;
@@ -835,28 +709,16 @@ body {
   cursor: pointer;
 }
 
-<<<<<<< HEAD
-=======
 .plan-toggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
->>>>>>> Derek-v2
 /* Metric rows without bands have no arrow; this keeps their text lined up with the others. */
 .plan-toggle-spacer {
   padding-left: 18px;
 }
 
-<<<<<<< HEAD
-.plan-rates {
-  min-width: 0;
-  width: auto;
-}
-
-.plan-rates .plan-label {
-  min-width: 160px;
-=======
 /* An editable cell: blue text in a pale blue box with a blue frame, like input cells in a finance model. */
 .plan-input {
   width: 100%;
@@ -1066,5 +928,4 @@ body {
 
 .dashboard-banner {
   margin: 0;
->>>>>>> Derek-v2
 }

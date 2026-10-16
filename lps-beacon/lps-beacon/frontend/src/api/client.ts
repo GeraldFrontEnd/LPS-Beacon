@@ -8,13 +8,8 @@ import type {
   SendMessageResponse,
   UploadUrlRequest,
   UploadUrlResponse,
-<<<<<<< HEAD
-  ProjectSummary,
-  CapacityPlan,
-=======
   CapacityPlan,
   CapacityPlanEdit,
->>>>>>> Derek-v2
 } from "./types";
 
 // import.meta.env reads values from the .env file. Vite only exposes names that start with VITE_.
@@ -160,17 +155,6 @@ export async function getCapacityPlan(token?: string): Promise<CapacityPlan> {
   return { values: {} };
 }
 
-<<<<<<< HEAD
-// ---- Added for the Analysis page ----
-
-// Loads the capacity plan the system generated. Finance only.
-// TODO: the backend does not generate the plan yet, so for now this returns an empty plan and the page shows
-// empty fields. When it does, call GET /capacity-plan here (same pattern as getDashboard) and return its JSON.
-// A 403 should become the message "You don't have access to this data."
-export async function getCapacityPlan(token?: string): Promise<CapacityPlan> {
-  void token; // will be sent as the login token once the real call exists
-  return { values: {}, bandRates: {} };
-=======
 // Saves one edited cell and returns the WHOLE plan again, because changing one input changes many formula cells
 // (ending headcount, revenue, cost, margin, quarter and year totals). The screen shows what comes back.
 // TODO: when the backend exists, send the edit (for example PATCH /capacity-plan with the edit as JSON) and return
@@ -184,5 +168,4 @@ export async function saveCapacityPlanEdit(edit: CapacityPlanEdit, token?: strin
   }
   void token;
   throw new Error("Saving changes is not available yet, because the backend does not support it.");
->>>>>>> Derek-v2
 }

@@ -61,22 +61,9 @@ export interface CapacityPlan {
   values: Record<string, Record<string, number | null>>;
 }
 
-<<<<<<< HEAD
-// ---- Added for the Analysis page (the capacity plan) ----
-
-// The numbers of the capacity plan. The layout (which rows and columns exist) lives in
-// src/analysis/capacityPlanLayout.ts; the backend only sends values, looked up by id.
-export interface CapacityPlan {
-  // rowId -> column key -> number. For example values["joiners:b7"]["Oct'26"] = 2.
-  // A missing entry or null means "no value", and the cell is shown empty.
-  values: Record<string, Record<string, number | null>>;
-  // band id (for example "b9") -> day rates in SGD.
-  bandRates: Record<string, { fy26: number | null; fy27: number | null }>;
-=======
 // One cell a person has changed on the Analysis page.
 export interface CapacityPlanEdit {
   rowId: string; // for example "joiners:b7"
   columnKey: string; // for example "Oct'26"
   value: number; // plain dollars, or a fraction for percentages
->>>>>>> Derek-v2
 }
