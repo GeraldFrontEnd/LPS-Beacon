@@ -4,7 +4,7 @@
 // NavLink is like a normal link, but it knows whether it points to the page you are on.
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
-import { PNL_ROLES, ROLE_LABELS, UPLOAD_ROLES } from "../auth/permissions";
+import { ANALYSIS_ROLES, ROLE_LABELS, UPLOAD_ROLES } from "../auth/permissions";
 
 // NavLink calls this function with { isActive } and uses the text we return as the class name.
 function linkClass({ isActive }: { isActive: boolean }): string {
@@ -19,7 +19,7 @@ export default function NavBar() {
 
   // Only some roles may upload, so only they see that link.
   const canUpload = UPLOAD_ROLES.includes(user.role);
-  const canSeePnl = PNL_ROLES.includes(user.role); // only finance sees the P&L tab
+  const canSeeAnalysis = ANALYSIS_ROLES.includes(user.role); // only finance sees the Analysis tab
 
   return (
     // aria-label tells screen readers what this navigation is for.
@@ -36,9 +36,9 @@ export default function NavBar() {
           Upload files
         </NavLink>
       )}
-      {canSeePnl && (
-        <NavLink to="/pnl" className={linkClass}>
-          P&amp;L
+      {canSeeAnalysis && (
+        <NavLink to="/analysis" className={linkClass}>
+          Analysis
         </NavLink>
       )}
       {/* Pushed to the right edge by CSS (margin-left: auto). */}
