@@ -37,6 +37,7 @@ Settings live in `.env` (copied from `.env.example`). Restart `npm run dev` afte
 | Variable | Purpose |
 |---|---|
 | `VITE_USE_MOCK` | `true` = fake data for chat, upload and dashboard, plus a made-up sample capacity plan for the Dashboard charts and the Analysis tab. `false` = call the real API. |
+| `VITE_USE_SAMPLE_PLAN` | `true` = only the capacity plan (Dashboard charts and Analysis tab) uses a made-up sample plan; chat, upload and sign-in stay as configured. For previewing before the backend generates a real plan. |
 | `VITE_USE_MOCK_AUTH` | Sign-in only. `false` = real Amazon Cognito, `true` = practice accounts. If omitted, follows `VITE_USE_MOCK`. |
 | `VITE_API_URL` | Base URL of API Gateway. Not needed in mock mode. |
 | `VITE_COGNITO_USER_POOL_ID` | Cognito user pool ID (AWS console). |

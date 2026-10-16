@@ -15,6 +15,8 @@ import type {
 // import.meta.env reads values from the .env file. Vite only exposes names that start with VITE_.
 // Values are always strings, so we compare to the text "true" instead of the boolean true.
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true";
+// Only the capacity plan (Dashboard charts and Analysis tab) uses made-up data; everything else stays real.
+const USE_SAMPLE_PLAN = import.meta.env.VITE_USE_SAMPLE_PLAN === "true";
 
 // The base URL of API Gateway, for example https://abc123.execute-api.ap-southeast-1.amazonaws.com
 const API_URL = import.meta.env.VITE_API_URL as string | undefined;
@@ -178,12 +180,13 @@ export async function getDashboard(token?: string): Promise<ProjectSummary[]> {
 // ---- Added for the Analysis page ----
 
 // Loads the capacity plan the system generated. Finance only.
-// With VITE_USE_MOCK=true it returns a made-up sample plan so the Dashboard and Analysis screens can be previewed.
+// With VITE_USE_SAMPLE_PLAN=true (or VITE_USE_MOCK=true) it returns a made-up sample plan so the Dashboard and
+// Analysis screens can be previewed.
 // TODO: the backend does not generate the plan yet, so otherwise this returns an empty plan and the screens show
 // no data. When it does, call GET /capacity-plan here (same pattern as getDashboard) and return its JSON.
 // A 403 should become the message "You don't have access to this data."
 export async function getCapacityPlan(token?: string): Promise<CapacityPlan> {
-  if (USE_MOCK) {
+  if (USE_MOCK || USE_SAMPLE_PLAN) {
     await wait(400);
     if (!tokenIsFinance(token)) throw new Error("You don't have access to this data.");
     // Loaded only when needed, so the sample code is not part of a normal build's main file.

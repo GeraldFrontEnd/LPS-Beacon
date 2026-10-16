@@ -1,6 +1,6 @@
 // src/api/sampleCapacityPlan.ts
 // SYNTHETIC demo data for the capacity plan. Every number here is made up (invented headcount, rates and revenue)
-// and is NOT taken from any real plan. It is only used when VITE_USE_MOCK=true, so the dashboard and the
+// and is NOT taken from any real plan. It is only used when VITE_USE_SAMPLE_PLAN=true or VITE_USE_MOCK=true, so the dashboard and the
 // Analysis tab can be previewed before the backend generates a real plan. Same shape as the real thing.
 
 import { BANDS, MONTH_COLUMNS, isActualColumn, rowId } from "../analysis/capacityPlanLayout";
