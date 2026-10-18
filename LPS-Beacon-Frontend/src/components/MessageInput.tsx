@@ -1,7 +1,7 @@
 // src/components/MessageInput.tsx
-// The text box and Send button at the bottom of the chat.
+// The rounded prompt box at the bottom of the chat: a text box that grows as you type, and a round send-arrow button.
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 
 interface MessageInputProps {
@@ -12,6 +12,16 @@ interface MessageInputProps {
 export default function MessageInput({ onSend, disabled }: MessageInputProps) {
   // "text" holds what the user has typed so far; setText updates it.
   const [text, setText] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Grow (or shrink) the box to fit its text after every change, so long questions never need a scrollbar.
+  // useLayoutEffect runs before the screen is painted, so the box never flickers at the wrong height.
+  useLayoutEffect(() => {
+    const box = textareaRef.current;
+    if (!box) return;
+    box.style.height = "auto"; // reset first, so the box can also get smaller when text is deleted
+    box.style.height = `${box.scrollHeight}px`;
+  }, [text]);
 
   // Shared logic for "the user wants to send".
   function submit() {
@@ -21,7 +31,7 @@ export default function MessageInput({ onSend, disabled }: MessageInputProps) {
     setText(""); // clear the box
   }
 
-  // Runs when the form is submitted (Send button clicked).
+  // Runs when the form is submitted (send button clicked).
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); // stop the browser from reloading the page
     submit();
@@ -37,22 +47,41 @@ export default function MessageInput({ onSend, disabled }: MessageInputProps) {
 
   return (
     <form className="message-input" onSubmit={handleSubmit}>
-      {/* Hidden label so screen readers know what the box is for. */}
-      <label htmlFor="chat-text" className="visually-hidden">
-        Your question
-      </label>
-      <textarea
-        id="chat-text"
-        rows={2}
-        value={text} // the box always shows the "text" state
-        onChange={(e) => setText(e.target.value)} // update state on every keystroke
-        onKeyDown={handleKeyDown}
-        placeholder="Ask about availability or cost, for example: how many people can join Project A?"
-      />
-      {/* Disabled when busy or when the box is empty. */}
-      <button type="submit" disabled={disabled || text.trim() === ""}>
-        Send
-      </button>
+      {/* The rounded box holds the text and the button, like a modern chat prompt. Clicking anywhere in it focuses the text. */}
+      <div className="prompt-box" onClick={() => textareaRef.current?.focus()}>
+        {/* Hidden label so screen readers know what the box is for. */}
+        <label htmlFor="chat-text" className="visually-hidden">
+          Your question
+        </label>
+        <textarea
+          ref={textareaRef}
+          id="chat-text"
+          rows={1}
+          value={text} // the box always shows the "text" state
+          onChange={(e) => setText(e.target.value)} // update state on every keystroke
+          onKeyDown={handleKeyDown}
+          placeholder="Ask about resource availability, skills, or capacity planning. For example: 'Show Cloud Engineer L2 availability for Q1' or 'List all available Cloud Engineer L2 resources for Q1 2027'."
+        />
+        <div className="prompt-actions">
+          {/* Disabled when busy or when the box is empty. */}
+          <button type="submit" className="send-button" disabled={disabled || text.trim() === ""} aria-label="Send">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.25"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 19V5" />
+              <path d="m5 12 7-7 7 7" />
+            </svg>
+          </button>
+        </div>
+      </div>
     </form>
   );
 }
