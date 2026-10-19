@@ -1,14 +1,10 @@
 // src/pages/DashboardPage.tsx
-// Charts built from the capacity plan. Finance only, because the plan holds revenue, cost and margin.
+// Charts built from the capacity plan. Finance/HR only (see DASHBOARD_ROLES), because the plan holds revenue, cost
+// and margin; the route in App.tsx does the check.
 
 import CapacityCharts from "../dashboard/CapacityCharts";
-import { ANALYSIS_ROLES } from "../auth/permissions";
-import { useAuth } from "../auth/useAuth";
 
 export default function DashboardPage() {
-  const { user } = useAuth();
-  const canSeePlan = !!user && ANALYSIS_ROLES.includes(user.role);
-
   return (
     <main className="dashboard-page">
       <header className="page-header">
@@ -17,11 +13,7 @@ export default function DashboardPage() {
       </header>
 
       <div className="dashboard-body">
-        {canSeePlan ? (
-          <CapacityCharts />
-        ) : (
-          <p className="note">The dashboard is only available to finance users.</p>
-        )}
+        <CapacityCharts />
       </div>
     </main>
   );

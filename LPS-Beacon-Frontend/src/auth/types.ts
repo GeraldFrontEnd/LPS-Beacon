@@ -1,8 +1,10 @@
 // src/auth/types.ts
 // Describes the shapes used by login. No logic here, only types.
 
-// The three kinds of users. A Role can only be one of these three strings.
-export type Role = "hr" | "pm" | "finance";
+// The two kinds of account, named after the user's Cognito group:
+//  - "restricted": can only use the Chat page (mainly project managers)
+//  - "finance_hr": can open every page
+export type Role = "restricted" | "finance_hr";
 
 // The person who is logged in.
 export interface AuthUser {

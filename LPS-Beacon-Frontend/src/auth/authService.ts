@@ -39,11 +39,10 @@ interface DemoAccount {
   role: Role;
 }
 
-// Three practice accounts, one per role. Delete these when you no longer need mock login.
+// Two practice accounts, one per role. Delete these when you no longer need mock login.
 export const DEMO_ACCOUNTS: DemoAccount[] = [
-  { email: "hr@demo.com", password: "demo123", name: "Demo HR", role: "hr" },
-  { email: "pm@demo.com", password: "demo123", name: "Demo PM", role: "pm" },
-  { email: "finance@demo.com", password: "demo123", name: "Demo Finance", role: "finance" },
+  { email: "restricted@demo.com", password: "demo123", name: "Demo Restricted", role: "restricted" },
+  { email: "finance@demo.com", password: "demo123", name: "Demo Finance/HR", role: "finance_hr" },
 ];
 
 // Pause helper to imitate a slow network.
@@ -69,12 +68,11 @@ async function mockSignIn(email: string, password: string): Promise<AuthSession>
 // ---------- Real mode (Amazon Cognito) ----------
 
 // Turns the list of Cognito groups into one role. If someone is in several groups, the most powerful wins.
-// Group names are compared in lowercase, so "Finance" and "finance" both count.
+// Group names are compared in lowercase, so "Finance_HR" and "finance_hr" both count.
 function pickRole(groups: string[]): Role | null {
   const lower = groups.map((g) => g.toLowerCase());
-  if (lower.includes("finance")) return "finance";
-  if (lower.includes("hr")) return "hr";
-  if (lower.includes("pm")) return "pm";
+  if (lower.includes("finance_hr")) return "finance_hr";
+  if (lower.includes("restricted")) return "restricted";
   return null; // not in any group we know
 }
 
@@ -94,7 +92,7 @@ async function readCognitoSession(): Promise<AuthSession | null> {
   const role = pickRole(groups);
   if (!role) {
     throw new Error(
-      "Your account is not in a group yet (hr, pm or finance). Ask an administrator to add you to one."
+      "Your account is not in a group yet (restricted or finance_hr). Ask an administrator to add you to one."
     );
   }
 
@@ -155,7 +153,9 @@ export async function loadSession(): Promise<AuthSession | null> {
   if (IS_MOCK) {
     try {
       const raw = sessionStorage.getItem(STORAGE_KEY);
-      return raw ? (JSON.parse(raw) as AuthSession) : null;
+      const saved = raw ? (JSON.parse(raw) as AuthSession) : null;
+      // A login saved before the roles changed (for example "finance") no longer counts.
+      return saved && DEMO_ACCOUNTS.some((a) => a.role === saved.user?.role) ? saved : null;
     } catch {
       return null;
     }

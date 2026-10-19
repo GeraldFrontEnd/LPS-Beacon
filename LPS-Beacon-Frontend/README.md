@@ -22,9 +22,10 @@ Open the address shown in the terminal (usually http://localhost:5173). With the
 **mock mode**: sign-in uses practice accounts and every screen shows fake data, so you can work on the interface
 without a backend.
 
-| Practice account | Password |
-|---|---|
-| `demo@demo.com` | `demo123` |
+| Practice account | Password | Role |
+|---|---|---|
+| `finance@demo.com` | `demo123` | Finance/HR (every page) |
+| `restricted@demo.com` | `demo123` | Restricted |
 
 These are fake accounts that only exist in mock mode.
 
@@ -59,14 +60,14 @@ Settings live in `.env` (copied from `.env.example`). Restart `npm run dev` afte
 
 ## Pages
 
-There are no roles in the web app. Anyone who can sign in can open every page.
+There are two kinds of account, taken from the user's Cognito group: `restricted` and `finance_hr`.
 
-| Page | Route | HR | Project manager | Finance |
-|---|---|:---:|:---:|:---:|
-| Chat | `/` | Yes | Yes | Yes |
-| Dashboard (people needed, assigned and open per project) | `/dashboard` | Yes | Yes | Yes, plus monthly cost |
-| Upload (CSV or Excel, up to 20 MB each) | `/upload` | Yes | No | Yes |
-| Analysis (the capacity plan the system generates; read only) | `/analysis` | No | No | Yes |
+| Page | Route | Restricted | Finance/HR |
+|---|---|:---:|:---:|
+| Chat | `/` | Yes | Yes |
+| Dashboard (headcount, utilisation and margin from the capacity plan) | `/dashboard` | No | Yes |
+| Upload (CSV or Excel, up to 20 MB each) | `/upload` | No | Yes |
+| Analysis (the capacity plan the system generates) | `/analysis` | No | Yes |
 
 Rules are set in `src/auth/permissions.ts`. These only control what the **screens** show. The backend must enforce
 the same rules, especially for cost and capacity plan data.

@@ -168,7 +168,8 @@ chat and is passed to the model, so the assistant can say "the Grade 7 gap exclu
 ### 6. Security and administration
 
 - Email and password sign-in through Amazon Cognito, with **required authenticator-app MFA** in the target design.
-- Access control is enforced by the backend. The web app itself has no roles: every signed-in user can open every page.
+- Two kinds of account (Cognito groups `restricted` and `finance_hr`, see [Roles and access](#roles-and-access)). The web
+  app hides pages by role, but access control is enforced by the backend.
 - Per-user data isolation: uploads and chat history are scoped by the verified user ID.
 - AWS WAF in front of the app, least-privilege IAM per function, encrypted private buckets and a full CloudTrail
   audit trail.
@@ -178,18 +179,19 @@ chat and is passed to the model, so the assistant can say "the Grade 7 gap exclu
 
 ## Roles and access
 
-The role comes from the user's Cognito group.
+There are two kinds of account. The role comes from the user's Cognito group: `restricted` or `finance_hr`
+(if someone is in both, Finance/HR wins).
 
-| Page | HR | Project manager | Finance |
-|---|:---:|:---:|:---:|
-| Chat | Yes | Yes | Yes (including cost questions) |
-| Dashboard | Yes | Yes | Yes, plus monthly cost per project |
-| Upload files | Yes | No | Yes |
-| Analysis | No | No | Yes |
+| Page | Restricted (mainly project managers) | Finance/HR |
+|---|:---:|:---:|
+| Chat | Yes (limited questions, see below) | Yes |
+| Dashboard | No | Yes |
+| Upload files | No | Yes |
+| Analysis | No | Yes |
 
-Upload access for HR and finance is an assumption to confirm; it is set in one place,
-`frontend/src/auth/permissions.ts`. Screen rules are a convenience only. The backend must withhold cost and capacity plan data from
-anyone outside the finance group.
+The rules are set in one place, `LPS-Beacon-Frontend/src/auth/permissions.ts`. Screen rules are a convenience only. The backend
+must withhold cost and capacity plan data from anyone outside the `finance_hr` group, and the chat backend should apply a
+Bedrock guardrail to `restricted` users to limit the questions they can ask.
 
 ---
 
@@ -505,7 +507,7 @@ cp .env.example .env      # Windows (Command Prompt): copy .env.example .env
 npm run dev
 ```
 
-Sign in with the practice account `demo@demo.com` / `demo123`. Details, configuration and deployment are in
+Sign in with a practice account: `finance@demo.com` (Finance/HR) or `restricted@demo.com` (restricted), password `demo123`. Details, configuration and deployment are in
 [`frontend/README.md`](frontend/README.md). To edit code and share changes with others, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Connect the web app to real AWS services

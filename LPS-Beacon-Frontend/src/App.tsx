@@ -6,7 +6,7 @@
 // Navigate sends the user somewhere else.
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import AuthProvider from "./auth/AuthProvider";
-import { ANALYSIS_ROLES, UPLOAD_ROLES } from "./auth/permissions";
+import { ANALYSIS_ROLES, DASHBOARD_ROLES, UPLOAD_ROLES } from "./auth/permissions";
 import NavBar from "./components/NavBar";
 import RequireAuth from "./components/RequireAuth";
 import AnalysisPage from "./pages/AnalysisPage";
@@ -39,11 +39,11 @@ export default function App() {
                   </RequireAuth>
                 }
               />
-              {/* The dashboard is open to every logged-in role; what it shows depends on the data the backend returns. */}
+              {/* The dashboard checks the role against DASHBOARD_ROLES (Finance/HR only). */}
               <Route
                 path="/dashboard"
                 element={
-                  <RequireAuth>
+                  <RequireAuth allowedRoles={DASHBOARD_ROLES}>
                     <DashboardPage />
                   </RequireAuth>
                 }
@@ -57,7 +57,7 @@ export default function App() {
                   </RequireAuth>
                 }
               />
-              {/* The Analysis page (the capacity plan) is limited to the roles in ANALYSIS_ROLES (finance). */}
+              {/* The Analysis page (the capacity plan) is limited to the roles in ANALYSIS_ROLES (Finance/HR). */}
               <Route
                 path="/analysis"
                 element={

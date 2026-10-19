@@ -41,7 +41,10 @@ the permanent and overall totals itself.
 
 ## Cognito
 
-- The web app does not use Cognito groups. Any user who can sign in can open every page.
+- Every user must be in one of two Cognito groups: `restricted` (sees only the Chat page) or `finance_hr` (sees every page).
+  The web app reads the group from `cognito:groups` in the ID token; a user in neither group cannot sign in.
+- The backend must check the same groups: only `finance_hr` may call `/upload-url`, `/capacity-plan` and `/headcount`.
+  For `restricted` users, `/chat` should call Bedrock with a guardrail that limits what they can ask.
 - The web app needs the User Pool ID, App Client ID and region (set in `.env`; see `.env.example`).
 - The App Client must be a **public client with no client secret** (it runs in the browser).
 - If the user pool requires MFA, note the limitation under "Known limitations" in the [root README](../README.md#known-limitations).
@@ -58,7 +61,7 @@ the permanent and overall totals itself.
 | Upload files: CSV or Excel (`.csv`, `.xlsx`, `.xls`), up to 20 MB each | `src/pages/UploadPage.tsx` |
 | Capacity plan money is labelled "$ in M", but the template's Band Rates sheet says SGD | `src/analysis/capacityPlanLayout.ts` |
 
-The web app does not restrict pages by role. If the backend must restrict any data, it has to do so itself.
+The web app hides pages by role, but that is only a convenience: the backend must restrict the data itself.
 
 
 ## Switching the web app from mock to real

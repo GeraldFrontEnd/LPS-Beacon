@@ -836,15 +836,17 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
   gap: 8px;
   padding: 12px 20px;
   border-bottom: 1px solid var(--line);
 }
 
-/* "Saving…" sits at the left end of the toolbar, away from the buttons. */
+/* Download (and "Saving…") on the left; the spacer pushes the expand and collapse buttons to the right. */
+.analysis-toolbar-spacer {
+  flex: 1;
+}
+
 .analysis-status {
-  margin-right: auto;
   color: var(--muted);
   font-size: 0.875rem;
 }
