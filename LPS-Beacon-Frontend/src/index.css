@@ -524,7 +524,7 @@ body {
   padding: 20px 0;
 }
 
-/* Brand on the far left, Sign Up button on the far right. */
+/* The brand on the far left. */
 .login-header {
   display: flex;
   align-items: flex-start;
@@ -537,27 +537,6 @@ body {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-}
-
-/* Outlined button, like the "Sign up free" button in the reference. */
-.login-signup-button {
-  padding: 8px 18px;
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: var(--brand-ink);
-  text-decoration: none;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-
-.login-signup-button:hover {
-  border-color: var(--brand-ink);
-}
-
-.login-signup-button:focus-visible {
-  outline: 2px solid var(--brand-ink);
-  outline-offset: 2px;
 }
 
 .login-brand-name {
