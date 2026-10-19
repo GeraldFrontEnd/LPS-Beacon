@@ -16,6 +16,8 @@ const LEAVE_BASE = [0.2, 1.5, 3, 1.2, 1.2, 1.2, 1.2]; // average leavers per mon
 const DAY_RATE = [1000, 650, 500, 380, 300, 240, 190];
 const UR_ACTUAL = [0.7, 0.84, 0.9, 0.88, 0.89, 0.9, 0.91];
 const UR_FORECAST = [0.7, 0.8, 0.85, 0.85, 0.86, 0.87, 0.87];
+// Months where the sample revenue dips below cost, so the dashboard's "cost exceeds revenue" warning can be previewed.
+const REVENUE_DIP: Record<string, number> = { "Dec'26": 0.82, "Jan'27": 0.86 };
 const WORKING_DAYS = [21, 20, 22, 22, 21, 22, 21, 22, 20, 21, 22, 19, 22, 20, 23, 21, 22, 21, 22, 21, 22, 20, 22, 21];
 
 // How the quarter and year columns are worked out from the months.
@@ -106,7 +108,7 @@ function build(edits: Record<string, number>, revenueDefault: number): CapacityP
 
   // "Revenue ($)" is a figure entered by finance, flat unless someone edits a month. Gross margin follows from it.
   MONTH_COLUMNS.forEach((col, m) => {
-    const revenue = edited("revenue", col.key) ?? revenueDefault;
+    const revenue = edited("revenue", col.key) ?? Math.round(revenueDefault * (REVENUE_DIP[col.key] ?? 1));
     set("revenue", col.key, revenue);
     set("gross-margin", col.key, Math.round(revenue - costs[m]));
     set("gross-margin-pct", col.key, revenue ? (revenue - costs[m]) / revenue : 0);

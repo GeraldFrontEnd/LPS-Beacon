@@ -10,6 +10,7 @@ import type {
   UploadUrlResponse,
   CapacityPlan,
   CapacityPlanEdit,
+  HeadcountBreakdown,
 } from "./types";
 
 // import.meta.env reads values from the .env file. Vite only exposes names that start with VITE_.
@@ -168,4 +169,24 @@ export async function saveCapacityPlanEdit(edit: CapacityPlanEdit, token?: strin
   }
   void token;
   throw new Error("Saving changes is not available yet, because the backend does not support it.");
+}
+
+// ---- Added for the Dashboard headcount boxes ----
+
+// Loads today's headcount split by employment type (permanent staff and secondment).
+// With VITE_USE_SAMPLE_PLAN=true (or VITE_USE_MOCK=true) it returns made-up numbers so the Dashboard can be previewed.
+// TODO: the backend does not provide this yet, so otherwise this returns null and the boxes show "–". When it does,
+// call GET /headcount (same pattern as the chat call) and return its JSON.
+export async function getHeadcountBreakdown(token?: string): Promise<HeadcountBreakdown | null> {
+  if (USE_MOCK || USE_SAMPLE_PLAN) {
+    await wait(300);
+    // SYNTHETIC numbers, not real staff counts.
+    return {
+      asOf: new Date().toISOString().slice(0, 10),
+      permanent: { regular: 412, supplementalOther: 23, supplementalRetiree: 9 },
+      secondment: 37,
+    };
+  }
+  void token;
+  return null;
 }

@@ -16,6 +16,7 @@ is in the [root README](../README.md#api-reference), under "Planned additions".
 | `POST /upload-url` | `{ fileName, contentType }` | `{ uploadUrl, key }` |
 | `GET /capacity-plan` | none | `CapacityPlan` (see below). **Planned:** the web app does not call it yet |
 | `PATCH /capacity-plan` | `{ rowId, columnKey, value }` | the whole recalculated `CapacityPlan`. **Planned:** the web app does not call it yet |
+| `GET /headcount` | none | `HeadcountBreakdown` (see below). **Planned:** the web app does not call it yet |
 
 **Upload:** after `POST /upload-url`, the browser does `PUT <uploadUrl>` with the file as the body and the
 same `Content-Type` that was sent in the request. `uploadUrl` is a pre-signed S3 URL. The file goes straight to S3;
@@ -32,6 +33,11 @@ Reject callers who are not signed in. The web app does no calculations on these 
 first month, and Revenue and Standard Working days for every month. The web app sends one edited cell with `PATCH /capacity-plan`
 and shows the plan that comes back. The backend must validate the value, recalculate every formula cell (ending headcount,
 revenue, cost, margin, quarter and year totals) and return the whole plan. Quarter and year totals are not editable.
+
+**Headcount today (Dashboard boxes):** `HeadcountBreakdown` is `{ asOf, permanent: { regular, supplementalOther, supplementalRetiree }, secondment }`,
+defined in `src/api/types.ts`. These are counts of active staff on the `asOf` date (from the HC by HR file), split by employment type:
+Regular Employee, Supplemental - Other and Supplemental - Retiree make up permanent staff; Secondment is separate. The web app adds up
+the permanent and overall totals itself.
 
 ## Cognito
 
