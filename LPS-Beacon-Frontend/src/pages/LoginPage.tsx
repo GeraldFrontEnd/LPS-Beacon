@@ -99,9 +99,6 @@ export default function LoginPage() {
             by <img src={lpsLogo} alt="LPS, a Lenovo Company" className="login-brand-logo" />
           </span>
         </div>
-        <Link to="/signup" className="login-signup-button">
-          Sign Up
-        </Link>
       </header>
 
       <div className="login-center">
