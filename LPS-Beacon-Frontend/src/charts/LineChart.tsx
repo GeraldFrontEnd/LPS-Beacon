@@ -23,6 +23,8 @@ interface Props {
   axisFormat?: ChartFormat; // used on the value axis; defaults to format
   forecastFrom?: number;
   zeroBaseline?: boolean; // start the value axis at zero
+  flags?: boolean[]; // one per category; true draws a warning sign above that month
+  flagText?: string; // what the warning means, shown in the tooltip
   ariaLabel: string;
   width?: number;
 }
@@ -50,6 +52,8 @@ export default function LineChart({
   axisFormat,
   forecastFrom,
   zeroBaseline = false,
+  flags,
+  flagText = "Flagged",
   ariaLabel,
   width = 640,
 }: Props) {
@@ -78,6 +82,31 @@ export default function LineChart({
     setHover(Math.min(n - 1, Math.max(0, Math.floor(rel * n))));
   }
 
+  // A warning triangle just above the highest point of each flagged month.
+  const warnings = (flags ?? []).map((flagged, i) => {
+    if (!flagged) return null;
+    const top = Math.max(...series.map((s) => s.values[i] ?? -Infinity));
+    const cy = Math.max(MARGIN.t + 8, (Number.isFinite(top) ? y(top) : MARGIN.t) - 14);
+    const cx = x(i);
+    return (
+      <g key={i} className="chart-warning" pointerEvents="none">
+        <path d={`M${cx} ${cy - 8} L${cx + 8} ${cy + 6} L${cx - 8} ${cy + 6} Z`} />
+        <text x={cx} y={cy + 4.5} textAnchor="middle">
+          !
+        </text>
+      </g>
+    );
+  });
+
+  const tipLines = (i: number) => {
+    const lines = series.map((s) => {
+      const v = s.values[i];
+      return { color: s.color, text: `${s.name}: ${v === null || v === undefined ? "–" : formatChartValue(v, format)}` };
+    });
+    if (flags?.[i]) lines.push({ color: "var(--flag)", text: `⚠ ${flagText}` });
+    return lines;
+  };
+
   return (
     <svg viewBox={`0 0 ${width} ${CHART_H}`} className="chart-svg" role="img" aria-label={ariaLabel}>
       <ChartAxes
@@ -102,6 +131,7 @@ export default function LineChart({
           )}
         </g>
       ))}
+      {warnings}
       {hover !== null && (
         <>
           <line x1={x(hover)} x2={x(hover)} y1={MARGIN.t} y2={MARGIN.t + innerH} className="chart-guide" />
@@ -111,10 +141,7 @@ export default function LineChart({
             top={MARGIN.t}
             title={categories[hover]}
             subtitle={notes?.[hover]}
-            lines={series.map((s) => {
-              const v = s.values[hover];
-              return { color: s.color, text: `${s.name}: ${v === null || v === undefined ? "–" : formatChartValue(v, format)}` };
-            })}
+            lines={tipLines(hover)}
           />
         </>
       )}

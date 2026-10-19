@@ -71,11 +71,11 @@ export default function ChatPage() {
     activeChatIdRef.current = activeChat?.id ?? null;
   });
 
-  // Example questions shown as buttons. Only finance users get the cost question.
+  // Example questions shown as buttons. Only Finance/HR users get the extra question.
   const suggestions = [
     "Show all forecasted available L2 Cloud Engineer resources in Q1 within the Infra OS skill family. ",
     "List all Underutilized and Overutilized resources for Q1?",
-    ...(user?.role === "finance" ? ["Which ITSO resources are available in Q3?"] : []),
+    ...(user?.role === "finance_hr" ? ["Which ITSO resources are available in Q3?"] : []),
   ];
 
   // The toast hides itself after a few seconds.

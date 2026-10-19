@@ -16,9 +16,6 @@ export interface PlanColumn {
   fiscalYear: string;
   // 1 to 4. For a month it is the quarter the month is in; for a quarter column it is the quarter itself.
   quarter?: number;
-  // How firm the numbers of this month are in the template. Only the dashboard charts use it, to shade forecasts.
-  // The Analysis table does not show it.
-  stage: string;
 }
 
 // One metric (for example "Joiners"). If "bands" is true it also has one row per band underneath it.
@@ -32,23 +29,11 @@ export interface PlanSection {
 
 // ---- Columns ----
 
-const ACTUAL = "Actual";
-const OPEN_HIRING = "Actual + Open Hiring Requests";
-const QL_RP = "Actual + Open Hiring Requests + QL RP";
-const ASSUMED = "Actual + Open Hiring Requests + QL RP + Assumed (Opp Pipeline)";
-const FORMULA = "Formula";
-
 // The financial year starts in April.
 const MONTH_NAMES = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
 
-// Stages come from the template's header row: Apr to Aug'26 are actual, and everything later is a forecast.
-function stageFor(startYear: number, monthIndex: number): string {
-  if (startYear !== 2026) return ASSUMED;
-  if (monthIndex < 5) return ACTUAL;
-  if (monthIndex < 8) return OPEN_HIRING;
-  if (monthIndex === 8) return QL_RP;
-  return ASSUMED;
-}
+// The calendar year the plan's first financial year (FY'26) starts in.
+const FIRST_YEAR = 2026;
 
 // The 12 months of one financial year, followed by its four quarters and the year total.
 function fiscalYearColumns(startYear: number): PlanColumn[] {
@@ -57,28 +42,38 @@ function fiscalYearColumns(startYear: number): PlanColumn[] {
 
   const months = MONTH_NAMES.map((name, i): PlanColumn => {
     const label = `${name}'${yy(startYear + (i >= 9 ? 1 : 0))}`; // Jan to Mar fall in the next calendar year
-    return { key: label, label, kind: "month", fiscalYear, quarter: Math.floor(i / 3) + 1, stage: stageFor(startYear, i) };
+    return { key: label, label, kind: "month", fiscalYear, quarter: Math.floor(i / 3) + 1 };
   });
   const quarters = [1, 2, 3, 4].map((q): PlanColumn => {
     const label = `Q${q}'${yy(startYear)}`;
-    return { key: label, label, kind: "quarter", fiscalYear, quarter: q, stage: FORMULA };
+    return { key: label, label, kind: "quarter", fiscalYear, quarter: q };
   });
-  const year: PlanColumn = { key: fiscalYear, label: fiscalYear, kind: "fy", fiscalYear, stage: FORMULA };
+  const year: PlanColumn = { key: fiscalYear, label: fiscalYear, kind: "fy", fiscalYear };
 
   return [...months, ...quarters, year];
 }
 
 // FY'26 (Apr'26 to Mar'27) and FY'27 (Apr'27 to Mar'28). The template has no quarter or year columns for FY'27.
-export const PLAN_COLUMNS: PlanColumn[] = [...fiscalYearColumns(2026), ...fiscalYearColumns(2027)];
+export const PLAN_COLUMNS: PlanColumn[] = [...fiscalYearColumns(FIRST_YEAR), ...fiscalYearColumns(FIRST_YEAR + 1)];
 
 export const FISCAL_YEARS: string[] = [...new Set(PLAN_COLUMNS.map((c) => c.fiscalYear))];
 
 // Only the months, in order. This is the time axis of the dashboard charts.
 export const MONTH_COLUMNS: PlanColumn[] = PLAN_COLUMNS.filter((c) => c.kind === "month");
 
-// True for months the template marks as "Actual". Every other month is a forecast.
+// Where a date falls among MONTH_COLUMNS: -1 if before the plan starts, MONTH_COLUMNS.length if after it ends.
+function monthIndexFor(date: Date): number {
+  const i = (date.getFullYear() - FIRST_YEAR) * 12 + date.getMonth() - 3; // months since April of the first year
+  return Math.max(-1, Math.min(MONTH_COLUMNS.length, i));
+}
+
+// The month we are in now, read from the computer's clock when the page loads, so it moves on by itself every month.
+export const CURRENT_MONTH_INDEX = monthIndexFor(new Date());
+
+// True for months that are over (before the current month). The current month and every later month are forecasts.
 export function isActualColumn(column: PlanColumn): boolean {
-  return column.stage === ACTUAL;
+  const i = MONTH_COLUMNS.indexOf(column);
+  return i >= 0 && i < CURRENT_MONTH_INDEX;
 }
 
 // ---- Rows ----

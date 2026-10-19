@@ -13,14 +13,20 @@ interface Props {
   subtitle?: string;
   legend?: LegendItem[];
   wide?: boolean; // spans the full width of the grid
+  actions?: ReactNode; // controls shown at the top right, for example a filter
   children: ReactNode;
 }
 
-export default function ChartCard({ title, subtitle, legend, wide, children }: Props) {
+export default function ChartCard({ title, subtitle, legend, wide, actions, children }: Props) {
   return (
     <section className={wide ? "chart-card chart-card-wide" : "chart-card"}>
-      <h3 className="chart-title">{title}</h3>
-      {subtitle && <p className="chart-subtitle">{subtitle}</p>}
+      <div className="chart-card-head">
+        <div>
+          <h3 className="chart-title">{title}</h3>
+          {subtitle && <p className="chart-subtitle">{subtitle}</p>}
+        </div>
+        {actions}
+      </div>
       {children}
       {legend && (
         <ul className="chart-legend">

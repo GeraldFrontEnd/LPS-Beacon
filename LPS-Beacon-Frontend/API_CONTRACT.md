@@ -16,6 +16,7 @@ is in the [root README](../README.md#api-reference), under "Planned additions".
 | `POST /upload-url` | `{ fileName, contentType }` | `{ uploadUrl, key }` |
 | `GET /capacity-plan` | none | `CapacityPlan` (see below). **Planned:** the web app does not call it yet |
 | `PATCH /capacity-plan` | `{ rowId, columnKey, value }` | the whole recalculated `CapacityPlan`. **Planned:** the web app does not call it yet |
+| `GET /headcount` | none | `HeadcountBreakdown` (see below). **Planned:** the web app does not call it yet |
 
 **Upload:** after `POST /upload-url`, the browser does `PUT <uploadUrl>` with the file as the body and the
 same `Content-Type` that was sent in the request. `uploadUrl` is a pre-signed S3 URL. The file goes straight to S3;
@@ -33,9 +34,17 @@ first month, and Revenue and Standard Working days for every month. The web app 
 and shows the plan that comes back. The backend must validate the value, recalculate every formula cell (ending headcount,
 revenue, cost, margin, quarter and year totals) and return the whole plan. Quarter and year totals are not editable.
 
+**Headcount today (Dashboard boxes):** `HeadcountBreakdown` is `{ asOf, permanent: { regular, supplementalOther, supplementalRetiree }, secondment }`,
+defined in `src/api/types.ts`. These are counts of active staff on the `asOf` date (from the HC by HR file), split by employment type:
+Regular Employee, Supplemental - Other and Supplemental - Retiree make up permanent staff; Secondment is separate. The web app adds up
+the permanent and overall totals itself.
+
 ## Cognito
 
-- The web app does not use Cognito groups. Any user who can sign in can open every page.
+- Every user must be in one of two Cognito groups: `restricted` (sees only the Chat page) or `finance_hr` (sees every page).
+  The web app reads the group from `cognito:groups` in the ID token; a user in neither group cannot sign in.
+- The backend must check the same groups: only `finance_hr` may call `/upload-url`, `/capacity-plan` and `/headcount`.
+  For `restricted` users, `/chat` should call Bedrock with a guardrail that limits what they can ask.
 - The web app needs the User Pool ID, App Client ID and region (set in `.env`; see `.env.example`).
 - The App Client must be a **public client with no client secret** (it runs in the browser).
 - If the user pool requires MFA, note the limitation under "Known limitations" in the [root README](../README.md#known-limitations).
@@ -52,7 +61,7 @@ revenue, cost, margin, quarter and year totals) and return the whole plan. Quart
 | Upload files: CSV or Excel (`.csv`, `.xlsx`, `.xls`), up to 20 MB each | `src/pages/UploadPage.tsx` |
 | Capacity plan money is labelled "$ in M", but the template's Band Rates sheet says SGD | `src/analysis/capacityPlanLayout.ts` |
 
-The web app does not restrict pages by role. If the backend must restrict any data, it has to do so itself.
+The web app hides pages by role, but that is only a convenience: the backend must restrict the data itself.
 
 
 ## Switching the web app from mock to real

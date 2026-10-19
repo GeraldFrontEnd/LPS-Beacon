@@ -28,7 +28,7 @@ from botocore.config import Config
 BUCKET = os.environ["DATA_BUCKET"]
 REGION = os.environ["BUCKET_REGION"]
 
-ALLOWED_GROUPS = {"hr", "finance"}      # Cognito groups that may upload
+ALLOWED_GROUPS = {"finance_hr"}        # Cognito groups that may upload (restricted accounts may not)
 LINK_LIFETIME_SECONDS = 300             # a link works for 5 minutes
 
 # Spreadsheet and delimited-text files that Excel, SAP and HR / finance systems export.

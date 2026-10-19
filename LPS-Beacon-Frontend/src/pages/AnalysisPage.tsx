@@ -188,7 +188,6 @@ export default function AnalysisPage() {
       </header>
 
       <div className="analysis-toolbar">
-        {saving && <span className="analysis-status">Saving…</span>}
         <button
           type="button"
           className="secondary-button"
@@ -197,25 +196,20 @@ export default function AnalysisPage() {
         >
           Download
         </button>
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={() => {
-            setExpandedRows(new Set(EXPANDABLE_IDS));
-            setCollapsedYears(new Set());
-          }}
-        >
-          Expand all
+        {saving && <span className="analysis-status">Saving…</span>}
+        <span className="analysis-toolbar-spacer" />
+        {/* Rows: the band rows under each metric. Columns: the monthly columns of each financial year. */}
+        <button type="button" className="secondary-button" onClick={() => setExpandedRows(new Set(EXPANDABLE_IDS))}>
+          Expand all rows
         </button>
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={() => {
-            setExpandedRows(new Set());
-            setCollapsedYears(new Set(FISCAL_YEARS));
-          }}
-        >
-          Collapse all
+        <button type="button" className="secondary-button" onClick={() => setCollapsedYears(new Set())}>
+          Expand all columns
+        </button>
+        <button type="button" className="secondary-button" onClick={() => setExpandedRows(new Set())}>
+          Collapse all rows
+        </button>
+        <button type="button" className="secondary-button" onClick={() => setCollapsedYears(new Set(FISCAL_YEARS))}>
+          Collapse all columns
         </button>
       </div>
 

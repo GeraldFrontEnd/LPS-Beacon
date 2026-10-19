@@ -61,6 +61,20 @@ export interface CapacityPlan {
   values: Record<string, Record<string, number | null>>;
 }
 
+// ---- Added for the Dashboard (headcount today, from the HR headcount file) ----
+
+// How many active staff there are today, split by employment type.
+// Permanent staff = regular + supplementalOther + supplementalRetiree. The web app adds up the totals itself.
+export interface HeadcountBreakdown {
+  asOf: string; // the date the numbers are for, as an ISO date string, e.g. "2026-10-19"
+  permanent: {
+    regular: number; // Regular Employee
+    supplementalOther: number; // Supplemental - Other
+    supplementalRetiree: number; // Supplemental - Retiree
+  };
+  secondment: number;
+}
+
 // One cell a person has changed on the Analysis page.
 export interface CapacityPlanEdit {
   rowId: string; // for example "joiners:b7"

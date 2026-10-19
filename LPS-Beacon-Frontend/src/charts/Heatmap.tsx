@@ -11,6 +11,8 @@ interface Props {
   format: ChartFormat;
   domain: [number, number]; // the values that get the lightest and the darkest colour
   forecastFrom?: number;
+  isFlagged?: (row: number, value: number) => boolean; // true turns the cell red
+  flagText?: string; // what a red cell means, shown in the scale below the grid
   ariaLabel: string;
   width?: number;
 }
@@ -23,7 +25,18 @@ function shade(t: number): string {
   return `rgb(${c.join(",")})`;
 }
 
-export default function Heatmap({ rowLabels, columns, values, format, domain, forecastFrom, ariaLabel, width = 1100 }: Props) {
+export default function Heatmap({
+  rowLabels,
+  columns,
+  values,
+  format,
+  domain,
+  forecastFrom,
+  isFlagged,
+  flagText = "Flagged",
+  ariaLabel,
+  width = 1100,
+}: Props) {
   const hasData = values.some((row) => row.some((v) => v !== null));
   if (!hasData) return <p className="note chart-empty">No data yet.</p>;
 
@@ -56,6 +69,7 @@ export default function Heatmap({ rowLabels, columns, values, format, domain, fo
             {columns.map((c, i) => {
               const v = values[r][i];
               const t = v === null ? 0 : Math.min(1, Math.max(0, (v - lo) / (hi - lo)));
+              const flagged = v !== null && !!isFlagged?.(r, v);
               return (
                 <g key={c}>
                   <rect
@@ -64,10 +78,12 @@ export default function Heatmap({ rowLabels, columns, values, format, domain, fo
                     width={cellW - 1}
                     height={cellH - 1}
                     rx={2}
-                    className={v === null ? "heat-cell heat-empty" : "heat-cell"}
-                    style={v === null ? undefined : { fill: shade(t) }}
+                    className={v === null ? "heat-cell heat-empty" : flagged ? "heat-cell heat-flag" : "heat-cell"}
+                    style={v === null || flagged ? undefined : { fill: shade(t) }}
                   >
-                    <title>{`${label}, ${c}: ${v === null ? "no data" : formatChartValue(v, format)}`}</title>
+                    <title>
+                      {`${label}, ${c}: ${v === null ? "no data" : formatChartValue(v, format)}${flagged ? ` (${flagText})` : ""}`}
+                    </title>
                   </rect>
                   {showText && v !== null && (
                     <text
@@ -75,7 +91,7 @@ export default function Heatmap({ rowLabels, columns, values, format, domain, fo
                       y={top + r * cellH + cellH / 2 + 4}
                       textAnchor="middle"
                       className="heat-text"
-                      style={{ fill: t > 0.55 ? "#ffffff" : "var(--ink)" }}
+                      style={{ fill: flagged || t > 0.55 ? "#ffffff" : "var(--ink)" }}
                       pointerEvents="none"
                     >
                       {formatChartValue(v, format)}
@@ -99,6 +115,12 @@ export default function Heatmap({ rowLabels, columns, values, format, domain, fo
         <span>{formatChartValue(lo, format)}</span>
         <div className="heatmap-ramp" style={{ background: `linear-gradient(to right, ${shade(0)}, ${shade(1)})` }} />
         <span>{formatChartValue(hi, format)}</span>
+        {isFlagged && (
+          <span className="heatmap-flag-key">
+            <span className="chart-swatch" style={{ background: "var(--flag)" }} />
+            {flagText}
+          </span>
+        )}
       </div>
     </>
   );

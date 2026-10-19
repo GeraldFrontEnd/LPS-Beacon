@@ -803,6 +803,12 @@ body {
   font-size: 0.8125rem;
 }
 
+.kpi-asof {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 400;
+}
+
 /* ---- Positive and negative number colours ---- */
 .profit {
   color: var(--success);
@@ -830,15 +836,17 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
   gap: 8px;
   padding: 12px 20px;
   border-bottom: 1px solid var(--line);
 }
 
-/* "Saving…" sits at the left end of the toolbar, away from the buttons. */
+/* Download (and "Saving…") on the left; the spacer pushes the expand and collapse buttons to the right. */
+.analysis-toolbar-spacer {
+  flex: 1;
+}
+
 .analysis-status {
-  margin-right: auto;
   color: var(--muted);
   font-size: 0.875rem;
 }
@@ -1005,6 +1013,8 @@ body {
   --band-5: #6fa6d6;
   --band-4: #97c0e6;
   --band-3: #bdd8f0;
+  /* Flagged numbers: warning signs and red heat map cells (white text on top, so one shade works in both themes). */
+  --flag: #c62828;
 }
 
 /* The dashboard now holds charts, so it is wider than the other pages. */
@@ -1039,6 +1049,14 @@ body {
 
 .chart-card-wide {
   grid-column: 1 / -1;
+}
+
+/* Title and subtitle on the left, a filter (if any) on the right. */
+.chart-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .chart-title {
@@ -1146,6 +1164,76 @@ body {
 
 .heat-empty {
   fill: var(--bg);
+}
+
+.heat-flag {
+  fill: var(--flag);
+}
+
+.heatmap-flag-key {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 16px;
+}
+
+.chart-warning path {
+  fill: var(--flag);
+}
+
+.chart-warning text {
+  fill: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* The "which bands" drop-down on band charts. */
+.band-picker {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.band-picker-button {
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.band-picker-button:hover {
+  background: var(--hover);
+}
+
+.band-picker-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.band-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  font-size: 0.8125rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.band-picker-option:hover {
+  background: var(--hover);
 }
 
 .heat-text {
