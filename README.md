@@ -263,7 +263,7 @@ The full diagram with every service, the nine pipeline steps and cost tags is in
 | **API Lambda** | Fast request handler: pre-signed URLs, run status, chat answers, chat history. Takes the user ID only from the verified token. |
 | **Pipeline Lambda** | Container-image function (pandas, openpyxl, statsmodels): cleaning, matching, forecasting, report generation. 3 GB, up to 15 minutes, concurrency 1, idempotent by batch ID. |
 | **Amazon S3 (data)** | `raw/`, `clean/`, `curated/`, `results/`, `reports/`, `quarantine/` prefixes. Block Public Access on. |
-| **Amazon Bedrock** | Claude Haiku 4.5 for chat, Claude Sonnet 4.5 for run narratives. Receives aggregates and summaries, not raw rows. |
+| **Amazon Bedrock** | Claude Haiku 5.5 for chat, Claude Sonnet 5.5 for run narratives, called through cross-Region inference profiles. Receives aggregates and summaries, not raw rows. |
 | **Amazon DynamoDB** | Chat sessions and messages, run records, what-if scenarios, audit log; on-demand with TTL. |
 | **EventBridge Scheduler** | Monthly and quarterly forecast triggers. |
 | **Amazon SNS** | Email notifications for completed runs, alerts and failures. |
@@ -485,21 +485,26 @@ These are estimates for the designed backend; the web app itself costs only a fe
 
 | Service | Usage basis (pilot / growth) | Pilot | Growth |
 |---|---|---|---|
-| Bedrock, Haiku 4.5 chat | 600 / 6,000 messages × 6k input + 0.5k output tokens | $5.10 | $51.00 |
-| Bedrock, Sonnet 4.5 narratives | 20 / 60 runs × 12k input + 1.5k output tokens | $1.20 | $3.50 |
+| Bedrock, Haiku 5.5 chat | 600 / 6,000 messages × 6k input + 0.5k output tokens | $0.51 | $5.10 |
+| Bedrock, Sonnet 5.5 narratives | 20 / 60 runs × 12k input + 1.5k output tokens | $0.78 | $2.34 |
 | AWS WAF | Web ACL + 3 rules + requests | $8.05 | $8.30 |
 | S3 | 5 / 50 GB + requests | $0.15 | $1.30 |
 | ECR | ~1 GB container image | $0.10 | $0.10 |
 | API Gateway, DynamoDB, CloudTrail | ~3.5k / 35k API calls; small tables | $0.05 | $0.10 |
 | Lambda | Inside the always-free tier | $0 | $0 |
 | CloudFront, Cognito, CloudWatch, SNS, Scheduler, Budgets | Inside free tiers | $0 | $0 |
-| **Total per month** | | **≈ $14.65** | **≈ $64.30** |
+| **Total per month** | | **≈ $9.64** | **≈ $17.24** |
 
 Pilot = 20 users, 30 chats per user, 20 pipeline runs. Growth = 200 users, 6,000 chats, 60 runs.
 
 **Cost notes**
-- Bedrock chat is the main variable cost (about $8.50 per extra 1,000 messages); the per-user daily cap is the most
+- Model prices are Bedrock list prices in Singapore: Haiku 5.5 is $0.10 / $0.50 and Sonnet 5.5 is $2.00 / $10.00 per
+  million input / output tokens. Haiku 5.5 is a tenth of the price of Haiku 4.5 ($1.00 / $5.00).
+- Bedrock chat is the main variable cost (about $0.85 per extra 1,000 messages); the per-user daily cap is the most
   effective control.
+- Haiku 5.5 also has a "Long Context" price at five times the normal rate, which applies only to very long prompts.
+  Sending a results summary and the last ~10 turns of the chat, not the whole history, keeps every call at the normal
+  rate.
 - WAF is the main fixed cost. If your account is eligible for CloudFront flat-rate plans, the Free plan bundles WAF
   and removes that line.
 - Attaching a separate regional web ACL to the Cognito user pool (to rate-limit sign-in and sign-up) adds roughly
@@ -555,7 +560,9 @@ The backend is not in this repository yet. The intended steps are:
 1. Build and push the pipeline container image to ECR.
 2. Deploy the stack with your chosen infrastructure-as-code tool (AWS CDK or AWS SAM): Cognito, S3 buckets with CORS
    and Block Public Access, DynamoDB, both Lambdas, API Gateway, EventBridge schedules, SNS, CloudFront and WAF.
-3. Enable Bedrock model access for the Claude models in your region.
+3. In the Bedrock console (Singapore), check that Claude Haiku 5.5 and Claude Sonnet 5.5 are available and note their
+   cross-Region inference profile IDs (prefer `apac.` over `global.`). The Lambdas call these profile IDs, not the
+   plain model IDs.
 4. Confirm the SNS email subscription.
 
 Planned backend settings (template only; keep real values out of Git):
@@ -565,8 +572,8 @@ AWS_REGION=ap-southeast-1
 DATA_BUCKET=<data-bucket-name>
 WEB_BUCKET=<web-bucket-name>
 APP_ORIGIN=https://<your-cloudfront-domain>
-CHAT_MODEL_ID=<haiku-model-id>
-NARRATIVE_MODEL_ID=<sonnet-model-id>
+CHAT_MODEL_ID=<claude-haiku-5-5-inference-profile-id>
+NARRATIVE_MODEL_ID=<claude-sonnet-5-5-inference-profile-id>
 DAILY_CHAT_LIMIT=100
 ```
 
