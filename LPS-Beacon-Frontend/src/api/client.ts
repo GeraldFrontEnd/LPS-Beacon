@@ -22,6 +22,20 @@ const USE_SAMPLE_PLAN = import.meta.env.VITE_USE_SAMPLE_PLAN === "true";
 // The base URL of API Gateway, for example https://abc123.execute-api.ap-southeast-1.amazonaws.com
 const API_URL = import.meta.env.VITE_API_URL as string | undefined;
 
+// Every API Gateway route the web app uses or will use, in one place. These must match the routes in
+// API Gateway exactly (paths are case-sensitive). See API_CONTRACT.md for the request and response shapes.
+export const API_ROUTES = {
+  chat: "/chat", // POST
+  uploadUrl: "/upload-url", // POST
+  analysis: "/analysis", // GET the capacity plan, PATCH one edited cell (planned)
+  dashboard: "/dashboard", // GET today's headcount breakdown (planned)
+  runForecast: "/runs/runForecast", // POST start a forecast run (planned)
+  run: (runId: string) => `/runs/${encodeURIComponent(runId)}`, // GET run status (planned)
+  sessions: "/sessions", // GET list chats, POST start a chat (planned)
+  session: (id: string) => `/sessions/${encodeURIComponent(id)}`, // PATCH rename, DELETE (planned)
+  sessionMessages: (id: string) => `/sessions/${encodeURIComponent(id)}/messages`, // GET (planned)
+} as const;
+
 // A tiny helper that pauses for a number of milliseconds (used to fake network delay).
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -61,7 +75,7 @@ export async function sendMessage(
   }
 
   // fetch sends the HTTP request. We POST the request object as JSON text.
-  const response = await fetch(`${requireApiUrl()}/chat`, {
+  const response = await fetch(`${requireApiUrl()}${API_ROUTES.chat}`, {
     method: "POST",
     headers: buildHeaders(token),
     body: JSON.stringify(req),
@@ -90,7 +104,7 @@ export async function getUploadUrl(
     return { uploadUrl: "mock://upload", key: `raw/${req.fileName}` };
   }
 
-  const response = await fetch(`${requireApiUrl()}/upload-url`, {
+  const response = await fetch(`${requireApiUrl()}${API_ROUTES.uploadUrl}`, {
     method: "POST",
     headers: buildHeaders(token),
     body: JSON.stringify(req),
@@ -144,7 +158,7 @@ const sampleEdits: Record<string, number> = {};
 // With VITE_USE_SAMPLE_PLAN=true (or VITE_USE_MOCK=true) it returns a made-up sample plan so the Dashboard and
 // Analysis screens can be previewed.
 // TODO: the backend does not generate the plan yet, so otherwise this returns an empty plan and the screens show
-// no data. When it does, call GET /capacity-plan here (same pattern as the chat call) and return its JSON.
+// no data. When it does, call GET /analysis (API_ROUTES.analysis) here (same pattern as the chat call) and return its JSON.
 export async function getCapacityPlan(token?: string): Promise<CapacityPlan> {
   if (USE_MOCK || USE_SAMPLE_PLAN) {
     await wait(400);
@@ -158,7 +172,7 @@ export async function getCapacityPlan(token?: string): Promise<CapacityPlan> {
 
 // Saves one edited cell and returns the WHOLE plan again, because changing one input changes many formula cells
 // (ending headcount, revenue, cost, margin, quarter and year totals). The screen shows what comes back.
-// TODO: when the backend exists, send the edit (for example PATCH /capacity-plan with the edit as JSON) and return
+// TODO: when the backend exists, send the edit (PATCH /analysis with the edit as JSON) and return
 // the recalculated plan it answers with. Until then, only the sample plan can be edited.
 export async function saveCapacityPlanEdit(edit: CapacityPlanEdit, token?: string): Promise<CapacityPlan> {
   if (USE_MOCK || USE_SAMPLE_PLAN) {
@@ -176,7 +190,7 @@ export async function saveCapacityPlanEdit(edit: CapacityPlanEdit, token?: strin
 // Loads today's headcount split by employment type (permanent staff and secondment).
 // With VITE_USE_SAMPLE_PLAN=true (or VITE_USE_MOCK=true) it returns made-up numbers so the Dashboard can be previewed.
 // TODO: the backend does not provide this yet, so otherwise this returns null and the boxes show "–". When it does,
-// call GET /headcount (same pattern as the chat call) and return its JSON.
+// call GET /dashboard (API_ROUTES.dashboard, same pattern as the chat call) and return its JSON.
 export async function getHeadcountBreakdown(token?: string): Promise<HeadcountBreakdown | null> {
   if (USE_MOCK || USE_SAMPLE_PLAN) {
     await wait(300);

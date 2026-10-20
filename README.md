@@ -413,18 +413,18 @@ Defined in [`frontend/API_CONTRACT.md`](frontend/API_CONTRACT.md) and implemente
 |---|---|---|
 | `POST` | `/chat` | Send `{ sessionId, message }`; returns `{ reply }` |
 | `POST` | `/upload-url` | Send `{ fileName, contentType }`; returns a pre-signed `{ uploadUrl, key }` |
-| `GET` | `/capacity-plan` | Generated capacity plan values. Planned: the web app does not call it yet |
-| `PATCH` | `/capacity-plan` | Edit one input cell; returns the recalculated plan. Planned: the web app does not call it yet |
+| `GET` | `/analysis` | Generated capacity plan values (Analysis tab and Dashboard charts). Planned: the web app does not call it yet |
+| `PATCH` | `/analysis` | Edit one input cell; returns the recalculated plan. Planned: the web app does not call it yet |
+| `GET` | `/dashboard` | Today's headcount breakdown for the Dashboard boxes. Planned: the web app does not call it yet |
 
 ### Planned additions
 
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/upload-urls` | Batch version: validate a file list and return URLs for the whole batch |
-| `POST` | `/runs` | Start a run (re-run or what-if) and return a run ID |
+| `POST` | `/runs/runForecast` | Start a run (re-run or what-if) and return a run ID |
 | `GET` | `/runs/{id}` | Run status and results |
 | `GET` | `/sessions` | List the signed-in user's chats |
-| `POST` | `/sessions` | Start a new chat |
 | `GET` | `/sessions/{id}/messages` | Load a chat's messages |
 | `PATCH` / `DELETE` | `/sessions/{id}` | Rename or delete a chat |
 

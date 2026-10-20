@@ -3,7 +3,7 @@ LPS-Beacon upload Lambda (simple version)
 
 What it does
 ------------
-The website asks  POST /api/upload-url  and this function answers with a temporary link (a "pre-signed URL")
+The website asks  POST /upload-url  and this function answers with a temporary link (a "pre-signed URL")
 that lets the browser put ONE file straight into the S3 bucket. The file itself never goes through this function.
 
 Settings: Lambda > Configuration > Environment variables

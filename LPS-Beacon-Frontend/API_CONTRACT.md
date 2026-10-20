@@ -14,15 +14,28 @@ is in the [root README](../README.md#api-reference), under "Planned additions".
 |---|---|---|
 | `POST /chat` | `{ sessionId, message }` | `{ reply }` |
 | `POST /upload-url` | `{ fileName, contentType }` | `{ uploadUrl, key }` |
-| `GET /capacity-plan` | none | `CapacityPlan` (see below). **Planned:** the web app does not call it yet |
-| `PATCH /capacity-plan` | `{ rowId, columnKey, value }` | the whole recalculated `CapacityPlan`. **Planned:** the web app does not call it yet |
-| `GET /headcount` | none | `HeadcountBreakdown` (see below). **Planned:** the web app does not call it yet |
+| `GET /analysis` | none | `CapacityPlan` (see below). **Planned:** the web app does not call it yet |
+| `PATCH /analysis` | `{ rowId, columnKey, value }` | the whole recalculated `CapacityPlan`. **Planned:** the web app does not call it yet |
+| `GET /dashboard` | none | `HeadcountBreakdown` (see below). **Planned:** the web app does not call it yet |
+| `POST /runs/runForecast` | to be agreed | `{ runId }`. **Planned** |
+| `GET /runs/{id}` | none | run status and results. **Planned** |
+| `GET /sessions` | none | the signed-in user's chats, newest first. **Planned** |
+| `GET /sessions/{id}/messages` | none | that chat's messages. **Planned** |
+| `PATCH /sessions/{id}` | `{ title }` or `{ projectId }` | the updated chat. **Planned** |
+| `DELETE /sessions/{id}` | none | nothing (204). **Planned** |
+
+All paths are listed once in `API_ROUTES` in `src/api/client.ts`; change them there, not in each call.
+There is no `POST /sessions`: the web app makes the chat id itself, and the first `POST /chat` with a new `sessionId`
+creates the chat. The backend must check that an existing `sessionId` belongs to the caller before writing to it.
+`{id}` is a path parameter: in API Gateway the route is literally `/runs/{id}`, not `/runs/Status`.
+`/analysis` and `/dashboard` are API paths on the API Gateway domain. They share names with the web app's pages
+but are separate addresses.
 
 **Upload:** after `POST /upload-url`, the browser does `PUT <uploadUrl>` with the file as the body and the
 same `Content-Type` that was sent in the request. `uploadUrl` is a pre-signed S3 URL. The file goes straight to S3;
 this second request does **not** carry the login token. The app uploads files one at a time.
 
-**Capacity plan (Dashboard charts and Analysis tab):** `CapacityPlan` is `{ values }`, defined in `src/api/types.ts`. The screen's rows and
+**Capacity plan (`/analysis`; used by the Dashboard charts and the Analysis tab):** `CapacityPlan` is `{ values }`, defined in `src/api/types.ts`. The screen's rows and
 columns are fixed in `src/analysis/capacityPlanLayout.ts` (copied from `Capacity_Plan_template.xlsx`); the backend only sends numbers,
 looked up by id: `values[rowId][columnKey]`, for example `values["joiners:b7"]["Oct'26"]`. Money is in plain dollars (the screen shows millions, "$ in M") and percentages are fractions (0.15 = 15%).
 Missing or `null` means an empty cell. The plan includes the quarter (`Q1'26`) and year (`FY'26`, `FY'27`) columns.
@@ -30,11 +43,11 @@ Reject callers who are not signed in. The web app does no calculations on these 
 
 **Editing the capacity plan:** the Analysis tab lets people edit the cells that are inputs, not formulas (see `isEditableCell` in
 `src/analysis/capacityPlanLayout.ts`): Joiners, Leavers and Billable UR % per band for every month, Current HC per band for the
-first month, and Revenue and Standard Working days for every month. The web app sends one edited cell with `PATCH /capacity-plan`
+first month, and Revenue and Standard Working days for every month. The web app sends one edited cell with `PATCH /analysis`
 and shows the plan that comes back. The backend must validate the value, recalculate every formula cell (ending headcount,
 revenue, cost, margin, quarter and year totals) and return the whole plan. Quarter and year totals are not editable.
 
-**Headcount today (Dashboard boxes):** `HeadcountBreakdown` is `{ asOf, permanent: { regular, supplementalOther, supplementalRetiree }, secondment }`,
+**Headcount today (`/dashboard`; the Dashboard boxes):** `HeadcountBreakdown` is `{ asOf, permanent: { regular, supplementalOther, supplementalRetiree }, secondment }`,
 defined in `src/api/types.ts`. These are counts of active staff on the `asOf` date (from the HC by HR file), split by employment type:
 Regular Employee, Supplemental - Other and Supplemental - Retiree make up permanent staff; Secondment is separate. The web app adds up
 the permanent and overall totals itself.
@@ -43,7 +56,7 @@ the permanent and overall totals itself.
 
 - Every user must be in one of two Cognito groups: `restricted` (sees only the Chat page) or `finance_hr` (sees every page).
   The web app reads the group from `cognito:groups` in the ID token; a user in neither group cannot sign in.
-- The backend must check the same groups: only `finance_hr` may call `/upload-url`, `/capacity-plan` and `/headcount`.
+- The backend must check the same groups: only `finance_hr` may call `/upload-url`, `/analysis`, `/dashboard` and `/runs/runForecast`.
   For `restricted` users, `/chat` should call Bedrock with a guardrail that limits what they can ask.
 - The web app needs the User Pool ID, App Client ID and region (set in `.env`; see `.env.example`).
 - The App Client must be a **public client with no client secret** (it runs in the browser).
@@ -51,7 +64,8 @@ the permanent and overall totals itself.
 
 ## CORS (otherwise the browser blocks the calls)
 
-- API Gateway: allow the web app's origin, headers `Authorization` and `Content-Type`, methods `GET`, `POST`, `OPTIONS`.
+- API Gateway: allow the web app's origin, headers `Authorization` and `Content-Type`, methods `GET`, `POST`, `PATCH`,
+  `DELETE`, `OPTIONS`. Set this in the API's CORS settings; do not create `OPTIONS` routes by hand.
 - S3 data bucket: allow `PUT` from the web app's origin with header `Content-Type`.
 
 ## Rules to confirm
