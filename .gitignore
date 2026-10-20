@@ -43,3 +43,13 @@ Thumbs*db
 
 # dist
 dist/
+
+# Excel files (workbooks, macro/binary workbooks, templates, and Excel's "~$" lock files)
+*.xlsx
+*.xlsm
+*.xlsb
+*.xls
+*.xltx
+*.xltm
+*.xlt
+~$*
