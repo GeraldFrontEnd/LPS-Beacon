@@ -432,10 +432,41 @@ Defined in [`frontend/API_CONTRACT.md`](frontend/API_CONTRACT.md) and implemente
 
 ## Chat history model
 
-A single on-demand DynamoDB table keyed by the user's Cognito ID:
+A single on-demand DynamoDB table, `lps-beacon-chat`, with generic keys `PK` and `SK` (both strings), so sessions,
+messages, folders and runs share one table. TTL is on the attribute `expiresAt`.
 
-| Record | Partition key | Sort key | Holds |
+| Record | `PK` | `SK` | Holds |
 |---|---|---|---|
+| Session | `USER#{sub}` | `SESSION#{id}` | Title, folder (`projectId`), `createdAt`, `updatedAt`, linked run IDs, `expiresAt` |
+| Message | `USER#{sub}#SESSION#{id}` | `MSG#{timestamp}#{random}` | Role (`user` / `assistant`), text, referenced run or chart IDs, `expiresAt` |
+| Folder | `USER#{sub}` | `PROJECT#{id}` | Folder name |
+| Run | `USER#{sub}` | `RUN#{id}` | Trigger, status, results path |
+| Scenario | `USER#{sub}` | `SCEN#{id}` | Baseline run, parameters, result run |
+| Audit event | `RUN#{id}` | `AUDIT#{timestamp}` | Accept / edit / reject, by whom, when |
+
+`{sub}` is the user's Cognito ID, taken only from the verified token, never from the request. `{id}` for a session is
+the chat ID the web app creates; there is no `POST /sessions`, so the first `POST /chat` with a new ID creates the
+session record.
+
+Why the keys look like this:
+
+- **The user ID is part of every key a user can reach.** A chat can only be found by someone whose `sub` is in its
+  key, so one user cannot read or change another user's chat even if a route forgets an ownership check. A request for
+  someone else's chat finds nothing and gets 404.
+- **Sessions are fetched directly by ID.** `GET /sessions/{id}/messages`, `PATCH` and `DELETE /sessions/{id}` know
+  only the ID, so the session key is `SESSION#{id}` with nothing else in it: one `GetItem`, no search.
+- **The sidebar is one query.** `GET /sessions` queries `PK = USER#{sub}` and `SK begins_with SESSION#`, then the
+  Lambda sorts by `updatedAt`, newest first. A user has tens of chats, so sorting in the Lambda costs nothing; if that
+  ever reaches thousands, add a secondary index on `updatedAt`.
+- **Messages come back in order.** Querying `PK = USER#{sub}#SESSION#{id}` returns them sorted by timestamp; the
+  random suffix keeps two messages in the same millisecond from overwriting each other.
+- **Deleting a chat** deletes the session record and its messages. TTL removes old chats automatically after the
+  retention period.
+
+Large data stays in S3; DynamoDB holds small records and pointers. Only the API Lambda may read or write this table,
+and its IAM permission is scoped to this table's ARN.
+
+---|---|---|---|
 | Session | `USER#{sub}` | `SESSION#{createdAt}#{id}` | Title, timestamps, linked run |
 | Message | `SESSION#{id}` | `MSG#{timestamp}` | Role, text, referenced run or chart IDs |
 | Run | `USER#{sub}` | `RUN#{id}` | Trigger, status, results path |
