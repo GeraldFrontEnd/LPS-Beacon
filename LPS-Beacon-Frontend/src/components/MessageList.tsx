@@ -2,7 +2,37 @@
 // Shows all the chat bubbles and keeps the newest one in view.
 
 import { useEffect, useRef } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "../api/types";
+
+// The assistant writes Markdown (bold, lists, tables). It is turned into real elements here. react-markdown never
+// runs HTML found in the text (it is shown as plain text), so a reply cannot inject markup or scripts.
+// Links open in a new tab and do not give the new page access to this one.
+function AssistantText({ text }: { text: string }) {
+  return (
+    <div className="message-markdown">
+      <Markdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ href, children }) => (
+            <a href={href} target="_blank" rel="noopener noreferrer">
+              {children}
+            </a>
+          ),
+          // Wide tables scroll sideways inside the bubble instead of stretching the page.
+          table: ({ children }) => (
+            <div className="md-table-wrap">
+              <table>{children}</table>
+            </div>
+          ),
+        }}
+      >
+        {text}
+      </Markdown>
+    </div>
+  );
+}
 
 // "Props" are the inputs a component receives from its parent.
 interface MessageListProps {
@@ -26,7 +56,8 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
       {/* .map turns each message into a bubble. "key" lets React track each one. */}
       {messages.map((m) => (
         <div key={m.id} className={`message message-${m.sender}`}>
-          {m.text}
+          {/* Only the assistant's replies are Markdown; the user's own text is shown exactly as typed. */}
+          {m.sender === "assistant" ? <AssistantText text={m.text} /> : m.text}
         </div>
       ))}
 
