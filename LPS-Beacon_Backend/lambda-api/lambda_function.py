@@ -6,11 +6,12 @@ runs; this code decides WHO may do WHAT, because the authorizer does not look at
 
 Routes (API Gateway route key -> handler). Unbuilt routes answer 501 so the frontend gets a clear message.
   POST   /upload-url                 finance_hr   pre-signed S3 upload link            (built)
-  POST   /chat                       signed in    question -> answer                   (501, next: Bedrock)
-  GET    /sessions                   signed in    the caller's chats                   (501, next: DynamoDB)
-  GET    /sessions/{id}/messages     signed in    one chat's messages (owner only)     (501)
-  PATCH  /sessions/{id}              signed in    rename / move a chat (owner only)    (501)
-  DELETE /sessions/{id}              signed in    delete a chat (owner only)           (501)
+  POST   /chat                       signed in    question -> answer, saved to history (built; placeholder answer
+                                                  until Bedrock is connected)
+  GET    /sessions                   signed in    the caller's chats, newest first     (built)
+  GET    /sessions/{id}/messages     signed in    one chat's messages (own chats only) (built)
+  PATCH  /sessions/{id}              signed in    rename / move a chat (own chats only)(built)
+  DELETE /sessions/{id}              signed in    delete a chat and its messages       (built)
   GET    /analysis                   finance_hr   capacity plan                        (501)
   PATCH  /analysis                   finance_hr   edit one cell, return the whole plan (501)
   GET    /dashboard                  finance_hr   headcount breakdown                  (501)
@@ -20,9 +21,18 @@ Routes (API Gateway route key -> handler). Unbuilt routes answer 501 so the fron
 Settings: Lambda > Configuration > Environment variables
   DATA_BUCKET     the bucket NAME, for example  lps-beacon-data   (not the ARN)
   BUCKET_REGION   the region the BUCKET is in, for example  ap-southeast-1
+  CHAT_TABLE      the DynamoDB table NAME, for example  lps-beacon-chat
+  CHAT_RETENTION_DAYS   optional, how long an unused chat is kept (default 90)
 
 API Gateway integration: payload format version 2.0 (the code reads requestContext.authorizer.jwt.claims).
-Permission needed on the function's role:  s3:PutObject  on  arn:aws:s3:::lps-beacon-data/raw/*
+Permissions needed on the function's role:
+  s3:PutObject  on  arn:aws:s3:::lps-beacon-data/raw/*
+  dynamodb:GetItem, PutItem, UpdateItem, DeleteItem, Query, BatchWriteItem  on the CHAT_TABLE table only
+
+Chat history keys (see "Chat history model" in the root README). The user id is inside every key, so a user can only
+ever reach their own chats: someone else's chat id simply finds nothing.
+  Session   PK = USER#{sub}               SK = SESSION#{id}
+  Message   PK = USER#{sub}#SESSION#{id}  SK = MSG#{milliseconds}#{random}
 Runtime: Python 3.12.  Handler: lambda_function.lambda_handler
 """
 
@@ -33,11 +43,20 @@ import re
 import traceback
 import uuid
 
+import time
+
 import boto3
+from boto3.dynamodb.conditions import Key
 from botocore.config import Config
+from botocore.exceptions import ClientError
 
 BUCKET = os.environ["DATA_BUCKET"]
 REGION = os.environ["BUCKET_REGION"]
+CHAT_TABLE = os.environ["CHAT_TABLE"]
+RETENTION_SECONDS = int(os.environ.get("CHAT_RETENTION_DAYS", "90")) * 24 * 3600
+
+MAX_MESSAGE_CHARS = 4000
+MAX_TITLE_CHARS = 100
 
 FINANCE_HR = "finance_hr"       # may use every route
 RESTRICTED = "restricted"       # chat and their own chat history only
@@ -69,6 +88,7 @@ try:
 except TypeError:
     _config = Config(**_options)  # older boto3 does not have (or need) that setting
 s3 = boto3.client("s3", config=_config)
+table = boto3.resource("dynamodb", region_name=REGION).Table(CHAT_TABLE)
 
 
 # ---------- small helpers ----------
@@ -137,6 +157,91 @@ def not_built(what):
     raise HttpError(501, "%s is not available yet" % what)
 
 
+# ---------- chat history storage (DynamoDB) ----------
+
+ID_PATTERN = r"[A-Za-z0-9_-]{1,64}"
+
+
+def now_ms():
+    return int(time.time() * 1000)
+
+
+def iso(ms):
+    return datetime.datetime.fromtimestamp(ms / 1000, tz=datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def session_key(user_id, session_id):
+    return {"PK": "USER#" + user_id, "SK": "SESSION#" + session_id}
+
+
+def messages_pk(user_id, session_id):
+    return "USER#%s#SESSION#%s" % (user_id, session_id)
+
+
+def title_from(text):
+    """Sidebar title from the first question, the same rule the web app uses."""
+    one_line = " ".join(text.split())
+    return one_line if len(one_line) <= 60 else one_line[:57] + "\u2026"
+
+
+def session_json(item):
+    """The shape the web app's sidebar uses (Chat in src/chats/useChatHistory.ts, without the messages)."""
+    return {
+        "id": item["SK"][len("SESSION#"):],
+        "title": item.get("title", "New chat"),
+        "projectId": item.get("projectId"),
+        "createdAt": int(item.get("createdAt", 0)),
+        "updatedAt": int(item.get("updatedAt", 0)),
+    }
+
+
+def message_json(item):
+    """The shape the web app's chat window uses (ChatMessage in src/api/types.ts)."""
+    return {
+        "id": item["SK"][len("MSG#"):],
+        "sender": item["sender"],
+        "text": item["text"],
+        "timestamp": iso(int(item["createdAt"])),
+    }
+
+
+def get_own_session(user_id, session_id):
+    """The caller's session, or 404. Another user's session with the same id is never found."""
+    item = table.get_item(Key=session_key(user_id, session_id)).get("Item")
+    if not item or int(item.get("expiresAt", 0)) < time.time():
+        raise HttpError(404, "Chat not found")
+    return item
+
+
+def save_message(user_id, session_id, sender, text, ms):
+    message_id = "%013d#%s" % (ms, uuid.uuid4().hex[:6])
+    table.put_item(Item={
+        "PK": messages_pk(user_id, session_id),
+        "SK": "MSG#" + message_id,
+        "sender": sender,
+        "text": text,
+        "createdAt": ms,
+        "expiresAt": ms // 1000 + RETENTION_SECONDS,
+    })
+
+
+def query_all(**kwargs):
+    """Runs a DynamoDB query and follows the pages until every item is read."""
+    items = []
+    while True:
+        page = table.query(**kwargs)
+        items.extend(page.get("Items", []))
+        if "LastEvaluatedKey" not in page:
+            return items
+        kwargs["ExclusiveStartKey"] = page["LastEvaluatedKey"]
+
+
+def answer(caller, session_id, message):
+    """The assistant's reply. Placeholder until the Bedrock step replaces this function."""
+    # TODO (Bedrock step): offer cost and margin tools only when caller.is_finance_hr.
+    return "Beacon is not connected to the AI model yet, so this is a placeholder reply. Your question was saved."
+
+
 # ---------- route handlers ----------
 
 def upload_url(event, caller):
@@ -171,33 +276,101 @@ def chat(event, caller):
     body = json_body(event)
     session_id = str(body.get("sessionId", ""))
     message = str(body.get("message", "")).strip()
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", session_id):
+    if not re.fullmatch(ID_PATTERN, session_id):
         raise HttpError(400, "Send a valid sessionId")
-    if not message or len(message) > 4000:
-        raise HttpError(400, "Send a message between 1 and 4000 characters")
-    # TODO (DynamoDB step): if this session exists and belongs to someone else, answer 404 (not 403, so ids
-    #   cannot be probed); if it does not exist, create it for caller.user_id.
-    # TODO (Bedrock step): offer cost and margin tools only when caller.is_finance_hr.
-    not_built("Chat")
+    if not message or len(message) > MAX_MESSAGE_CHARS:
+        raise HttpError(400, "Send a message between 1 and %d characters" % MAX_MESSAGE_CHARS)
+
+    # There is no POST /sessions: the first message with a new chat id creates the chat, under THIS user's key.
+    # If another user happens to use the same id, they get their own separate chat; nothing is shared.
+    asked_at = now_ms()
+    try:
+        table.put_item(
+            Item=dict(session_key(caller.user_id, session_id), title=title_from(message), projectId=None,
+                      createdAt=asked_at, updatedAt=asked_at, expiresAt=asked_at // 1000 + RETENTION_SECONDS),
+            ConditionExpression="attribute_not_exists(PK)",
+        )
+    except ClientError as e:
+        if e.response["Error"]["Code"] != "ConditionalCheckFailedException":
+            raise
+        # The chat already exists: carry on adding to it.
+
+    save_message(caller.user_id, session_id, "user", message, asked_at)
+    reply_text = answer(caller, session_id, message)
+    replied_at = max(now_ms(), asked_at + 1)   # keeps the reply after the question
+    save_message(caller.user_id, session_id, "assistant", reply_text, replied_at)
+
+    table.update_item(
+        Key=session_key(caller.user_id, session_id),
+        UpdateExpression="SET updatedAt = :u, expiresAt = :e",
+        ExpressionAttributeValues={":u": replied_at, ":e": replied_at // 1000 + RETENTION_SECONDS},
+    )
+    return reply(200, {"reply": reply_text})
 
 
 def list_sessions(event, caller):
-    not_built("Chat history")
+    items = query_all(
+        KeyConditionExpression=Key("PK").eq("USER#" + caller.user_id) & Key("SK").begins_with("SESSION#"))
+    now = time.time()
+    sessions = [session_json(i) for i in items if int(i.get("expiresAt", 0)) >= now]  # TTL deletes lazily
+    sessions.sort(key=lambda s: s["updatedAt"], reverse=True)
+    return reply(200, {"sessions": sessions})
 
 
 def get_session_messages(event, caller):
-    path_id(event)
-    not_built("Chat history")   # must only return the session if it belongs to caller.user_id
+    session_id = path_id(event)
+    session = get_own_session(caller.user_id, session_id)
+    items = query_all(KeyConditionExpression=Key("PK").eq(messages_pk(caller.user_id, session_id)),
+                      ScanIndexForward=True)  # oldest first
+    return reply(200, {"session": session_json(session), "messages": [message_json(i) for i in items]})
 
 
 def update_session(event, caller):
-    path_id(event)
-    not_built("Renaming chats")  # owner only
+    session_id = path_id(event)
+    body = json_body(event)
+    names, values, parts = {}, {":u": now_ms()}, ["updatedAt = :u"]
+
+    if "title" in body:
+        title = " ".join(str(body.get("title") or "").split())
+        if not title or len(title) > MAX_TITLE_CHARS:
+            raise HttpError(400, "Send a title between 1 and %d characters" % MAX_TITLE_CHARS)
+        parts.append("title = :t")
+        values[":t"] = title
+    if "projectId" in body:
+        project_id = body.get("projectId")
+        if project_id is not None and not re.fullmatch(ID_PATTERN, str(project_id)):
+            raise HttpError(400, "Invalid projectId")
+        parts.append("projectId = :p")
+        values[":p"] = None if project_id is None else str(project_id)
+    if len(parts) == 1:
+        raise HttpError(400, "Send a title or a projectId to change")
+
+    try:
+        result = table.update_item(
+            Key=session_key(caller.user_id, session_id),
+            UpdateExpression="SET " + ", ".join(parts),
+            ConditionExpression="attribute_exists(PK)",   # never creates a chat by accident
+            ExpressionAttributeValues=values,
+            ReturnValues="ALL_NEW",
+            **({"ExpressionAttributeNames": names} if names else {}),
+        )
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            raise HttpError(404, "Chat not found")
+        raise
+    return reply(200, session_json(result["Attributes"]))
 
 
 def delete_session(event, caller):
-    path_id(event)
-    not_built("Deleting chats")  # owner only
+    session_id = path_id(event)
+    get_own_session(caller.user_id, session_id)
+    keys = query_all(KeyConditionExpression=Key("PK").eq(messages_pk(caller.user_id, session_id)),
+                     ProjectionExpression="PK, SK")
+    with table.batch_writer() as batch:   # deletes in groups of 25 and retries what DynamoDB pushes back
+        for k in keys:
+            batch.delete_item(Key={"PK": k["PK"], "SK": k["SK"]})
+    table.delete_item(Key=session_key(caller.user_id, session_id))
+    return reply(204)
 
 
 def get_analysis(event, caller):
