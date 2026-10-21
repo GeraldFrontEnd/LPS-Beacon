@@ -19,12 +19,20 @@ is in the [root README](../README.md#api-reference), under "Planned additions".
 | `GET /dashboard` | none | `HeadcountBreakdown` (see below). **Planned:** the web app does not call it yet |
 | `POST /runs/runForecast` | to be agreed | `{ runId }`. **Planned** |
 | `GET /runs/{id}` | none | run status and results. **Planned** |
-| `GET /sessions` | none | the signed-in user's chats, newest first. **Planned** |
-| `GET /sessions/{id}/messages` | none | that chat's messages. **Planned** |
-| `PATCH /sessions/{id}` | `{ title }` or `{ projectId }` | the updated chat. **Planned** |
-| `DELETE /sessions/{id}` | none | nothing (204). **Planned** |
+| `GET /sessions` | none | `{ sessions: SessionSummary[] }`, newest first |
+| `GET /sessions/{id}/messages` | none | `{ session, messages: ChatMessage[] }`, oldest first |
+| `PATCH /sessions/{id}` | `{ title }` and/or `{ projectId }` (a folder id, or `null` for the main list) | the updated `SessionSummary` |
+| `DELETE /sessions/{id}` | none | nothing (204) |
+| `GET /folders` | none | `{ folders: FolderSummary[] }`. The first call for a user creates the default folders |
+| `POST /folders` | `{ id, name }` | the new `FolderSummary` (201); 409 if the id is taken |
+| `PATCH /folders/{id}` | `{ name }` | the updated `FolderSummary` |
+| `DELETE /folders/{id}` | none | nothing (204). The folder's chats move back to the main list |
 
 All paths are listed once in `API_ROUTES` in `src/api/client.ts`; change them there, not in each call.
+`SessionSummary` and `FolderSummary` are defined in `src/api/types.ts`. Every chat and folder belongs to the signed-in
+user only; another user's id simply returns 404, and a chat can only be moved into the caller's own folder.
+With `VITE_USE_MOCK=true` the web app keeps chats and folders in the browser instead and calls none of these routes.
+
 There is no `POST /sessions`: the web app makes the chat id itself, and the first `POST /chat` with a new `sessionId`
 creates the chat. The backend must check that an existing `sessionId` belongs to the caller before writing to it.
 `{id}` is a path parameter: in API Gateway the route is literally `/runs/{id}`, not `/runs/Status`.

@@ -11,11 +11,16 @@ import type {
   CapacityPlan,
   CapacityPlanEdit,
   HeadcountBreakdown,
+  ChatMessage,
+  SessionSummary,
+  FolderSummary,
 } from "./types";
 
 // import.meta.env reads values from the .env file. Vite only exposes names that start with VITE_.
 // Values are always strings, so we compare to the text "true" instead of the boolean true.
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true";
+// Chat history (chats, messages, folders) is kept on the server unless the app runs on mock data.
+export const USE_SERVER_HISTORY = !USE_MOCK;
 // Only the capacity plan (Dashboard charts and Analysis tab) uses made-up data; everything else stays real.
 const USE_SAMPLE_PLAN = import.meta.env.VITE_USE_SAMPLE_PLAN === "true";
 
@@ -31,9 +36,11 @@ export const API_ROUTES = {
   dashboard: "/dashboard", // GET today's headcount breakdown (planned)
   runForecast: "/runs/runForecast", // POST start a forecast run (planned)
   run: (runId: string) => `/runs/${encodeURIComponent(runId)}`, // GET run status (planned)
-  sessions: "/sessions", // GET list chats, POST start a chat (planned)
-  session: (id: string) => `/sessions/${encodeURIComponent(id)}`, // PATCH rename, DELETE (planned)
-  sessionMessages: (id: string) => `/sessions/${encodeURIComponent(id)}/messages`, // GET (planned)
+  sessions: "/sessions", // GET list chats. No POST: the first /chat call with a new sessionId creates the chat
+  session: (id: string) => `/sessions/${encodeURIComponent(id)}`, // PATCH rename or move to a folder, DELETE
+  sessionMessages: (id: string) => `/sessions/${encodeURIComponent(id)}/messages`, // GET
+  folders: "/folders", // GET list folders (the first call creates the default ones), POST create
+  folder: (id: string) => `/folders/${encodeURIComponent(id)}`, // PATCH rename, DELETE (its chats move out)
 } as const;
 
 // A tiny helper that pauses for a number of milliseconds (used to fake network delay).
@@ -47,6 +54,36 @@ function requireApiUrl(): string {
     throw new Error("VITE_API_URL is not set. Add it to your .env file.");
   }
   return API_URL;
+}
+
+// ---- The login token ----
+// AuthProvider registers two functions here when the app starts:
+//  - tokenProvider returns a valid login token, renewing it first if it is about to expire (null = cannot renew)
+//  - onSessionExpired signs the user out and sends them to the sign-in page with an explanation
+// Every request below asks for the token just before it is sent, so a tab left open for hours keeps working.
+// The "token" parameters on the functions below are only used if no provider is registered (for example in tests).
+type TokenProvider = () => Promise<string | null>;
+let tokenProvider: TokenProvider | null = null;
+let onSessionExpired: (() => void) | null = null;
+
+export function setAuthHandlers(provider: TokenProvider | null, expired: (() => void) | null): void {
+  tokenProvider = provider;
+  onSessionExpired = expired;
+}
+
+const SESSION_EXPIRED = "Your session has expired. Please sign in again.";
+
+function sessionExpired(): Error {
+  onSessionExpired?.();
+  return new Error(SESSION_EXPIRED);
+}
+
+// The headers for one request, with a token that is valid right now.
+async function authHeaders(fallbackToken?: string): Promise<Record<string, string>> {
+  if (!tokenProvider) return buildHeaders(fallbackToken);
+  const token = await tokenProvider();
+  if (!token) throw sessionExpired();
+  return buildHeaders(token);
 }
 
 // Builds the headers that every request to our API needs.
@@ -77,11 +114,12 @@ export async function sendMessage(
   // fetch sends the HTTP request. We POST the request object as JSON text.
   const response = await fetch(`${requireApiUrl()}${API_ROUTES.chat}`, {
     method: "POST",
-    headers: buildHeaders(token),
+    headers: await authHeaders(token),
     body: JSON.stringify(req),
   });
 
   // response.ok is false for errors like 401 (not logged in) or 500 (server problem).
+  if (response.status === 401) throw sessionExpired();
   if (!response.ok) {
     throw new Error(`The server returned an error (${response.status}).`);
   }
@@ -106,10 +144,11 @@ export async function getUploadUrl(
 
   const response = await fetch(`${requireApiUrl()}${API_ROUTES.uploadUrl}`, {
     method: "POST",
-    headers: buildHeaders(token),
+    headers: await authHeaders(token),
     body: JSON.stringify(req),
   });
 
+  if (response.status === 401) throw sessionExpired();
   if (!response.ok) {
     throw new Error(`Could not get an upload link (${response.status}).`);
   }
@@ -203,4 +242,69 @@ export async function getHeadcountBreakdown(token?: string): Promise<HeadcountBr
   }
   void token;
   return null;
+}
+
+// ---- Chat history kept on the server ----
+
+// Calls our API and returns the JSON answer (or nothing for 204 No Content). Throws a readable error otherwise.
+async function apiRequest<T>(method: string, path: string, token?: string, body?: unknown): Promise<T> {
+  const response = await fetch(`${requireApiUrl()}${path}`, {
+    method,
+    headers: await authHeaders(token),
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (response.status === 401) throw sessionExpired();
+  if (!response.ok) {
+    let detail = "";
+    try {
+      detail = ((await response.json()) as { message?: string }).message ?? "";
+    } catch {
+      // the body was not JSON; the status code is enough
+    }
+    throw new Error(detail ? `${detail} (${response.status}).` : `The server returned an error (${response.status}).`);
+  }
+  return (response.status === 204 ? undefined : await response.json()) as T;
+}
+
+// The signed-in user's chats, newest first (without their messages).
+export async function listSessions(token?: string): Promise<SessionSummary[]> {
+  return (await apiRequest<{ sessions: SessionSummary[] }>("GET", API_ROUTES.sessions, token)).sessions;
+}
+
+// One chat's messages, oldest first.
+export async function getSessionMessages(id: string, token?: string): Promise<ChatMessage[]> {
+  return (await apiRequest<{ messages: ChatMessage[] }>("GET", API_ROUTES.sessionMessages(id), token)).messages;
+}
+
+// Renames a chat and/or moves it to a folder (projectId null = back to the main Chats list).
+export async function updateSession(
+  id: string,
+  change: { title?: string; projectId?: string | null },
+  token?: string,
+): Promise<SessionSummary> {
+  return apiRequest<SessionSummary>("PATCH", API_ROUTES.session(id), token, change);
+}
+
+// Deletes a chat and all of its messages.
+export async function deleteSession(id: string, token?: string): Promise<void> {
+  await apiRequest<void>("DELETE", API_ROUTES.session(id), token);
+}
+
+// The signed-in user's sidebar folders.
+export async function listFolders(token?: string): Promise<FolderSummary[]> {
+  return (await apiRequest<{ folders: FolderSummary[] }>("GET", API_ROUTES.folders, token)).folders;
+}
+
+// Creates a folder. The web app chooses the id, so the new folder can be shown straight away.
+export async function createFolder(folder: { id: string; name: string }, token?: string): Promise<FolderSummary> {
+  return apiRequest<FolderSummary>("POST", API_ROUTES.folders, token, folder);
+}
+
+export async function renameFolder(id: string, name: string, token?: string): Promise<FolderSummary> {
+  return apiRequest<FolderSummary>("PATCH", API_ROUTES.folder(id), token, { name });
+}
+
+// Deletes a folder. The server moves its chats back to the main Chats list.
+export async function deleteFolder(id: string, token?: string): Promise<void> {
+  await apiRequest<void>("DELETE", API_ROUTES.folder(id), token);
 }

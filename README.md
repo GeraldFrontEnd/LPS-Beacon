@@ -51,7 +51,7 @@ designed but not yet in this repository.
 | Dashboard (charts built from the capacity plan) | Implemented; shows sample data only when `VITE_USE_SAMPLE_PLAN=true` | `frontend/` |
 | Analysis screen (capacity plan with editable input cells, grouped by quarter and financial year, CSV download) | Layout implemented, fields empty until the backend generates the plan | `frontend/` |
 | Backend contract the web app expects | Documented | [`frontend/API_CONTRACT.md`](frontend/API_CONTRACT.md) |
-| API Lambda, Pipeline Lambda, Bedrock agent, schedules, notifications, infrastructure | Designed | [Architecture](#architecture) |
+| API Lambda, Pipeline Lambda, chat agent (Bedrock Converse with tool use), schedules, notifications, infrastructure | Designed | [Architecture](#architecture) |
 | Chat history sidebar, charts in chat, what-if scenarios, report downloads | Designed | [Capabilities](#capabilities-and-features) |
 | Authenticator-app (TOTP) MFA setup inside the sign-in form | Not supported yet | [Known limitations](#known-limitations) |
 
@@ -97,6 +97,11 @@ The assistant is the **Resource Planning Forecast Agent**: a Bedrock-hosted Clau
 call (run a forecast, fetch results, run a what-if) while the numerical work is done by deterministic Python code.
 This keeps forecasts repeatable and auditable; the model explains and reasons over the numbers rather than
 computing them.
+
+The agent loop runs inside the API Lambda using the Bedrock Converse API with tool use: the Lambda sends the question,
+the recent chat history and the tools the user's role may use; Claude asks for a tool; the Lambda runs it and sends
+the result back; Claude answers. There is no separate agent service (Bedrock Agents or AgentCore), so the role
+check, the tools, the guardrail check and the chat history all live in one place.
 
 ---
 
@@ -347,6 +352,10 @@ The workflow joins four kinds of input:
   questions.
 - **Tool use, not free-form queries.** The agent can only call a fixed set of tools (run forecast, get results, run
   what-if). It never writes arbitrary queries against the data.
+- **Tools depend on the role.** `restricted` users' requests never include the cost, rate or margin tools, and the
+  Lambda refuses to run any tool the caller's group may not use, even if the model asks for it.
+- **Guardrail on both sides.** The Lambda checks the question and the answer with a Bedrock Guardrail
+  (`ApplyGuardrail`) for prompt attacks, harmful content and personal data.
 - **Honest about limits.** Short history and missing data are reported with the forecast.
 
 ---
@@ -416,6 +425,12 @@ Defined in [`frontend/API_CONTRACT.md`](frontend/API_CONTRACT.md) and implemente
 | `GET` | `/analysis` | Generated capacity plan values (Analysis tab and Dashboard charts). Planned: the web app does not call it yet |
 | `PATCH` | `/analysis` | Edit one input cell; returns the recalculated plan. Planned: the web app does not call it yet |
 | `GET` | `/dashboard` | Today's headcount breakdown for the Dashboard boxes. Planned: the web app does not call it yet |
+| `GET` | `/sessions` | List the signed-in user's chats for the sidebar |
+| `GET` | `/sessions/{id}/messages` | Load a chat's messages when it is opened |
+| `PATCH` / `DELETE` | `/sessions/{id}` | Move a chat to a folder (or rename it), or delete it with its messages |
+| `GET` | `/folders` | List the user's sidebar folders (the first call creates the default folders) |
+| `POST` | `/folders` | Create a folder: `{ id, name }` |
+| `PATCH` / `DELETE` | `/folders/{id}` | Rename a folder, or delete it (its chats move back to the main list) |
 
 ### Planned additions
 
@@ -424,9 +439,6 @@ Defined in [`frontend/API_CONTRACT.md`](frontend/API_CONTRACT.md) and implemente
 | `POST` | `/upload-urls` | Batch version: validate a file list and return URLs for the whole batch |
 | `POST` | `/runs/runForecast` | Start a run (re-run or what-if) and return a run ID |
 | `GET` | `/runs/{id}` | Run status and results |
-| `GET` | `/sessions` | List the signed-in user's chats |
-| `GET` | `/sessions/{id}/messages` | Load a chat's messages |
-| `PATCH` / `DELETE` | `/sessions/{id}` | Rename or delete a chat |
 
 ---
 
@@ -439,7 +451,8 @@ messages, folders and runs share one table. TTL is on the attribute `expiresAt`.
 |---|---|---|---|
 | Session | `USER#{sub}` | `SESSION#{id}` | Title, folder (`projectId`), `createdAt`, `updatedAt`, linked run IDs, `expiresAt` |
 | Message | `USER#{sub}#SESSION#{id}` | `MSG#{timestamp}#{random}` | Role (`user` / `assistant`), text, referenced run or chart IDs, `expiresAt` |
-| Folder | `USER#{sub}` | `PROJECT#{id}` | Folder name |
+| Folder | `USER#{sub}` | `FOLDER#{id}` | Folder name, `createdAt` |
+| Folder marker | `USER#{sub}` | `META#folders` | Records that the default folders were created, so deleting them all does not bring them back |
 | Run | `USER#{sub}` | `RUN#{id}` | Trigger, status, results path |
 | Scenario | `USER#{sub}` | `SCEN#{id}` | Baseline run, parameters, result run |
 | Audit event | `RUN#{id}` | `AUDIT#{timestamp}` | Accept / edit / reject, by whom, when |
@@ -663,7 +676,8 @@ This project processes HR headcount, staff cost and project revenue data.
 - Side-by-side scenario comparison view.
 - Regional web ACL on the Cognito user pool for open public sign-up.
 - Glue/Athena (or another warehouse) if batches grow beyond what Lambda handles comfortably.
-- Bedrock Agents or a Knowledge Base if the assistant needs to cite policy documents and rate cards.
+- A Bedrock Knowledge Base if the assistant needs to cite policy documents and rate cards.
+- Moving the agent to Bedrock AgentCore if the client later needs managed agent hosting.
 
 ---
 

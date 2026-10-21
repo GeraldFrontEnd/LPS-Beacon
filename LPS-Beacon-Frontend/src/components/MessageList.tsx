@@ -37,10 +37,11 @@ function AssistantText({ text }: { text: string }) {
 // "Props" are the inputs a component receives from its parent.
 interface MessageListProps {
   messages: ChatMessage[]; // the conversation so far
-  isLoading: boolean; // true while we wait for the assistant's reply
+  isLoading: boolean; // true while we wait for the assistant's reply (or for an old chat to load)
+  pendingText?: string; // what the waiting bubble says; defaults to "Looking that up…"
 }
 
-export default function MessageList({ messages, isLoading }: MessageListProps) {
+export default function MessageList({ messages, isLoading, pendingText }: MessageListProps) {
   // A ref points to a real element on the page. This one marks the very bottom of the list.
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -63,7 +64,7 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
 
       {/* Only shown while waiting for the backend. */}
       {isLoading && (
-        <div className="message message-assistant message-pending">Looking that up…</div>
+        <div className="message message-assistant message-pending">{pendingText ?? "Looking that up…"}</div>
       )}
 
       {/* Invisible marker at the bottom that we scroll to. */}

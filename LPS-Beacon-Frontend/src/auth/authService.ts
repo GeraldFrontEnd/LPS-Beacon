@@ -173,6 +173,50 @@ export async function signIn(email: string, password: string): Promise<AuthSessi
   return IS_MOCK ? mockSignIn(email, password) : cognitoSignIn(email, password);
 }
 
+// ---------- Keeping the login token valid ----------
+
+// Cognito ID tokens last about an hour. Amplify keeps a longer-lived refresh token (30 days by default) and can use
+// it to get a new ID token without asking the user to sign in again.
+const REFRESH_MARGIN_SECONDS = 5 * 60; // renew when less than 5 minutes are left, so a request never carries a dying token
+
+// Returns a valid ID token for an API call, renewing it first if it is about to expire.
+// Returns null when the user is signed out or the login can no longer be renewed (for example the refresh token has
+// expired or the user was disabled); the caller then has to send them back to the sign-in page.
+export async function getFreshToken(): Promise<string | null> {
+  if (IS_MOCK) return (await loadSession())?.token ?? null;
+  try {
+    let { tokens } = await fetchAuthSession();
+    const expires = tokens?.idToken?.payload.exp;
+    if (!tokens?.idToken || typeof expires !== "number" || expires - Date.now() / 1000 < REFRESH_MARGIN_SECONDS) {
+      ({ tokens } = await fetchAuthSession({ forceRefresh: true }));
+    }
+    return tokens?.idToken?.toString() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// A message for the sign-in page explaining why the user was signed out. It is read once, then forgotten.
+const SIGN_OUT_NOTICE_KEY = "lps-beacon:sign-out-notice";
+
+export function setSignOutNotice(message: string): void {
+  try {
+    sessionStorage.setItem(SIGN_OUT_NOTICE_KEY, message);
+  } catch {
+    // storage blocked: the user still lands on the sign-in page, just without the explanation
+  }
+}
+
+export function takeSignOutNotice(): string | null {
+  try {
+    const message = sessionStorage.getItem(SIGN_OUT_NOTICE_KEY);
+    sessionStorage.removeItem(SIGN_OUT_NOTICE_KEY);
+    return message;
+  } catch {
+    return null;
+  }
+}
+
 // Logs out.
 export async function signOut(): Promise<void> {
   if (IS_MOCK) {

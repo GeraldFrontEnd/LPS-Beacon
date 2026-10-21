@@ -11,6 +11,11 @@ Routes (API Gateway route key -> handler). Unbuilt routes answer 501 so the fron
   GET    /sessions/{id}/messages     signed in    one chat's messages (own chats only) (built)
   PATCH  /sessions/{id}              signed in    rename / move a chat (own chats only)(built)
   DELETE /sessions/{id}              signed in    delete a chat and its messages       (built)
+  GET    /folders                    signed in    the caller's sidebar folders         (built; first call creates
+                                                  the default folders)
+  POST   /folders                    signed in    create a folder {id, name}           (built)
+  PATCH  /folders/{id}               signed in    rename a folder {name}               (built)
+  DELETE /folders/{id}               signed in    delete a folder; its chats move out  (built)
   GET    /analysis                   finance_hr   capacity plan                        (501)
   PATCH  /analysis                   finance_hr   edit one cell, return the whole plan (501)
   GET    /dashboard                  finance_hr   headcount breakdown                  (501)
@@ -48,6 +53,8 @@ Chat history keys (see "Chat history model" in the root README). The user id is 
 ever reach their own chats: someone else's chat id simply finds nothing.
   Session   PK = USER#{sub}               SK = SESSION#{id}
   Message   PK = USER#{sub}#SESSION#{id}  SK = MSG#{milliseconds}#{random}
+  Folder    PK = USER#{sub}               SK = FOLDER#{id}
+  Marker    PK = USER#{sub}               SK = META#folders   (the default folders were created for this user)
 Runtime: Python 3.12.  Handler: lambda_function.lambda_handler
 """
 
@@ -783,6 +790,8 @@ def update_session(event, caller):
         project_id = body.get("projectId")
         if project_id is not None and not re.fullmatch(ID_PATTERN, str(project_id)):
             raise HttpError(400, "Invalid projectId")
+        if project_id is not None and not table.get_item(Key=folder_key(caller.user_id, str(project_id))).get("Item"):
+            raise HttpError(400, "That folder does not exist")   # only the caller's own folders can hold their chats
         parts.append("projectId = :p")
         values[":p"] = None if project_id is None else str(project_id)
     if not parts:
@@ -812,6 +821,114 @@ def delete_session(event, caller):
         for k in keys:
             batch.delete_item(Key={"PK": k["PK"], "SK": k["SK"]})
     table.delete_item(Key=session_key(caller.user_id, session_id))
+    return reply(204)
+
+
+# ---------- sidebar folders ----------
+
+# Every user starts with these. They can be renamed or deleted like any other folder.
+DEFAULT_FOLDERS = [
+    ("p-forecast-quarterly", "Forecasted Quarterly"),
+    ("p-utilisation-bench", "Under & Overutilized Benching"),
+    ("p-margin-costing", "Margin Costing"),
+    ("p-headcount", "Headcount"),
+]
+MAX_FOLDERS = 50
+MAX_FOLDER_NAME_CHARS = 60
+
+
+def folder_key(user_id, folder_id):
+    return {"PK": "USER#" + user_id, "SK": "FOLDER#" + folder_id}
+
+
+def folder_json(item):
+    return {"id": item["SK"][len("FOLDER#"):], "name": item.get("name", ""), "createdAt": int(item.get("createdAt", 0))}
+
+
+def folder_name(body):
+    name = " ".join(str(body.get("name") or "").split())
+    if not name or len(name) > MAX_FOLDER_NAME_CHARS:
+        raise HttpError(400, "Send a folder name between 1 and %d characters" % MAX_FOLDER_NAME_CHARS)
+    return name
+
+
+def ensure_default_folders(user_id):
+    """Creates the default folders the first time a user is seen. The marker record means a user who deletes them
+    all does not get them back."""
+    try:
+        table.put_item(Item={"PK": "USER#" + user_id, "SK": "META#folders", "createdAt": now_ms()},
+                       ConditionExpression="attribute_not_exists(PK)")
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            return   # already done for this user
+        raise
+    created = now_ms()
+    with table.batch_writer() as batch:
+        for order, (folder_id, name) in enumerate(DEFAULT_FOLDERS):
+            batch.put_item(Item=dict(folder_key(user_id, folder_id), name=name, createdAt=created + order))
+
+
+def own_folders(user_id):
+    return query_all(KeyConditionExpression=Key("PK").eq("USER#" + user_id) & Key("SK").begins_with("FOLDER#"))
+
+
+def list_folders(event, caller):
+    ensure_default_folders(caller.user_id)
+    folders = sorted((folder_json(i) for i in own_folders(caller.user_id)), key=lambda f: (f["createdAt"], f["name"]))
+    return reply(200, {"folders": folders})
+
+
+def create_folder(event, caller):
+    body = json_body(event)
+    folder_id = str(body.get("id", ""))
+    if not re.fullmatch(ID_PATTERN, folder_id):
+        raise HttpError(400, "Send a valid folder id")
+    name = folder_name(body)
+    ensure_default_folders(caller.user_id)
+    if len(own_folders(caller.user_id)) >= MAX_FOLDERS:
+        raise HttpError(400, "You can have at most %d folders" % MAX_FOLDERS)
+    item = dict(folder_key(caller.user_id, folder_id), name=name, createdAt=now_ms())
+    try:
+        table.put_item(Item=item, ConditionExpression="attribute_not_exists(PK)")
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            raise HttpError(409, "A folder with that id already exists")
+        raise
+    return reply(201, folder_json(item))
+
+
+def rename_folder(event, caller):
+    folder_id = path_id(event)
+    name = folder_name(json_body(event))
+    try:
+        result = table.update_item(
+            Key=folder_key(caller.user_id, folder_id), UpdateExpression="SET #n = :n",
+            ConditionExpression="attribute_exists(PK)",
+            ExpressionAttributeNames={"#n": "name"}, ExpressionAttributeValues={":n": name}, ReturnValues="ALL_NEW")
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            raise HttpError(404, "Folder not found")
+        raise
+    return reply(200, folder_json(result["Attributes"]))
+
+
+def delete_folder(event, caller):
+    """Deletes a folder. Its chats are kept and move back to the main Chats list."""
+    folder_id = path_id(event)
+    if not table.get_item(Key=folder_key(caller.user_id, folder_id)).get("Item"):
+        raise HttpError(404, "Folder not found")
+    sessions = query_all(
+        KeyConditionExpression=Key("PK").eq("USER#" + caller.user_id) & Key("SK").begins_with("SESSION#"))
+    for item in sessions:
+        if item.get("projectId") == folder_id:
+            try:
+                table.update_item(Key={"PK": item["PK"], "SK": item["SK"]}, UpdateExpression="SET projectId = :none",
+                                  ConditionExpression="attribute_exists(PK)",   # a chat deleted meanwhile stays deleted
+                                  ExpressionAttributeValues={":none": None})
+            except ClientError as e:
+                if e.response["Error"]["Code"] != "ConditionalCheckFailedException":
+                    raise
+    table.delete_item(Key=folder_key(caller.user_id, folder_id))
     return reply(204)
 
 
@@ -849,6 +966,10 @@ ROUTES = {
     "GET /sessions/{id}/messages": get_session_messages,
     "PATCH /sessions/{id}": update_session,
     "DELETE /sessions/{id}": delete_session,
+    "GET /folders": list_folders,
+    "POST /folders": create_folder,
+    "PATCH /folders/{id}": rename_folder,
+    "DELETE /folders/{id}": delete_folder,
     "GET /analysis": get_analysis,
     "PATCH /analysis": edit_analysis,
     "GET /dashboard": get_dashboard,

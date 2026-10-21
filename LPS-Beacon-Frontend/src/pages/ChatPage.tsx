@@ -46,7 +46,6 @@ type View = { kind: "chat"; id: string } | { kind: "new"; projectId: string | nu
 
 export default function ChatPage() {
   const { user, token } = useAuth(); // who is logged in, and the token that proves it
-  const history = useChatHistory(user?.email ?? "guest");
   const [theme, setTheme] = useTheme();
 
   const [view, setView] = useState<View>({ kind: "new", projectId: null });
@@ -57,6 +56,11 @@ export default function ChatPage() {
   const [dialog, setDialog] = useState<DialogOptions | null>(null);
   // Short confirmation at the bottom of the screen. "at" counts up, so a repeated message restarts the timer.
   const [toast, setToast] = useState<{ text: string; at: number } | null>(null);
+
+  // Problems loading or saving the chat history (on the server) appear as a toast.
+  const history = useChatHistory(user?.email ?? "guest", token, (message) =>
+    setToast((t) => ({ text: message, at: (t?.at ?? 0) + 1 })),
+  );
 
   const activeChat = view.kind === "chat" ? (history.chats.find((c) => c.id === view.id) ?? null) : null;
   const openProject = view.kind === "project" ? (history.projects.find((p) => p.id === view.id) ?? null) : null;
@@ -136,6 +140,7 @@ export default function ChatPage() {
   function selectChat(id: string) {
     history.markRead(id);
     show({ kind: "chat", id });
+    void history.loadMessages(id); // a chat from the server fetches its messages the first time it is opened
   }
 
   function deleteChat(id: string) {
@@ -214,6 +219,12 @@ export default function ChatPage() {
     downloadText(fileNameFor(chat.title, "md"), chatToMarkdown(chat), "text/markdown");
   }
 
+  // Exports a chat that may not have been opened yet, so its messages may still need fetching.
+  async function exportById(id: string) {
+    const chat = await history.loadMessages(id);
+    if (chat) exportMarkdown(chat);
+  }
+
   function shareActions(chat: Chat): MenuAction[] {
     return [
       {
@@ -247,9 +258,15 @@ export default function ChatPage() {
 
   // ---- What the right-hand side shows ----
 
-  const messages = activeChat?.messages ?? [greeting];
-  const isLoading = !!activeChat && pendingIds.includes(activeChat.id);
-  const showSuggestions = !openProject && messages.length === 1 && !isLoading; // only before the first question
+  // Chats saved on the server do not store the greeting, so it is shown in front of their messages.
+  const messages = !activeChat
+    ? [greeting]
+    : activeChat.messages[0]?.id === greeting.id
+      ? activeChat.messages
+      : [greeting, ...activeChat.messages];
+  const isOpening = !!activeChat && !activeChat.loaded; // its messages are still loading from the server
+  const isLoading = isOpening || (!!activeChat && pendingIds.includes(activeChat.id));
+  const showSuggestions = !openProject && !activeChat && !isLoading; // only before the first question
   const projectChats = openProject
     ? history.chats.filter((c) => c.projectId === openProject.id).sort((a, b) => b.updatedAt - a.updatedAt)
     : [];
@@ -271,10 +288,7 @@ export default function ChatPage() {
         onRenameProject={renameProject}
         onDeleteProject={deleteProject}
         onMoveChat={moveChat}
-        onExportChat={(id) => {
-          const chat = history.chats.find((c) => c.id === id);
-          if (chat) exportMarkdown(chat);
-        }}
+        onExportChat={(id) => void exportById(id)}
         onDeleteChat={deleteChat}
         onClearAll={clearAll}
         theme={theme}
@@ -350,7 +364,7 @@ export default function ChatPage() {
                           icon: FolderIcon,
                           onSelect: () => moveChat(c.id, p.id),
                         })),
-                      { label: "Export as Markdown", icon: DownloadIcon, onSelect: () => exportMarkdown(c) },
+                      { label: "Export as Markdown", icon: DownloadIcon, onSelect: () => void exportById(c.id) },
                       { label: "Delete chat", icon: TrashIcon, destructive: true, onSelect: () => deleteChat(c.id) },
                     ]}
                   >
@@ -362,7 +376,11 @@ export default function ChatPage() {
           </section>
         ) : (
           <>
-            <MessageList messages={messages} isLoading={isLoading} />
+            <MessageList
+              messages={messages}
+              isLoading={isLoading}
+              pendingText={isOpening ? "Loading this chat…" : undefined}
+            />
 
             {showSuggestions && (
               <div className="suggestions">

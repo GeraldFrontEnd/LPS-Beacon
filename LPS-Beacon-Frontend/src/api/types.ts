@@ -81,3 +81,21 @@ export interface CapacityPlanEdit {
   columnKey: string; // for example "Oct'26"
   value: number; // plain dollars, or a fraction for percentages
 }
+
+// ---- Chat history kept on the server (DynamoDB) ----
+
+// One chat in the sidebar, as GET /sessions returns it (without its messages).
+export interface SessionSummary {
+  id: string;
+  title: string;
+  projectId: string | null; // the folder it is filed in, or null for the main Chats list
+  createdAt: number; // milliseconds since 1970
+  updatedAt: number;
+}
+
+// One sidebar folder, as GET /folders returns it.
+export interface FolderSummary {
+  id: string;
+  name: string;
+  createdAt: number;
+}
