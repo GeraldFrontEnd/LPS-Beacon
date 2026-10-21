@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
-import { DEMO_ACCOUNTS, IS_MOCK } from "../auth/authService";
+import { DEMO_ACCOUNTS, IS_MOCK, takeSignOutNotice } from "../auth/authService";
 import { ROLE_LABELS } from "../auth/permissions";
 import lpsLogo from "../../LPSLogo.avif";
 
@@ -58,8 +58,8 @@ export default function LoginPage() {
   // What the user has typed so far.
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  // The error text to show, or null for none.
-  const [error, setError] = useState<string | null>(null);
+  // The error text to show, or null for none. Starts with the reason the user was signed out, if there is one.
+  const [error, setError] = useState<string | null>(() => takeSignOutNotice());
   // true while we wait for the login to finish (to disable the button).
   const [isSubmitting, setIsSubmitting] = useState(false);
   // true when the password is shown as plain text (the eye button).

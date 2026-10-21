@@ -4,7 +4,14 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react"; // ReactNode = "anything React can display"
 import { AuthContext } from "./authContext";
-import { loadSession, signIn as serviceSignIn, signOut as serviceSignOut } from "./authService";
+import {
+  getFreshToken,
+  loadSession,
+  setSignOutNotice,
+  signIn as serviceSignIn,
+  signOut as serviceSignOut,
+} from "./authService";
+import { setAuthHandlers } from "../api/client";
 import type { AuthContextValue, AuthSession } from "./types";
 
 interface AuthProviderProps {
@@ -28,6 +35,17 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Every API call asks for a fresh token just before it is sent (see src/api/client.ts). If the login can no longer
+  // be renewed, or the API answers 401, the user is signed out and the sign-in page explains why.
+  useEffect(() => {
+    setAuthHandlers(getFreshToken, () => {
+      setSignOutNotice("Your session has expired. Please sign in again.");
+      setSession(null);
+      void serviceSignOut();
+    });
+    return () => setAuthHandlers(null, null);
   }, []);
 
   // Logs in using the service, then remembers the result so the screens update.
