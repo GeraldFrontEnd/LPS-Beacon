@@ -2771,6 +2771,17 @@ select.cell-input {
   margin: 8px 0 0;
   padding-left: 18px;
   text-align: left;
+  overflow-wrap: anywhere; /* long file names or column headings wrap instead of running off the panel */
+}
+
+/* In the centred "could not continue" view, the list takes the panel's width instead of growing past it. */
+.review-finish .review-rejected {
+  align-self: stretch;
+  max-width: 80ch;
+  margin: 12px auto 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.45;
 }
 
 .review-banner {
