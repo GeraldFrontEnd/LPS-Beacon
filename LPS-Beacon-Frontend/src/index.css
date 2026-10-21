@@ -1928,3 +1928,851 @@ body {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
   transform: translateX(-50%);
 }
+
+/* ---- Review panel on the Upload page (src/review) ---- */
+
+/* The bar along the bottom of the Upload page. It opens the review panel. */
+.review-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 20px;
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  color: var(--ink);
+  background: var(--sidebar-bg);
+  border: 0;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.review-bar:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.review-bar:disabled {
+  cursor: default;
+}
+
+.review-bar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.review-bar-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.review-bar.attention .review-bar-arrow {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.review-bar-title {
+  font-weight: 600;
+}
+
+.review-bar-badge {
+  padding: 1px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent-ink);
+  background: var(--brand-purple);
+  border-radius: 999px;
+}
+
+.review-bar-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The dark layer behind the open panel. */
+.review-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.review-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* The panel. Its top edge is set in code (just under the page title); it slides up from the bottom. */
+.review-panel {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  width: min(1180px, 100vw);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.2);
+  transform: translate(-50%, 100%);
+  visibility: hidden;
+  transition:
+    transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1),
+    visibility 0s linear 0.32s;
+}
+
+.review-panel.open {
+  transform: translate(-50%, 0);
+  visibility: visible;
+  transition:
+    transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1),
+    visibility 0s;
+}
+
+.review-panel:focus {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-panel,
+  .review-panel.open,
+  .review-backdrop {
+    transition: none;
+  }
+}
+
+.review-head {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.review-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.review-close {
+  display: inline-flex;
+  margin-left: auto;
+  padding: 6px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.review-close:hover {
+  background: var(--hover);
+}
+
+.review-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Conflicts -> Forecast -> Matching */
+.review-stepper {
+  display: flex;
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.review-stepper li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.review-stepper li + li::before {
+  content: "";
+  width: 18px;
+  height: 1px;
+  margin-right: 12px;
+  background: var(--line);
+}
+
+.review-step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+}
+
+.review-stepper li.current {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.review-stepper li.current .review-step-dot {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.review-stepper li.done .review-step-dot {
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.review-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.review-step {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.review-step-intro {
+  padding: 16px 20px 12px;
+}
+
+.review-step-intro h3,
+.review-empty h3,
+.review-finish h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.review-step-intro p,
+.review-empty p,
+.review-finish p {
+  margin: 6px 0 0;
+  max-width: 80ch;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.review-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* The sticky bar at the bottom of each step with the count and the main buttons. */
+.review-foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding: 12px 20px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+
+.review-foot-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.secondary-button.danger {
+  color: #b42318;
+  border-color: #e5b4ae;
+}
+
+:root[data-theme="dark"] .secondary-button.danger {
+  color: #f2a7a7;
+  border-color: #5c2b2b;
+}
+
+.review-empty,
+.review-processing,
+.review-finish {
+  padding: 28px 20px;
+}
+
+.review-finish {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.review-finish p {
+  text-align: center;
+}
+
+.review-finish-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 12px;
+  border-radius: 50%;
+}
+
+.review-finish-icon.success {
+  color: var(--success);
+  border: 2px solid var(--success);
+}
+
+.review-finish-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+/* The checklist while the system works. */
+.review-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.review-checklist li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.review-checklist li.running {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.review-checklist li.done {
+  color: var(--ink);
+}
+
+.review-check-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--success);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+}
+
+.review-checklist li.done .review-check-icon {
+  border-color: var(--success);
+}
+
+.review-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: review-spin 0.8s linear infinite;
+}
+
+@keyframes review-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-spinner {
+    animation: none;
+  }
+}
+
+/* Small labels: source, edited, duplicate. */
+.review-tag {
+  display: inline-block;
+  padding: 1px 8px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.review-tag.source-crm,
+.review-tag.source-current {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+
+:root[data-theme="dark"] .review-tag.source-crm,
+:root[data-theme="dark"] .review-tag.source-current {
+  color: #9cc0e4;
+}
+
+.review-tag.source-similar {
+  color: #8a4b00;
+  background: #fff3e0;
+  border-color: #f2c48d;
+}
+
+.review-tag.source-manual {
+  color: var(--muted);
+}
+
+.review-tag.edited {
+  color: var(--brand-ink);
+  background: var(--brand-soft);
+  border-color: transparent;
+}
+
+.review-tag.duplicate {
+  margin-top: 4px;
+  color: #8a4b00;
+  background: #fff3e0;
+  border-color: #f2c48d;
+}
+
+:root[data-theme="dark"] .review-tag.source-similar,
+:root[data-theme="dark"] .review-tag.duplicate,
+:root[data-theme="dark"] .review-warning {
+  color: #f5c68a;
+  background: #3a2a14;
+  border-color: #6b4a1f;
+}
+
+.review-warning {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: #6b3b00;
+  background: #fff8ec;
+  border: 1px solid #f2c48d;
+  border-radius: 8px;
+}
+
+.review-warning.muted {
+  color: var(--muted);
+  background: var(--bg);
+  border-color: var(--line);
+}
+
+.field-error {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--error);
+}
+
+/* ---- Step 1: conflicts ---- */
+.conflict-list,
+.opp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0 20px 16px;
+  list-style: none;
+}
+
+.conflict-card,
+.opp-card {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.conflict-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.conflict-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.conflict-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  font-size: 0.875rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.conflict-option:hover {
+  background: var(--hover);
+}
+
+.conflict-option.chosen {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.conflict-option input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.conflict-value {
+  min-width: 64px;
+  font-weight: 600;
+}
+
+.conflict-source {
+  font-size: 0.8125rem;
+  word-break: break-word;
+}
+
+/* ---- Step 2: forecast ---- */
+.opp-card.decision-accepted {
+  border-left: 4px solid var(--success);
+}
+
+.opp-card.decision-rejected {
+  border-left: 4px solid var(--plan-block-line);
+  opacity: 0.7;
+}
+
+.opp-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.opp-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.opp-toggle:disabled {
+  cursor: default;
+}
+
+.opp-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.opp-decision {
+  display: inline-flex;
+  margin-left: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.decision-button {
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--surface);
+  border: 0;
+  cursor: pointer;
+}
+
+.decision-button + .decision-button {
+  border-left: 1px solid var(--line);
+}
+
+.decision-button:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.decision-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.decision-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.decision-button.accept.on {
+  color: #ffffff;
+  background: #1f6b3a;
+}
+
+.decision-button.reject.on {
+  color: #ffffff;
+  background: #6b7480;
+}
+
+.opp-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px 16px;
+  margin: 10px 0 0;
+}
+
+.opp-facts div {
+  min-width: 0;
+}
+
+.opp-facts dt {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.opp-facts dd {
+  margin: 1px 0 0;
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.opp-body {
+  margin-top: 12px;
+  overflow-x: auto;
+}
+
+/* Tables in the panel: the resources of an opportunity, and the matching list. */
+.review-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.review-table th {
+  padding: 6px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: left;
+  color: var(--muted);
+  background: var(--plan-section-bg);
+  border-bottom: 1px solid var(--line);
+}
+
+.review-table td {
+  padding: 6px 8px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+}
+
+.review-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.review-table tr.removed td {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.review-table tr.removed td:last-child {
+  text-decoration: none;
+}
+
+/* Inputs that look like plain text until you point at them or click into them. */
+.cell-input {
+  width: 100%;
+  min-width: 70px;
+  padding: 4px 6px;
+  font: inherit;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+
+.cell-input.wide {
+  min-width: 200px;
+}
+
+.cell-input.narrow {
+  min-width: 64px;
+  max-width: 80px;
+}
+
+.cell-input:hover:not(:disabled) {
+  border-color: var(--line);
+}
+
+.cell-input:focus {
+  background: var(--surface);
+  border-color: var(--accent);
+  outline: none;
+}
+
+.cell-input.changed {
+  background: var(--plan-input-bg);
+  border-color: var(--plan-input-line);
+}
+
+.cell-input:disabled {
+  color: inherit;
+}
+
+select.cell-input {
+  border-color: var(--line);
+}
+
+/* ---- Step 3: matching ---- */
+.match-table {
+  margin: 0 20px 16px;
+  width: calc(100% - 40px);
+}
+
+.match-table td:first-child {
+  max-width: 260px;
+}
+
+.match-title {
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+.match-table tr.decision-accepted td:first-child {
+  box-shadow: inset 4px 0 0 var(--success);
+}
+
+.match-table tr.decision-rejected td {
+  color: var(--muted);
+}
+
+.review-none {
+  padding: 0 20px;
+}
+
+/* A row of toggle buttons (the filter on the matching list). */
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.segmented button {
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 0;
+  cursor: pointer;
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--line);
+}
+
+.segmented button.on {
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+.segmented button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+@media (max-width: 700px) {
+  .review-stepper {
+    display: none;
+  }
+
+  .review-foot {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .match-table {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
+.review-tag.problem {
+  color: var(--error);
+  background: var(--error-bg);
+  border-color: transparent;
+}
+
+.review-table td.nowrap {
+  white-space: nowrap;
+}
+
+/* Files the pipeline did not use, and its notes, at the top of the review panel. */
+.review-notes {
+  margin: 12px 20px 0;
+  padding: 8px 12px;
+  font-size: 0.8125rem;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.review-notes summary {
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.review-notes ul,
+.review-rejected {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  text-align: left;
+}
+
+.review-banner {
+  margin: 12px 20px 0;
+}

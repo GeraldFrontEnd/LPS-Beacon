@@ -6,6 +6,9 @@ runs; this code decides WHO may do WHAT, because the authorizer does not look at
 
 Routes (API Gateway route key -> handler). Unbuilt routes answer 501 so the frontend gets a clear message.
   POST   /upload-url                 finance_hr   pre-signed S3 upload link            (built)
+  GET    /pipeline/uploads/{date}/{batchId}  finance_hr  progress of one upload (pipeline status file)  (built)
+  GET    /pipeline/uploads/{date}/{batchId}/review/{step}   finance_hr  what the review page shows for a step  (built)
+  POST   /pipeline/uploads/{date}/{batchId}/review/{step}   finance_hr  the user's decisions; starts the next step (built)
   POST   /chat                       signed in    AI agent answer, saved to history    (built)
   GET    /sessions                   signed in    the caller's chats, newest first     (built)
   GET    /sessions/{id}/messages     signed in    one chat's messages (own chats only) (built)
@@ -30,13 +33,18 @@ Settings: Lambda > Configuration > Environment variables
   CHAT_MODEL_ID   the Bedrock inference profile ID, for example  global.anthropic.claude-haiku-5-5
   GUARDRAIL_ID    the Bedrock Guardrail ID, for example  ksbdqfuhq6ql
   GUARDRAIL_VERSION   the guardrail version number, for example  1
-  RESULTS_PREFIX  optional, where the agent's tools read pipeline output (default  results/latest/)
+  PIPELINE_FUNCTION  the forecast pipeline Lambda's name (default  lambda-forecastpipeline); review decisions start it
+  RESULTS_PREFIX  optional, where the first pipeline's CSVs are (default  results/latest/). The tools read the newest
+                  run of the forecast pipeline lambda first (results/latest.json); the CSVs are only a fallback.
 
 API Gateway integration: payload format version 2.0 (the code reads requestContext.authorizer.jwt.claims).
 Permissions needed on the function's role:
   s3:PutObject  on  arn:aws:s3:::lps-beacon-data/raw/*
   dynamodb:GetItem, PutItem, UpdateItem, DeleteItem, Query, BatchWriteItem  on the CHAT_TABLE table only
   s3:GetObject  on  arn:aws:s3:::lps-beacon-data/results/*
+  s3:ListBucket on  arn:aws:s3:::lps-beacon-data  with condition s3:prefix = results/*  (so a missing status file
+                answers NoSuchKey instead of AccessDenied; both are handled, this only makes the logs clearer)
+  lambda:InvokeFunction  on the PIPELINE_FUNCTION function (review decisions)
   bedrock:InvokeModel  on the CHAT_MODEL_ID inference profile (and its model, only through that profile)
   bedrock:ApplyGuardrail  on the GUARDRAIL_ID guardrail
 Lambda timeout: 29 seconds (API Gateway gives up after 30).
@@ -45,7 +53,7 @@ How /chat works (the agent loop, Bedrock Converse API with tool use):
   1. The guardrail checks the question. A blocked question never reaches the model or the database.
   2. The model gets the system prompt, the last few messages of this chat, the question, and the tools this user's
      group may use. It either answers or asks for a tool.
-  3. This Lambda runs the requested tool (reading the pipeline's CSV output in S3) and sends the result back.
+  3. This Lambda runs the requested tool (reading the pipeline's newest published run in S3) and sends the result back.
      Steps 2-3 repeat up to MAX_AGENT_ROUNDS times or until the time budget runs out.
   4. The guardrail checks the answer, then the question and answer are saved to DynamoDB.
 
@@ -86,6 +94,9 @@ CHAT_MODEL_ID = os.environ["CHAT_MODEL_ID"]
 GUARDRAIL_ID = os.environ["GUARDRAIL_ID"]
 GUARDRAIL_VERSION = os.environ["GUARDRAIL_VERSION"]
 RESULTS_PREFIX = os.environ.get("RESULTS_PREFIX", "results/latest/")
+PIPELINE_FUNCTION = os.environ.get("PIPELINE_FUNCTION", "lambda-forecastpipeline")
+REVIEW_STEPS = ("conflicts", "forecast", "matching")
+MAX_DECISION_BYTES = 200_000    # an asynchronous Lambda invocation carries at most 256 KB
 
 HISTORY_MESSAGES = 10          # earlier messages of this chat sent to the model (keeps cost and prompt size down)
 MAX_AGENT_ROUNDS = 4           # model calls per question
@@ -123,6 +134,7 @@ except TypeError:
     _config = Config(**_options)  # older boto3 does not have (or need) that setting
 s3 = boto3.client("s3", config=_config)
 table = boto3.resource("dynamodb", region_name=REGION).Table(CHAT_TABLE)
+lambda_client = boto3.client("lambda", region_name=REGION)
 bedrock = boto3.client("bedrock-runtime", region_name=REGION,
                        config=Config(read_timeout=20, connect_timeout=3, retries={"max_attempts": 2, "mode": "adaptive"}))
 
@@ -196,6 +208,7 @@ def not_built(what):
 # ---------- chat history storage (DynamoDB) ----------
 
 ID_PATTERN = r"[A-Za-z0-9_-]{1,64}"
+BATCH_ID_PATTERN = r"[A-Za-z0-9-]{8,64}"      # one id per upload, made by the page (a UUID)
 
 
 def now_ms():
@@ -309,22 +322,73 @@ ROLE_RULES = {
 _results_cache = {}            # file name -> (time loaded, rows); keeps warm Lambdas from re-reading S3 every call
 RESULTS_CACHE_SECONDS = 60
 
+# The forecast pipeline lambda publishes each run to results/<runId>/ as JSON and points results/latest.json at the
+# newest one. The tools still ask for the CSV names the first pipeline wrote; this maps them to the new files.
+# The columns are the same, only the format changed.
+LATEST_POINTER = "results/latest.json"
+PIPELINE_JSON = {
+    "matching_summary.csv": "detail/summary.json",
+    "matching_result.csv": "detail/matching.json",
+    "availability_forecast.csv": "summary/availability_forecast.json",
+}
+
+
+def _read_s3(key):
+    """(body bytes, LastModified) of one results object, or None when it is missing or not readable."""
+    try:
+        obj = s3.get_object(Bucket=BUCKET, Key=key)
+    except ClientError as e:
+        if e.response["Error"]["Code"] in ("NoSuchKey", "404", "AccessDenied"):
+            return None
+        raise
+    return obj["Body"].read(), obj["LastModified"]
+
+
+def _as_text(value):
+    """JSON values as the CSV reader gave them: text, with an empty string for nothing."""
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else str(value)
+
+
+def _load_pipeline_json(name):
+    """Rows of one table of the newest published pipeline run, or None if there is no run or no such table."""
+    pointer = _read_s3(LATEST_POINTER)
+    if pointer is None or name not in PIPELINE_JSON:
+        return None
+    latest = json.loads(pointer[0].decode("utf-8"))
+    prefix = str(latest.get("prefix") or "")
+    if not re.fullmatch(r"results/[A-Za-z0-9_-]+/", prefix):
+        print("Ignoring unexpected results prefix in", LATEST_POINTER, repr(prefix))
+        return None
+    found = _read_s3(prefix + PIPELINE_JSON[name])
+    if found is None:
+        print("Results table missing:", prefix + PIPELINE_JSON[name])
+        return None
+    rows = [{k: _as_text(v) for k, v in r.items()} for r in json.loads(found[0].decode("utf-8"))]
+    published = str(latest.get("publishedAt") or "")
+    updated = published[:16].replace("T", " ") + " UTC" if published else found[1].strftime("%Y-%m-%d %H:%M UTC")
+    return {"rows": rows, "updated": updated}
+
+
+def _load_legacy_csv(name):
+    """Rows of one CSV in RESULTS_PREFIX (the first pipeline's output), or None if it is not there."""
+    found = _read_s3(RESULTS_PREFIX + name)
+    if found is None:
+        return None
+    rows = list(csv.DictReader(io.StringIO(found[0].decode("utf-8-sig"))))
+    return {"rows": rows, "updated": found[1].strftime("%Y-%m-%d %H:%M UTC")}
+
 
 def load_results(name):
-    """Rows of one pipeline CSV in RESULTS_PREFIX, or None if the pipeline has not written it yet."""
+    """Rows of one pipeline table, newest published run first, or None if the pipeline has not written it yet."""
     cached = _results_cache.get(name)
     if cached and time.time() - cached[0] < RESULTS_CACHE_SECONDS:
         return cached[1]
-    try:
-        obj = s3.get_object(Bucket=BUCKET, Key=RESULTS_PREFIX + name)
-    except ClientError as e:
-        if e.response["Error"]["Code"] in ("NoSuchKey", "404", "AccessDenied"):
-            print("Results file missing or unreadable:", RESULTS_PREFIX + name, e.response["Error"]["Code"])
-            return None
-        raise
-    text = obj["Body"].read().decode("utf-8-sig")
-    rows = list(csv.DictReader(io.StringIO(text)))
-    rows_meta = {"rows": rows, "updated": obj["LastModified"].strftime("%Y-%m-%d %H:%M UTC")}
+    rows_meta = _load_pipeline_json(name) or _load_legacy_csv(name)
+    if rows_meta is None:
+        print("Results file missing or unreadable:", name)
+        return None
     _results_cache[name] = (time.time(), rows_meta)
     return rows_meta
 
@@ -697,17 +761,29 @@ def upload_url(event, caller):
     if content_type not in ALLOWED_TYPES:
         raise HttpError(400, "File type %r is not allowed" % content_type)
 
-    # The file will be stored as raw/<user id>/<date>/<random>-<name>
     safe_stem = re.sub(r"[^\w.-]+", "_", stem).strip("._")[:100] or "file"
-    key = "raw/%s/%s/%s-%s%s" % (
-        caller.user_id, datetime.date.today().isoformat(), uuid.uuid4().hex[:8], safe_stem, extension)
+    today = datetime.date.today().isoformat()
+    # All files of one upload go into one folder, so the forecast pipeline runs once, after the last of them:
+    #   raw/<user id>/<date>/<batchId>/<name>
+    # The page sends the same batchId for every file of an upload. Without one, the older layout is used
+    # (raw/<user id>/<date>/<random>-<name>), and the pipeline then treats that whole day as one upload.
+    batch_id = str(body.get("batchId") or "")
+    if batch_id:
+        if not re.fullmatch(BATCH_ID_PATTERN, batch_id):
+            raise HttpError(400, "Send a valid batchId")
+        key = "raw/%s/%s/%s/%s%s" % (caller.user_id, today, batch_id, safe_stem, extension)
+    else:
+        key = "raw/%s/%s/%s-%s%s" % (caller.user_id, today, uuid.uuid4().hex[:8], safe_stem, extension)
     link = s3.generate_presigned_url(
         "put_object",
         Params={"Bucket": BUCKET, "Key": key, "ContentType": content_type},
         ExpiresIn=LINK_LIFETIME_SECONDS,
     )
     print("Upload link issued for user", caller.user_id, "type", extension)
-    return reply(200, {"uploadUrl": link, "key": key})
+    result = {"uploadUrl": link, "key": key}
+    if batch_id:
+        result.update(batchId=batch_id, date=today)
+    return reply(200, result)
 
 
 def chat(event, caller):
@@ -952,6 +1028,72 @@ def run_forecast(event, caller):
     not_built("Forecast runs")
 
 
+def _upload_path(event, caller):
+    """results/uploads/<caller>/<date>/<batchId>/ for the upload in the path. Only the caller's own uploads."""
+    params = event.get("pathParameters") or {}
+    date, batch_id = str(params.get("date", "")), str(params.get("batchId", ""))
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) or not re.fullmatch(BATCH_ID_PATTERN, batch_id):
+        raise HttpError(400, "Invalid upload id")
+    return "%s/%s/%s" % (caller.user_id, date, batch_id)
+
+
+def _review_step(event):
+    step = str((event.get("pathParameters") or {}).get("step", ""))
+    if step not in REVIEW_STEPS:
+        raise HttpError(400, "Unknown review step")
+    return step
+
+
+def _upload_status(batch):
+    found = _read_s3("results/uploads/%s/status.json" % batch)
+    return json.loads(found[0].decode("utf-8")) if found else None
+
+
+def get_upload_status(event, caller):
+    """Progress of one upload, written by the forecast pipeline: which files were cleaned or rejected (and why),
+    and the run state (waiting_for_files, running, awaiting_review + step, published, ended, failed, ...)."""
+    caller.require_finance_hr()
+    batch = _upload_path(event, caller)
+    status = _upload_status(batch)
+    if status is None:
+        # The pipeline has not picked the files up yet (or has no ListBucket permission, see the module notes).
+        return reply(200, {"batchId": batch.rsplit("/", 1)[-1], "files": [],
+                           "run": {"state": "waiting_for_files", "message": "waiting for the pipeline"}})
+    return reply(200, status)
+
+
+def get_review(event, caller):
+    """What the review page shows for one step (conflicts, opportunity forecast or matching list)."""
+    caller.require_finance_hr()
+    batch, step = _upload_path(event, caller), _review_step(event)
+    found = _read_s3("results/uploads/%s/review/%s.json" % (batch, step))
+    if found is None:
+        raise HttpError(404, "This step has no review yet")
+    return reply(200, json.loads(found[0].decode("utf-8")))
+
+
+def post_review(event, caller):
+    """The user's decisions for the step the upload is waiting on. Starts the pipeline's next step in the
+    background (API Gateway would time out waiting for it); the page follows it with get_upload_status."""
+    caller.require_finance_hr()
+    batch, step = _upload_path(event, caller), _review_step(event)
+    status = _upload_status(batch) or {}
+    run = status.get("run") or {}
+    if run.get("state") != "awaiting_review" or run.get("step") != step:
+        raise HttpError(409, "This upload is not waiting for the %s review" % step)
+    body = json_body(event)
+    decisions = body.get("decisions")
+    if not isinstance(decisions, dict):
+        raise HttpError(400, "Send {\"decisions\": {...}}")
+    payload = json.dumps({"mode": "review", "batchId": batch, "step": step, "decisions": decisions,
+                          "requestedBy": caller.user_id}).encode("utf-8")
+    if len(payload) > MAX_DECISION_BYTES:
+        raise HttpError(413, "Too many decisions in one request")
+    lambda_client.invoke(FunctionName=PIPELINE_FUNCTION, InvocationType="Event", Payload=payload)
+    print("Review decision for step", step, "sent to the pipeline by user", caller.user_id)
+    return reply(202, {"status": "started", "step": step})
+
+
 def get_run(event, caller):
     caller.require_finance_hr()
     path_id(event)
@@ -961,6 +1103,9 @@ def get_run(event, caller):
 # API Gateway route key -> handler. The keys must match the routes in API Gateway exactly.
 ROUTES = {
     "POST /upload-url": upload_url,
+    "GET /pipeline/uploads/{date}/{batchId}": get_upload_status,
+    "GET /pipeline/uploads/{date}/{batchId}/review/{step}": get_review,
+    "POST /pipeline/uploads/{date}/{batchId}/review/{step}": post_review,
     "POST /chat": chat,
     "GET /sessions": list_sessions,
     "GET /sessions/{id}/messages": get_session_messages,

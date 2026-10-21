@@ -40,6 +40,10 @@ class Config:
     upload_settle_seconds: int  # wait for the rest of a batch to land before running
     s3_sse: str                 # "" = bucket default, "AES256" or "aws:kms"
     s3_kms_key_id: str          # KMS key id/ARN when s3_sse is aws:kms ("" = AWS managed key)
+    review_on_upload: bool      # after an upload, pause for the user's review (conflicts, opportunity
+                                # forecast, matching) instead of running straight through
+    forecast_stages: tuple      # SFDC stages whose opportunities get a resource forecast, e.g. ("O1", "O2")
+    similarity_threshold: float # 0-1; how alike an ABCD project must be to be offered as a "similar project"
 
 
 def _int(name: str, default: int) -> int:
@@ -128,11 +132,17 @@ def load(event: dict | None = None) -> Config:
         upload_settle_seconds=_int("UPLOAD_SETTLE_SECONDS", 15),
         s3_sse=sse,
         s3_kms_key_id=kms_key,
+        review_on_upload=_bool("REVIEW_ON_UPLOAD", True),
+        forecast_stages=tuple(s.strip() for s in os.environ.get("FORECAST_STAGES", "O1,O2,O3,O4,O5").split(",")
+                              if s.strip()),
+        similarity_threshold=_float("SIMILARITY_THRESHOLD", 0.6),
     )
     if not 0 <= cfg.renewal_rate <= 1:
         raise ConfigError("RENEWAL_RATE must be between 0 and 1")
     if cfg.window_months < 1:
         raise ConfigError("WINDOW_MONTHS must be at least 1")
+    if not 0 <= cfg.similarity_threshold <= 1:
+        raise ConfigError("SIMILARITY_THRESHOLD must be between 0 and 1")
     if not 0 <= cfg.upload_settle_seconds <= 120:
         raise ConfigError("UPLOAD_SETTLE_SECONDS must be between 0 and 120")
     return cfg

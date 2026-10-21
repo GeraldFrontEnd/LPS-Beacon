@@ -6,6 +6,9 @@
 import type {
   SendMessageRequest,
   SendMessageResponse,
+  PipelineUploadStatus,
+  ReviewStep,
+  UploadBatch,
   UploadUrlRequest,
   UploadUrlResponse,
   CapacityPlan,
@@ -41,6 +44,10 @@ export const API_ROUTES = {
   sessionMessages: (id: string) => `/sessions/${encodeURIComponent(id)}/messages`, // GET
   folders: "/folders", // GET list folders (the first call creates the default ones), POST create
   folder: (id: string) => `/folders/${encodeURIComponent(id)}`, // PATCH rename, DELETE (its chats move out)
+  // The forecast pipeline's progress for one upload, and its review steps (GET the findings, POST the decisions).
+  uploadStatus: (b: UploadBatch) => `/pipeline/uploads/${encodeURIComponent(b.date)}/${encodeURIComponent(b.batchId)}`,
+  uploadReview: (b: UploadBatch, step: ReviewStep) =>
+    `/pipeline/uploads/${encodeURIComponent(b.date)}/${encodeURIComponent(b.batchId)}/review/${step}`,
 } as const;
 
 // A tiny helper that pauses for a number of milliseconds (used to fake network delay).
@@ -139,7 +146,10 @@ export async function getUploadUrl(
   // Mock mode: return a made-up link.
   if (USE_MOCK) {
     await wait(300);
-    return { uploadUrl: "mock://upload", key: `raw/${req.fileName}` };
+    const date = new Date().toISOString().slice(0, 10);
+    return req.batchId
+      ? { uploadUrl: "mock://upload", key: `raw/mock/${date}/${req.batchId}/${req.fileName}`, batchId: req.batchId, date }
+      : { uploadUrl: "mock://upload", key: `raw/${req.fileName}` };
   }
 
   const response = await fetch(`${requireApiUrl()}${API_ROUTES.uploadUrl}`, {
@@ -157,13 +167,16 @@ export async function getUploadUrl(
 }
 
 // Uploads one file: step 1 (get the link) and step 2 (send the file to that link).
-// Promise<void> means it returns nothing; it either finishes or throws an error.
-export async function uploadFile(file: File, token?: string): Promise<void> {
+// batchId groups the files of one upload (see UploadUrlRequest). Returns the upload's batch, when the backend
+// sent one back, or null.
+export async function uploadFile(file: File, token?: string, batchId?: string): Promise<UploadBatch | null> {
   // Some computers don't report a type for CSV files, so we fall back to a generic one.
   // The SAME value is used in both steps; if they differ, S3 can reject the upload.
   const contentType = file.type || "application/octet-stream";
 
-  const { uploadUrl } = await getUploadUrl({ fileName: file.name, contentType }, token);
+  const link = await getUploadUrl({ fileName: file.name, contentType, batchId }, token);
+  const { uploadUrl } = link;
+  const batch = link.batchId && link.date ? { batchId: link.batchId, date: link.date } : null;
 
   // Mock mode: pretend to upload, and fail on purpose if the file name contains "fail".
   // This lets you test the error state on the upload page.
@@ -172,7 +185,7 @@ export async function uploadFile(file: File, token?: string): Promise<void> {
     if (file.name.toLowerCase().includes("fail")) {
       throw new Error("Mock upload failed (the file name contains the word fail).");
     }
-    return;
+    return batch;
   }
 
   // Step 2: PUT the file itself to the temporary S3 link.
@@ -186,6 +199,7 @@ export async function uploadFile(file: File, token?: string): Promise<void> {
   if (!response.ok) {
     throw new Error(`Upload to storage failed (${response.status}).`);
   }
+  return batch;
 }
 
 // ---- Added for the Analysis page ----
@@ -307,4 +321,43 @@ export async function renameFolder(id: string, name: string, token?: string): Pr
 // Deletes a folder. The server moves its chats back to the main Chats list.
 export async function deleteFolder(id: string, token?: string): Promise<void> {
   await apiRequest<void>("DELETE", API_ROUTES.folder(id), token);
+}
+
+// ---- Review of an upload (the forecast pipeline pauses for the user three times) ----
+
+// Where the pipeline is with one upload: files cleaned or rejected, and the run state.
+export async function getUploadStatus(batch: UploadBatch, token?: string): Promise<PipelineUploadStatus> {
+  const response = await fetch(`${requireApiUrl()}${API_ROUTES.uploadStatus(batch)}`, {
+    headers: await authHeaders(token),
+  });
+  if (response.status === 401) throw sessionExpired();
+  if (!response.ok) throw new Error(`Could not load the upload's progress (${response.status}).`);
+  return (await response.json()) as PipelineUploadStatus;
+}
+
+// What the pipeline found for one review step. The shape depends on the step (see src/review/types.ts).
+export async function getReviewStep<T>(batch: UploadBatch, step: ReviewStep, token?: string): Promise<T> {
+  const response = await fetch(`${requireApiUrl()}${API_ROUTES.uploadReview(batch, step)}`, {
+    headers: await authHeaders(token),
+  });
+  if (response.status === 401) throw sessionExpired();
+  if (!response.ok) throw new Error(`Could not load the ${step} review (${response.status}).`);
+  return (await response.json()) as T;
+}
+
+// Sends the user's decisions for a step. The pipeline continues in the background; follow it with getUploadStatus.
+export async function postReviewDecisions(
+  batch: UploadBatch,
+  step: ReviewStep,
+  decisions: object,
+  token?: string
+): Promise<void> {
+  const response = await fetch(`${requireApiUrl()}${API_ROUTES.uploadReview(batch, step)}`, {
+    method: "POST",
+    headers: await authHeaders(token),
+    body: JSON.stringify({ decisions }),
+  });
+  if (response.status === 401) throw sessionExpired();
+  if (response.status === 409) throw new Error("This upload is no longer waiting for that decision. Reload the review.");
+  if (!response.ok) throw new Error(`Could not send your decisions (${response.status}).`);
 }

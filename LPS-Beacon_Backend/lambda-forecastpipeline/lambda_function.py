@@ -16,6 +16,14 @@ How it is started, and what runs
   Schedule (EventBridge, monthly or quarterly)       {"mode": "full", "requestedBy": "schedule"}
   Deployment check                                   {"mode": "selfcheck"}
 
+  Review decision (from the API Lambda, see pipeline/review.py)
+      {"mode": "review", "batchId": "...", "step": "conflicts" | "forecast" | "matching",
+       "decisions": {...}}                             continues a paused upload review
+
+With REVIEW_ON_UPLOAD=true (default) an upload does not run straight through: it pauses three
+times for the user (conflicts -> opportunity forecast -> matching), see pipeline/review.py.
+With REVIEW_ON_UPLOAD=false it runs match -> forecast -> publish at once, as before.
+
 Optional event fields: "asOf": "2026-09-01" (planning date), "requestedBy": "email".
 Reserved concurrency 1 makes invocations run one at a time, so uploads, scheduled and
 on-demand runs never write results/ at the same time.
@@ -26,9 +34,12 @@ import dataclasses
 import json
 import logging
 import time
+
+import pandas as pd
 from urllib.parse import unquote_plus
 
-from pipeline import batch, clean, config, forecast, matching, publish, selfcheck, validate
+from pipeline import (batch, clean, config, crossval, forecast, matching, opportunities, publish, review,
+                      selfcheck, validate)
 from pipeline.s3io import Store
 
 logging.getLogger().setLevel(logging.INFO)
@@ -122,6 +133,15 @@ def maybe_run_batch(cfg, store: Store, batch_id: str, prefix: str, auto: bool, c
                       f"upload a {' and a '.join(missing)} to run the forecast")
         return {"batchId": batch_id, "state": "waiting_for_inputs"}
 
+    if cfg.review_on_upload:
+        try:
+            return start_review(cfg, store, batch_id)
+        except Exception as exc:  # noqa: BLE001 - same reasoning as below
+            log.exception("upload review failed to start")
+            publish.notify(cfg, "LPS-Beacon pipeline FAILED", {"batchId": batch_id, "error": str(exc)})
+            batch.set_run(store, batch.load_status(store, batch_id, prefix), "failed", str(exc))
+            return {"batchId": batch_id, "state": "failed", "error": str(exc)}
+
     try:
         result = run_full_mode(cfg, store, {"mode": "full", "trigger": "upload", "batchId": batch_id,
                                             "requestedBy": status.get("uploadedBy")})
@@ -134,6 +154,133 @@ def maybe_run_batch(cfg, store: Store, batch_id: str, prefix: str, auto: bool, c
             batch.set_run(store, latest, "failed", str(exc))
         return {"batchId": batch_id, "state": "failed", "error": str(exc)}
     return {"batchId": batch_id, "state": "published", "runId": result["runId"]}
+
+
+# ---------------------------------------------------------------- REVIEW flow (after an upload)
+def _status(store: Store, batch_id: str) -> dict:
+    return batch.load_status(store, batch_id, f"raw/{batch_id}/")
+
+
+def _pause(store: Store, batch_id: str, step: str, payload: dict, message: str) -> dict:
+    """Writes what the review page shows for this step and marks the upload as waiting for it."""
+    store.write_json(review.review_key(batch_id, step), review.plain(payload))
+    batch.set_run(store, _status(store, batch_id), "awaiting_review", message, step=step,
+                  reviewKey=review.review_key(batch_id, step))
+    _log("review_paused", batchId=batch_id, step=step)
+    return {"batchId": batch_id, "state": "awaiting_review", "step": step}
+
+
+def _decisions(store: Store, batch_id: str, step: str) -> dict:
+    return store.read_json_or(f"{review.work_prefix(batch_id)}decisions/{step}.json", {})
+
+
+def _prepared_inputs(cfg, store: Store, batch_id: str, with_pipeline: bool = True) -> tuple[dict, list[str]]:
+    """The latest clean data with the review's choices applied: conflict values, and the accepted
+    pipeline demand added to the quote lines."""
+    inputs = review.load_inputs(store)
+    work = review.work_prefix(batch_id)
+    notes = crossval.apply(inputs, store.read_json_or(work + "conflicts.json", []),
+                           (_decisions(store, batch_id, "conflicts").get("choices") or {}))
+    if with_pipeline:
+        opps = store.read_json_or(work + "opportunities.json", [])
+        accepted = review.accepted_resources(opps, _decisions(store, batch_id, "forecast"))
+        if accepted:
+            ql = inputs["quoteline"]
+            extra = review.pipeline_quote_rows(accepted, ql["wide"], cfg.ql_full_month_mds)
+            ql["wide"] = pd.concat([ql["wide"], extra], ignore_index=True)
+            ql["long"] = pd.concat([ql["long"], clean.to_long(extra, "quoteline", cfg.ql_full_month_mds)],
+                                   ignore_index=True)
+            notes.append(f"{len(accepted)} accepted pipeline resources added to the demand")
+    # The matching script must see these edited tables, not the original uploads.
+    for dataset in ("resource_plan", "quoteline"):
+        inputs[dataset]["quality"] = {**inputs[dataset]["quality"], "sourceKey": None}
+    return inputs, notes
+
+
+def start_review(cfg, store: Store, batch_id: str) -> dict:
+    """Review step 1: conflicts between the files. Skipped (straight to step 2) when there are none."""
+    batch.set_run(store, _status(store, batch_id), "running", "cross-validating the uploaded files")
+    inputs = review.load_inputs(store)
+    conflicts = crossval.find(inputs)
+    store.write_json(review.work_prefix(batch_id) + "conflicts.json", review.plain(conflicts))
+    if conflicts:
+        shown = [{k: v for k, v in c.items() if k != "kind"} for c in conflicts]
+        return _pause(store, batch_id, "conflicts", {"conflicts": shown},
+                      f"{len(conflicts)} conflict(s) between files need a decision")
+    return forecast_step(cfg, store, batch_id)
+
+
+def forecast_step(cfg, store: Store, batch_id: str) -> dict:
+    """Review step 2: the resources each pipeline opportunity needs."""
+    batch.set_run(store, _status(store, batch_id), "running", "forecasting resource needs for pipeline opportunities")
+    inputs, notes = _prepared_inputs(cfg, store, batch_id, with_pipeline=False)
+    opps, opp_notes = opportunities.run(cfg, inputs)
+    store.write_json(review.work_prefix(batch_id) + "opportunities.json", review.plain(opps))
+    return _pause(store, batch_id, "forecast", {"opportunities": opps, "notes": notes + opp_notes},
+                  f"forecast for {len(opps)} opportunities ready for review")
+
+
+def matching_step(cfg, store: Store, batch_id: str) -> dict:
+    """Review step 3: your matching script on current + accepted pipeline demand."""
+    batch.set_run(store, _status(store, batch_id), "running", "matching demand to available resources")
+    inputs, notes = _prepared_inputs(cfg, store, batch_id)
+    tables, warnings = matching.run(cfg, inputs, store=None)
+    work = review.work_prefix(batch_id)
+    store.write_tables(work + "matching/", tables)
+    opps = store.read_json_or(work + "opportunities.json", [])
+    payload = review.matching_review(tables.get("matching"), cfg.grade_tolerance, cfg.max_idle_months, opps)
+    payload["notes"] = notes + warnings
+    return _pause(store, batch_id, "matching", payload,
+                  f"matching list with {len(payload['lines'])} demand lines ready for review")
+
+
+def finish_review(cfg, store: Store, batch_id: str) -> dict:
+    """After the matching is confirmed: hiring gap, availability forecast and publish, as a normal run."""
+    work = review.work_prefix(batch_id)
+    tables = store.read_tables(work + "matching/")
+    reviewed = review.reviewed_tables(tables, _decisions(store, batch_id, "matching"))
+    reviewed.setdefault("matching", pd.DataFrame())
+    run_id = publish.new_run_id()
+    _save_stage(store, "matching", run_id, reviewed)
+    _save_json(store, "matching", run_id, "run", {"runId": run_id, "asOf": cfg.as_of.isoformat(),
+                                                  "batchId": batch_id, "reviewed": True})
+    inputs, _ = _prepared_inputs(cfg, store, batch_id)
+    gap = review.hiring_gap(reviewed["matching"], cfg.ql_full_month_mds)
+    return run_full_mode(cfg, store, {"mode": "full", "stages": ["forecast", "publish"], "trigger": "upload",
+                                      "batchId": batch_id, "requestedBy": _status(store, batch_id).get("uploadedBy")},
+                         prepared_inputs=inputs, extra_summary={"hiring_gap": gap})
+
+
+def run_review_mode(cfg, store: Store, event: dict) -> dict:
+    """A decision from the review page. Ignored unless the upload is waiting for exactly that step,
+    so a repeated or late message can't move the review twice."""
+    batch_id, step = str(event.get("batchId") or ""), str(event.get("step") or "")
+    if step not in review.STEPS or not batch_id:
+        raise ValueError(f"review events need a batchId and a step in {review.STEPS}")
+    run = _status(store, batch_id).get("run", {})
+    if run.get("state") != "awaiting_review" or run.get("step") != step:
+        _log("review_ignored", batchId=batch_id, step=step, state=run.get("state"), waiting_for=run.get("step"))
+        return {"batchId": batch_id, "state": run.get("state"), "ignored": True}
+    decisions = event.get("decisions") or {}
+    store.write_json(f"{review.work_prefix(batch_id)}decisions/{step}.json",
+                     {**decisions, "by": event.get("requestedBy"), "at": batch.now_iso()})
+    _log("review_decided", batchId=batch_id, step=step, by=event.get("requestedBy"))
+    try:
+        if step == "conflicts":
+            return forecast_step(cfg, store, batch_id)
+        if step == "forecast":
+            return matching_step(cfg, store, batch_id)
+        if decisions.get("rejectedAll"):
+            batch.set_run(store, _status(store, batch_id), "ended",
+                          "the matching list was rejected; nothing from this upload was used")
+            return {"batchId": batch_id, "state": "ended"}
+        batch.set_run(store, _status(store, batch_id), "running", "calculating hiring demand and publishing")
+        result = finish_review(cfg, store, batch_id)
+        return {"batchId": batch_id, "state": "published", "runId": result["runId"]}
+    except Exception as exc:
+        log.exception("review step failed")
+        batch.set_run(store, _status(store, batch_id), "failed", str(exc))
+        raise
 
 
 # ---------------------------------------------------------------- FULL mode
@@ -170,7 +317,9 @@ def _planning_date(cfg, store: Store, stages: list[str], warnings: list[str]):
     return dataclasses.replace(cfg, as_of=saved_date)
 
 
-def run_full_mode(cfg, store: Store, event: dict) -> dict:
+def run_full_mode(cfg, store: Store, event: dict, prepared_inputs: dict | None = None,
+                  extra_summary: dict | None = None) -> dict:
+    """prepared_inputs / extra_summary: used by the review flow (the reviewed inputs, and the hiring gap)."""
     stages = _stages(event)
     warnings: list[str] = []
     cfg = _planning_date(cfg, store, stages, warnings)
@@ -193,7 +342,7 @@ def run_full_mode(cfg, store: Store, event: dict) -> dict:
         return value
 
     try:
-        inputs = timed("load", lambda: clean.load_latest(store))
+        inputs = prepared_inputs if prepared_inputs is not None else timed("load", lambda: clean.load_latest(store))
         for dataset in ("resource_plan", "quoteline"):
             warnings += [f"{dataset}: {w}" for w in inputs[dataset]["quality"].get("warnings", [])]
 
@@ -213,6 +362,8 @@ def run_full_mode(cfg, store: Store, event: dict) -> dict:
             fc_tables, fin_tables, kpis, fc_warnings = timed(
                 "forecast", lambda: forecast.run(cfg, inputs, match_tables))
             warnings += fc_warnings
+            if extra_summary:
+                fc_tables.update(extra_summary)
             _save_stage(store, "forecast", run_id, fc_tables)
             _save_stage(store, "finance", run_id, fin_tables)
             _save_json(store, "forecast", run_id, "kpis", kpis)
@@ -294,7 +445,9 @@ def lambda_handler(event, context=None):
             return run_file_mode(cfg, store, event, context)
         if mode == "full":
             return run_full_mode(cfg, store, event)
-        raise ValueError(f"unknown mode {mode!r}; use 'file', 'full' or 'selfcheck'")
+        if mode == "review":
+            return run_review_mode(cfg, store, event)
+        raise ValueError(f"unknown mode {mode!r}; use 'file', 'full', 'review' or 'selfcheck'")
     except Exception as exc:
         log.exception("pipeline failed")
         publish.notify(cfg, "LPS-Beacon pipeline FAILED", {"mode": mode, "error": str(exc)})

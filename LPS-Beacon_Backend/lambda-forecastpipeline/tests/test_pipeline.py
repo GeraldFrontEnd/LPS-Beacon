@@ -63,6 +63,8 @@ class Base(unittest.TestCase):
         os.environ.pop("AS_OF_DATE", None)
         os.environ["UPLOAD_SETTLE_SECONDS"] = "0"
         os.environ.pop("AUTO_RUN_ON_UPLOAD", None)
+        # These tests cover the straight-through run; tests/test_review.py covers the paused review flow.
+        os.environ["REVIEW_ON_UPLOAD"] = "false"
         self.cfg = config.load({"asOf": "2026-09-01"})
         self.store = Store(self.cfg)
 

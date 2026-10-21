@@ -1,0 +1,232 @@
+"""Tests for the review flow after an upload (pipeline/review.py, crossval.py, opportunities.py).
+
+    python -m unittest discover -s tests -v
+
+The flow tests run matching_python_script.py itself, so they are skipped when scipy or
+scikit-learn are not installed (like RealMatchingScriptTests).
+"""
+import io
+import os
+import unittest
+
+import pandas as pd
+
+from test_pipeline import (ROOT, Base, mapping_xlsx, ql_csv_starting_oct, rp_csv_ending_aug,  # noqa: F401
+                           s3_event)
+
+from pipeline import clean, crossval, opportunities, review  # noqa: E402
+
+try:
+    import scipy  # noqa: F401
+    import sklearn  # noqa: F401
+    HAVE_ML = True
+except ImportError:
+    HAVE_ML = False
+
+SL_COLUMNS = ["Demand Type", "ID", "Name", "Customer", "Planned Start Date", "Planned End Date", "Resource",
+              "IT Code", "Grade", "Skill", "Position Name", "Working City", "Calendar Date", "MD", "CRM ID"]
+
+
+def sl_rp_csv() -> bytes:
+    rows = []
+    for month in ("2026-10-01", "2026-11-01", "2026-12-01"):       # QL-2 says band 7 here, band 6 in the quote line file
+        rows.append(["Quote Won", "QL-2", "Proj Two", "CUST", "2026-10-01", "2027-03-31", "Generic Resource 758",
+                     "", "7", "", "Server Engineer", "SG - Singapore", month, "18", "CRM-0"])
+    for month in pd.date_range("2026-10-01", "2027-03-01", freq="MS"):   # CRM-1's own resource plan
+        rows.append(["Quote O4", "QL-9", "Deal One", "CUST", "2026-10-01", "2027-03-31", "Generic Resource 758",
+                     "", "6", "", "Server Engineer FY26", "SG - Singapore", month.strftime("%Y-%m-%d"), "18", "CRM-1"])
+    rows.append(["Pre Sales", "PROJ-BID", "Bid team", "CUST", "", "", "Generic Resource 9", "bid1", "8", "",
+                 "Solution Architect", "SG - Singapore", "2026-09-01", "5", "CRM-1"])
+    for month in pd.date_range("2025-01-01", "2025-06-01", freq="MS"):   # a past project, copied for CRM-2
+        rows.append(["Project", "PROJ-PAST", "Past Delivery Alpha", "CUST", "2025-01-01", "2025-06-30",
+                     "Generic Resource 7", "code77", "7", "", "Project Manager", "SG - Singapore",
+                     month.strftime("%Y-%m-%d"), "18", ""])
+    return pd.DataFrame(rows, columns=SL_COLUMNS).to_csv(index=False).encode("utf-8")
+
+
+def sfdc_xlsx() -> bytes:
+    """Like the real export: a title block, then the header on row 12."""
+    months = [f"{m:02d}/ {y} (converted)" for y, m in [(2026, 10), (2026, 11), (2026, 12), (2027, 1), (2027, 2), (2027, 3)]]
+    header = ["CRM ID", "Opportunity Name (English)", "End Customer", "Stage", "Probability (%)", "TCV (converted)",
+              "Expected Closed Date", "Major Solution Offering"] + months
+    data = [
+        ["CRM-1", "Deal One", "Cust A", "O4 - Customer Decision", 0.6, 100000, "30/9/2026", "ATFM"] + [10] * 6,
+        ["CRM-2", "Past Delivery Alpha Renewal", "Cust B", "O3 - Solution", 0.4, 200000, "31/10/2026", "ATFM"] + [0, 5, 5, 5, 5, 5],
+        ["CRM-3", "Something Else", "Cust C", "O2 - Qualify", 0.2, 5, "31/12/2026", "CRM"] + [0] * 6,
+        ["CRM-4", "Lost Deal", "Cust D", "Closed Lost/Cancel", 0, 50000, "1/1/2026", "ATFM"] + [0] * 6,
+    ]
+    grid = [["", "YTD Pipeline (USD) -SEA"], ["", "As of 2026-09-14"], [], ["", "Filtered By"]] + [[]] * 7
+    grid += [header] + data
+    buffer = io.BytesIO()
+    width = max(len(r) for r in grid)
+    pd.DataFrame([list(r) + [None] * (width - len(r)) for r in grid]).to_excel(buffer, index=False, header=False)
+    return buffer.getvalue()
+
+
+def abcd_csv() -> bytes:
+    return pd.DataFrame([{
+        "Project_ID": "PROJ-PAST", "Project_Name": "Past Delivery Alpha", "SFDC_ID": "001X", "End_Customer": "Cust B",
+        "Delivery_Region": "Singapore", "Service_Line": "ATFM", "Solution_Offering": "ATFM",
+        "TCVBefore_Tax_USD_Currency_Contract": 210000, "Planned_Start": "2025-01-01", "Planned_End_Date": "2025-06-30",
+        "Project_Duration_Months": 6}]).to_csv(index=False).encode("utf-8")
+
+
+class DetectTests(Base):
+    def test_new_files_are_recognised(self):
+        self.assertEqual(clean.detect(clean.read_any(sl_rp_csv(), ".csv"))[0], "sl_rp")
+        self.assertEqual(clean.detect(clean.read_any(abcd_csv(), ".csv"))[0], "abcd")
+        dataset, sheets = clean.detect(clean.read_any(sfdc_xlsx(), ".xlsx"))
+        self.assertEqual(dataset, "sfdc_pipeline")
+        table, _ = clean.clean_sfdc(sheets["main"])
+        self.assertEqual(list(table["CRM ID"]), ["CRM-1", "CRM-2", "CRM-3", "CRM-4"])
+        self.assertEqual(table.loc[1, "Revenue From"], pd.Timestamp("2026-11-01"))
+        self.assertEqual(table.loc[0, "Expected Closed Date"], pd.Timestamp("2026-09-30"))
+
+    def test_edited_plan_files_use_the_file_name(self):
+        plan = pd.read_csv(io.BytesIO(ql_csv_starting_oct())).drop(columns=["Name", "Apr"])
+        data = plan.to_csv(index=False).encode()
+        self.assertEqual(clean.detect(clean.read_any(data, ".csv"), "Quote_Line(Edited).csv")[0], "quoteline")
+        self.assertEqual(clean.detect(clean.read_any(data, ".csv"), "Resource_Plan(Edited).csv")[0], "resource_plan")
+        with self.assertRaises(clean.CleanError):
+            clean.detect(clean.read_any(data, ".csv"), "export.csv")
+
+
+@unittest.skipUnless(HAVE_ML, "scipy / scikit-learn not installed")
+class ReviewFlowTests(Base):
+    BATCH = "user@example.com/2026-10-20/r1"
+
+    def setUp(self):
+        super().setUp()
+        os.environ["REVIEW_ON_UPLOAD"] = "true"
+        os.environ["MATCHING_SCRIPT"] = str(ROOT / "matching_script.py")
+
+    def upload_all(self):
+        import lambda_function
+        files = [("rp.csv", rp_csv_ending_aug()), ("ql.csv", ql_csv_starting_oct()),
+                 ("Position Name Mapping.xlsx", mapping_xlsx()), ("SL_X_RP.csv", sl_rp_csv()),
+                 ("YTD_Pipeline.xlsx", sfdc_xlsx()), ("ABCD.csv", abcd_csv())]
+        keys = [self.put(name, data, batch="r1") for name, data in files]
+        for key in keys:
+            result = lambda_function.lambda_handler({**s3_event(key), "asOf": "2026-09-01"})
+        return result
+
+    def status(self):
+        return self.store.read_json(f"results/uploads/{self.BATCH}/status.json")
+
+    def payload(self, step):
+        return self.store.read_json(review.review_key(self.BATCH, step))
+
+    def decide(self, step, decisions):
+        import lambda_function
+        return lambda_function.lambda_handler({"mode": "review", "batchId": self.BATCH, "step": step,
+                                               "decisions": decisions, "asOf": "2026-09-01"})
+
+    def run_to_matching(self):
+        self.upload_all()
+        conflicts = self.payload("conflicts")["conflicts"]
+        self.decide("conflicts", {"choices": {conflicts[0]["id"]: "a"}})
+        opps = {o["crmId"]: o for o in self.payload("forecast")["opportunities"]}
+        past = opps["CRM-2"]["resources"][0]["id"]
+        self.decide("forecast", {"opportunities": {opps["CRM-1"]["id"]: "accepted", opps["CRM-2"]["id"]: "accepted",
+                                                   opps["CRM-3"]["id"]: "rejected"},
+                                 "edits": {past: {"grade": 6}}, "removed": []})
+        return opps
+
+    def test_upload_pauses_on_the_conflict(self):
+        result = self.upload_all()
+        self.assertEqual(result["batches"][0]["state"], "awaiting_review")
+        run = self.status()["run"]
+        self.assertEqual((run["state"], run["step"]), ("awaiting_review", "conflicts"))
+        conflicts = self.payload("conflicts")["conflicts"]
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0]["key"], "QL-2")
+        self.assertEqual({o["value"] for o in conflicts[0]["options"]}, {"Band 6", "Band 7"})
+        self.assertFalse(self.store.exists("results/latest.json"), "nothing is published before the review")
+
+    def test_forecast_finds_crm_similar_and_manual(self):
+        self.upload_all()
+        conflicts = self.payload("conflicts")["conflicts"]
+        self.decide("conflicts", {"choices": {conflicts[0]["id"]: "a"}})
+        self.assertEqual(self.status()["run"]["step"], "forecast")
+        opps = {o["crmId"]: o for o in self.payload("forecast")["opportunities"]}
+        self.assertNotIn("CRM-4", opps, "Closed Lost is not forecast")
+        self.assertEqual(opps["CRM-1"]["source"], "crm")
+        self.assertEqual([r["position"] for r in opps["CRM-1"]["resources"]], ["Server Engineer"],
+                         "FY suffix removed, Pre Sales row ignored")
+        self.assertEqual(opps["CRM-1"]["resources"][0]["fte"], 1.0)
+        self.assertEqual(opps["CRM-2"]["source"], "similar")
+        self.assertEqual(opps["CRM-2"]["basis"]["projectId"], "PROJ-PAST")
+        self.assertEqual(opps["CRM-2"]["resources"][0]["start"], "2026-11", "moved to the revenue start")
+        self.assertEqual(opps["CRM-3"]["source"], "manual")
+
+    def test_full_review_publishes_with_hiring_gap(self):
+        self.run_to_matching()
+        run = self.status()["run"]
+        self.assertEqual(run["step"], "matching")
+        page = self.payload("matching")
+        sources = {line["source"] for line in page["lines"]}
+        self.assertEqual(sources, {"current", "pipeline"})
+        current = next(line for line in page["lines"] if line["source"] == "current")
+        self.assertIsNotNone(page["assignment"][current["id"]], "the current quote line gets the Sep roll-off")
+        self.assertEqual(self.decide("forecast", {})["ignored"], True, "a late message for an old step is ignored")
+
+        decisions = {"decisions": {line["id"]: "accepted" for line in page["lines"]},
+                     "assignment": {**page["assignment"],
+                                    **{line["id"]: None for line in page["lines"] if line["source"] == "pipeline"}}}
+        result = self.decide("matching", decisions)
+        self.assertEqual(result["state"], "published")
+        self.assertEqual(self.status()["run"]["state"], "published")
+        prefix = self.store.read_json("results/latest.json")["prefix"]
+        gap = self.store.read_json(prefix + "summary/hiring_gap.json")
+        self.assertTrue(gap and all(row["heads"] >= 1 for row in gap))
+        self.assertTrue(any(row["from_pipeline"] for row in gap))
+        matching = self.store.read_json(prefix + "detail/matching.json")
+        self.assertTrue(any(str(r.get("QL | Quote Line Number", "")).startswith(review.PIPELINE_PREFIX)
+                            for r in matching), "pipeline demand is part of the published matching")
+
+    def test_rejected_matching_ends_without_publishing(self):
+        self.run_to_matching()
+        result = self.decide("matching", {"rejectedAll": True})
+        self.assertEqual(result["state"], "ended")
+        self.assertEqual(self.status()["run"]["state"], "ended")
+        self.assertFalse(self.store.exists("results/latest.json"))
+
+
+class PieceTests(unittest.TestCase):
+    def test_conflict_needs_one_grade_on_each_side(self):
+        sl = pd.DataFrame({"Demand Type": ["Quote O3"] * 3, "ID": ["QL-1", "QL-1", "QL-2"],
+                           "Position Name": ["DBA", "DBA", "PM"], "Grade": [7, 7, 6], "_row": [2, 3, 4]})
+        ql = pd.DataFrame({"Quote Line Number": ["QL-1", "QL-2", "QL-2"], "Position Name": ["DBA", "PM", "PM"],
+                           "Grade": [6, 6, 7]})
+        found = crossval.find({"sl_rp": {"table": sl}, "quoteline": {"wide": ql}})
+        self.assertEqual([c["key"] for c in found], ["QL-1"], "QL-2 has two PMs (bands 6 and 7): two people")
+        crossval.apply({"sl_rp": {"table": sl}, "quoteline": {"wide": ql}}, found, {found[0]["id"]: "b"})
+        self.assertEqual(set(ql.loc[ql["Quote Line Number"] == "QL-1", "Grade"]), {7})
+
+    def test_hiring_gap_adds_fte_before_rounding_up(self):
+        rows = [{"Match Status": "UNMATCHED PROJECT", "QL | Start Date": "2026-10-01", "QL | Grade": 5,
+                 "QL | Standardized Position": "Tester", "QL | Start MDs": mds, "QL | Quote Line Number": "QL-1"}
+                for mds in (5.0, 5.0, 4.0)]
+        gap = review.hiring_gap(pd.DataFrame(rows), 18.0)
+        self.assertEqual(gap.loc[0, "heads"], 1, "three small needs in one band are one person")
+
+    def test_accepted_resources_apply_edits_and_removals(self):
+        opps = [{"id": "O-1", "crmId": "C1", "name": "Deal", "resources": [
+            {"id": "O-1-r1", "position": "DBA", "grade": 7, "start": "2026-10", "end": "2026-12", "fte": 1.0},
+            {"id": "O-1-r2", "position": "PM", "grade": 8, "start": "2026-10", "end": "2026-12", "fte": 0.5}]}]
+        kept = review.accepted_resources(opps, {"opportunities": {"O-1": "accepted"},
+                                                "edits": {"O-1-r1": {"grade": 6}}, "removed": ["O-1-r2"]})
+        self.assertEqual([(r["id"], r["grade"]) for _, r in kept], [("O-1-r1", 6)])
+        self.assertEqual(review.accepted_resources(opps, {"rejectedAll": True}), [])
+
+    def test_similarity_threshold_is_respected(self):
+        cand = pd.DataFrame({"Project_ID": ["P1"], "TCV_USD": [1000.0], "_duration": [12.0], "_offering": ["crm"],
+                             "_service_line": ["crm"], "_tokens": [{"alpha"}]})
+        opp = pd.Series({"TCV (converted)": 1_000_000.0, "Revenue From": pd.Timestamp("2026-10-01"),
+                         "Revenue To": pd.Timestamp("2026-12-01"), "Major Solution Offering": "ATFM",
+                         "Opportunity Name (English)": "beta"})
+        self.assertIsNone(opportunities._similar(opp, cand, 0.6))
+
+
+if __name__ == "__main__":
+    unittest.main()

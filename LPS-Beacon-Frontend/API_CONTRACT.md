@@ -13,7 +13,10 @@ is in the [root README](../README.md#api-reference), under "Planned additions".
 | Method and path | Request body | Response |
 |---|---|---|
 | `POST /chat` | `{ sessionId, message }` | `{ reply }` |
-| `POST /upload-url` | `{ fileName, contentType }` | `{ uploadUrl, key }` |
+| `POST /upload-url` | `{ fileName, contentType, batchId? }` | `{ uploadUrl, key }`, plus `{ batchId, date }` when a `batchId` was sent |
+| `GET /pipeline/uploads/{date}/{batchId}/review/{step}` | none | what the review panel shows for `step` = `conflicts` (`{ conflicts }`), `forecast` (`{ opportunities, notes }`) or `matching` (`{ lines, people, assignment, notes }`); shapes in `src/review/types.ts` |
+| `POST /pipeline/uploads/{date}/{batchId}/review/{step}` | `{ decisions }` (conflicts: `{ choices }`; forecast: `{ opportunities, edits, removed }` or `{ rejectedAll: true }`; matching: `{ assignment, decisions }` or `{ rejectedAll: true }`) | 202 `{ status: "started" }`; 409 when the upload is not waiting for that step |
+| `GET /pipeline/uploads/{date}/{batchId}` | none | the forecast pipeline's status file for that upload: `{ batchId, files: [{ name, status, dataset, warnings, reason }], run: { state, message, runId, resultsPrefix, warnings, kpis } }`. The caller's own uploads only. Polled by the review panel |
 | `GET /analysis` | none | `CapacityPlan` (see below). **Planned:** the web app does not call it yet |
 | `PATCH /analysis` | `{ rowId, columnKey, value }` | the whole recalculated `CapacityPlan`. **Planned:** the web app does not call it yet |
 | `GET /dashboard` | none | `HeadcountBreakdown` (see below). **Planned:** the web app does not call it yet |
@@ -42,6 +45,10 @@ but are separate addresses.
 **Upload:** after `POST /upload-url`, the browser does `PUT <uploadUrl>` with the file as the body and the
 same `Content-Type` that was sent in the request. `uploadUrl` is a pre-signed S3 URL. The file goes straight to S3;
 this second request does **not** carry the login token. The app uploads files one at a time.
+All files of one upload share one `batchId` (a UUID the app makes per upload), so they land in one folder,
+`raw/<user>/<date>/<batchId>/<file name>`, and the forecast pipeline runs once, after the last of them.
+`run.state` in the upload's status is one of `waiting_for_files`, `waiting_for_inputs`, `not_run`, `disabled`, `running`,
+`published`, `failed` (see `LPS-Beacon_Backend/lambda-forecastpipeline/pipeline/batch.py`).
 
 **Capacity plan (`/analysis`; used by the Dashboard charts and the Analysis tab):** `CapacityPlan` is `{ values }`, defined in `src/api/types.ts`. The screen's rows and
 columns are fixed in `src/analysis/capacityPlanLayout.ts` (copied from `Capacity_Plan_template.xlsx`); the backend only sends numbers,

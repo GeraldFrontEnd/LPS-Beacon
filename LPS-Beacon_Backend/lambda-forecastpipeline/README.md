@@ -5,9 +5,19 @@ end-user uploads files**, as well as on demand ("Run forecast") and on a schedul
 
 ```
 upload (S3 event per file)   validate -> clean, and after the LAST file of the upload:
-                             match -> forecast -> publish   (one run per upload)
+                             REVIEW_ON_UPLOAD=true (default), the review flow, pausing for the user 3 times:
+                               conflicts -> opportunity forecast -> matching (with accepted pipeline demand)
+                               -> hiring gap -> forecast -> publish
+                             REVIEW_ON_UPLOAD=false: match -> forecast -> publish straight away
 on demand / schedule         match -> forecast -> publish   (or only the stages asked for)
+review decision (API Lambda) {"mode": "review", "batchId", "step", "decisions"} -> the next review step
 ```
+
+Two different forecasts:
+* **opportunity forecast** (`pipeline/opportunities.py`, review step 2): the roles, bands and months each SFDC
+  pipeline opportunity needs, from its own SL x RP plan (CRM ID), else a similar past ABCD project, else manual.
+* **availability forecast** (`pipeline/forecast.py`): who becomes free and what demand starts, from the resource
+  plan and quote lines (plus the accepted pipeline demand after a review).
 
 | File | Stage | What it does |
 |---|---|---|
@@ -17,7 +27,10 @@ on demand / schedule         match -> forecast -> publish   (or only the stages 
 | `pipeline/s3io.py` | - | S3 read/write (or a local folder for testing); encryption follows the bucket default unless `S3_SSE` is set |
 | `pipeline/fiscal.py` | - | April-March fiscal year, quarters, halves |
 | `pipeline/validate.py` | 1 | Extension, real size, real content, zip-bomb and macro checks; quarantine |
-| `pipeline/clean.py` | 2 | Recognises resource plan / quote line / position mapping / rates; records missing month columns |
+| `pipeline/clean.py` | 2 | Recognises resource plan / quote line / position mapping / rates / SL x RP / SFDC pipeline / ABCD; records missing month columns |
+| `pipeline/crossval.py` | review 1 | Conflicts: the same quote line or project role with a different grade in two files; applies the user's choice |
+| `pipeline/opportunities.py` | review 2 | Opportunity forecast (see above), duplicates flagged |
+| `pipeline/review.py` | review | Review payloads, pipeline demand as extra quote lines, the reviewed matching, hiring gap |
 | `pipeline/matching.py` | 3 | Runs the matching script on the original uploads; turns its errors and warnings into run messages |
 | `matching_script.py` | 3 | Adapter: calls `matching_python_script.py` like its `main()` does, adds the position and availability-forecast sheets |
 | `matching_python_script.py` | 3 | **Your matching logic, unchanged** |
