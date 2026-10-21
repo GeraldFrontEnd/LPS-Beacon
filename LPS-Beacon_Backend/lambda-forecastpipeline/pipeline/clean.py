@@ -151,10 +151,17 @@ def detect(sheets: dict[str, pd.DataFrame], source_name: str = "") -> tuple[str,
     for df in sheets.values():
         if hint and PLAN_MINIMUM <= set(df.columns):
             return hint, {"main": df}
+    def short(text, limit=40):
+        text = str(text)
+        return text if len(text) <= limit else text[:limit - 1] + "…"
+
     def heading(df):
-        named = [str(c) for c in df.columns if not str(c).startswith("Unnamed:")][:8]
+        named = [short(c) for c in df.columns if not str(c).startswith("Unnamed:")][:8]
         return ", ".join(named) if named else "no column headings in the first row"
-    found = "; ".join(f"{n}: {heading(df)}" for n, df in sheets.items())
+    # Dynamics 365 exports carry a hidden sheet called "hiddenSheet" with long encoded metadata; it is never
+    # the data, so it is left out of the message.
+    shown = {n: df for n, df in sheets.items() if str(n) != "hiddenSheet"} or sheets
+    found = "; ".join(f"{short(n)}: {heading(df)}" for n, df in shown.items())
     raise CleanError("columns not recognised as resource plan, quote line, position mapping, rates, "
                      f"SL x RP, SFDC pipeline or ABCD ({found})")
 
