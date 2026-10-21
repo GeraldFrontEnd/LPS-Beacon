@@ -42,12 +42,40 @@ export interface UploadItem {
 export interface UploadUrlRequest {
   fileName: string; // e.g. "october-allocations.csv"
   contentType: string; // the file type, e.g. "text/csv"
+  // The same id for every file of one upload, so the files land in one folder and the forecast pipeline
+  // runs once, after the last of them.
+  batchId?: string;
 }
 
 // The backend answers with the link.
 export interface UploadUrlResponse {
   uploadUrl: string; // a temporary S3 address we can send the file to directly
   key: string; // the path the file will have inside the S3 bucket
+  batchId?: string; // echoed back when a batchId was sent
+  date?: string; // the upload folder's date ("YYYY-MM-DD"); with batchId it identifies the upload
+}
+
+// The three places where the forecast pipeline waits for the user after an upload.
+export type ReviewStep = "conflicts" | "forecast" | "matching";
+
+// GET /pipeline/uploads/{date}/{batchId}: the pipeline's status file for one upload.
+export interface PipelineUploadStatus {
+  batchId: string;
+  files: { name: string; status: "cleaned" | "quarantined"; dataset?: string | null; reason?: string | null; warnings?: string[] | null }[];
+  run: {
+    // waiting_for_files, waiting_for_inputs, not_run, disabled, running, awaiting_review, published, ended, failed
+    state: string;
+    message?: string;
+    step?: ReviewStep; // with awaiting_review: the step it waits for
+    runId?: string;
+    warnings?: string[];
+  };
+}
+
+// Which upload a set of files belonged to. GET /pipeline/uploads/{date}/{batchId} returns its progress.
+export interface UploadBatch {
+  batchId: string;
+  date: string;
 }
 
 // ---- Added for the Analysis page (the capacity plan) ----

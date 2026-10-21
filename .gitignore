@@ -52,4 +52,5 @@ dist/
 *.xltx
 *.xltm
 *.xlt
+*.csv
 ~$*

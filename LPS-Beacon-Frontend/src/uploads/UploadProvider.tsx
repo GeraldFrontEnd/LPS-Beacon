@@ -5,8 +5,9 @@
 import { useState } from "react";
 import type { ReactNode } from "react"; // ReactNode = "anything React can display"
 import { uploadFile } from "../api/client";
-import type { UploadItem } from "../api/types";
+import type { UploadBatch, UploadItem } from "../api/types";
 import { useAuth } from "../auth/useAuth";
+import { useReview } from "../review/useReview";
 import { UploadContext } from "./uploadContext";
 import type { UploadContextValue } from "./uploadContext";
 
@@ -17,9 +18,12 @@ interface UploadProviderProps {
 // The part that really holds the list. It is not exported; only UploadProvider below uses it.
 function UploadState({ children }: UploadProviderProps) {
   const { token } = useAuth(); // the login token, sent with each upload request
+  const { startProcessing } = useReview(); // starts the review of the uploaded files
 
   const [items, setItems] = useState<UploadItem[]>([]); // the chosen files, each with a status
   const [isUploading, setIsUploading] = useState(false); // true while an upload run is in progress
+  // The newest upload's folder, for following the pipeline's progress (GET /pipeline/uploads/{date}/{batchId}).
+  const [lastBatch, setLastBatch] = useState<UploadBatch | null>(null);
 
   // Changes one item in the list. "patch" holds only the fields to change.
   function updateItem(id: string, patch: Partial<UploadItem>) {
@@ -42,12 +46,19 @@ function UploadState({ children }: UploadProviderProps) {
     setIsUploading(true);
 
     const toUpload = items.filter((i) => i.status === "ready" || i.status === "error");
+    const uploadedNames: string[] = []; // files that made it, for the review that follows
+    // One id for the whole upload: the backend puts these files in one folder, so the forecast pipeline
+    // runs once, after the last of them.
+    const batchId = crypto.randomUUID();
+    let batch: UploadBatch | null = null; // the folder the backend put this upload in
 
     for (const item of toUpload) {
       updateItem(item.id, { status: "uploading", error: undefined }); // show "Uploading…"
       try {
-        await uploadFile(item.file, token ?? undefined); // wait until this file is finished before starting the next
+        batch = (await uploadFile(item.file, token ?? undefined, batchId)) ?? batch; // one file at a time
+        if (batch) setLastBatch(batch);
         updateItem(item.id, { status: "done" });
+        uploadedNames.push(item.file.name);
       } catch (err) {
         // One failed file doesn't stop the others; we record the reason and carry on.
         updateItem(item.id, {
@@ -58,10 +69,12 @@ function UploadState({ children }: UploadProviderProps) {
     }
 
     setIsUploading(false);
+    // The system now checks, cleans and forecasts the new files; the review panel shows its findings.
+    startProcessing(uploadedNames, batch);
   }
 
   // The data every component will be able to read.
-  const value: UploadContextValue = { items, isUploading, addItems, removeItem, startUpload };
+  const value: UploadContextValue = { items, isUploading, lastBatch, addItems, removeItem, startUpload };
 
   return <UploadContext.Provider value={value}>{children}</UploadContext.Provider>;
 }

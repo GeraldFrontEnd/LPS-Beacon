@@ -185,6 +185,9 @@ Later updates: Lambda → function → **Image** → **Deploy new image** → ch
 | `MAX_UPLOAD_MB` | `20` |
 | `ALLOW_MACRO_FILES` | `false` |
 | `AS_OF_DATE` | empty (= 1st of the current month) |
+| `REVIEW_ON_UPLOAD` | `true` = after an upload, pause for the user's review (conflicts, opportunity forecast, matching) before publishing. `false` = run straight through as before |
+| `FORECAST_STAGES` | `O1,O2,O3,O4,O5` (SFDC stages whose opportunities get a resource forecast; Closed Won is left out because won work is already in the quote lines) |
+| `SIMILARITY_THRESHOLD` | `0.6` (0-1; how alike an ABCD project must be to be offered as a similar project) |
 
 ## Step 8: concurrency and retries
 
@@ -268,6 +271,17 @@ Then poll `results/latest.json` (via a GET route) until `runId` changes.
 
 The API Lambda's role needs `s3:GetObject` on `arn:aws:s3:::lps-beacon-data/results/*`,
 `lambda:InvokeFunction` on the pipeline function, and `kms:Decrypt` if the bucket uses KMS.
+
+### Review routes (built in the API Lambda)
+
+The API Lambda already has these; add them in API Gateway with the JWT authorizer:
+
+* `GET /pipeline/uploads/{date}/{batchId}` - the upload's status file
+* `GET /pipeline/uploads/{date}/{batchId}/review/{step}` - what the review page shows for a step
+* `POST /pipeline/uploads/{date}/{batchId}/review/{step}` - the user's decisions; the API Lambda invokes this
+  function asynchronously with `{"mode": "review", ...}`
+
+API Lambda: environment variable `PIPELINE_FUNCTION` = this function's name, and `lambda:InvokeFunction` on it.
 
 ## Step 13: test end to end
 

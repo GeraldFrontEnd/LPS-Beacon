@@ -7,6 +7,7 @@ import { useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import type { UploadItem } from "../api/types";
 import FileList from "../components/FileList";
+import ReviewDrawer from "../review/ReviewDrawer";
 import { useUploads } from "../uploads/useUploads";
 
 // Rules for which files we accept. Confirm the real limits with your teammates.
@@ -31,6 +32,9 @@ export default function UploadPage() {
 
   // A reference to the hidden file input, so the drop area button can open the file picker.
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // The page title. The review panel slides up to just below it.
+  const titleRef = useRef<HTMLHeadingElement>(null);
 
   // Checks the chosen files and adds the good ones to the list.
   // FileList here is the browser's own type for "the files the user picked".
@@ -101,7 +105,7 @@ export default function UploadPage() {
   return (
     <main className="upload-page">
       <header className="page-header">
-        <h1>Upload files</h1>
+        <h1 ref={titleRef}>Upload files</h1>
         <p>
           Add manpower and cost files. Files are processed after upload, so new data may take a
           little while to appear in chat answers.
@@ -154,6 +158,9 @@ export default function UploadPage() {
           {isUploading ? "Uploading…" : `Upload ${pendingCount} file${pendingCount === 1 ? "" : "s"}`}
         </button>
       </div>
+
+      {/* The review bar along the bottom, and the panel that slides up from it. */}
+      <ReviewDrawer anchorRef={titleRef} />
     </main>
   );
 }

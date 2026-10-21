@@ -4,12 +4,13 @@
 // This file only describes the box; UploadProvider fills it and useUploads reads it.
 
 import { createContext } from "react";
-import type { UploadItem } from "../api/types";
+import type { UploadBatch, UploadItem } from "../api/types";
 
 // What every component gets when it asks for the upload list.
 export interface UploadContextValue {
   items: UploadItem[]; // the chosen files, each with a status
   isUploading: boolean; // true while files are being sent
+  lastBatch: UploadBatch | null; // the newest upload's folder (null in mock mode without a backend reply)
   addItems: (newItems: UploadItem[]) => void; // adds files to the list
   removeItem: (id: string) => void; // removes one file from the list
   startUpload: () => Promise<void>; // sends every file that is waiting
