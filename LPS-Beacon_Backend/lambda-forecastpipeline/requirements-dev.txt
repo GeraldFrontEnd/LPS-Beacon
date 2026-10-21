@@ -1,0 +1,3 @@
+# For running the tests and run_local.py on your PC (same versions as the Lambda image).
+-r requirements.txt
+boto3>=1.34

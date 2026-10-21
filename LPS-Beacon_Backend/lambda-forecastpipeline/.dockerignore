@@ -1,0 +1,5 @@
+localdata/
+tests/
+__pycache__/
+*.zip
+layer/
