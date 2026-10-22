@@ -127,9 +127,19 @@ def maybe_run_batch(cfg, store: Store, batch_id: str, prefix: str, auto: bool, c
         batch.set_run(store, status, "waiting_for_files",
                       f"{len(processed)} of {expected} files received")
         return {"batchId": batch_id, "state": "waiting_for_files"}
+    if not processed and not any(not batch.is_control_file(k) for k, _ in objects):
+        # Only the manifest is there so far (it is written before the first file): wait for the files.
+        batch.set_run(store, status, "waiting_for_files", "waiting for the uploaded files")
+        return {"batchId": batch_id, "state": "waiting_for_files"}
     if not any(f.get("status") == "cleaned" for f in processed):
         batch.set_run(store, status, "not_run", "every file in this upload was rejected; see the reasons")
         return {"batchId": batch_id, "state": "not_run"}
+    if not batch.review_wanted(store, prefix):
+        cleaned = sum(1 for f in processed if f.get("status") == "cleaned")
+        batch.set_run(store, status, "saved", f"{cleaned} file{'' if cleaned == 1 else 's'} checked and saved; "
+                                              "no review was started")
+        _log("upload_saved_without_review", batchId=batch_id, files=cleaned)
+        return {"batchId": batch_id, "state": "saved"}
     missing = _missing_inputs(store)
     if missing:
         batch.set_run(store, status, "waiting_for_inputs",

@@ -151,6 +151,7 @@ export type ReviewStage =
   | "matching"
   | "done" // matching confirmed
   | "ended" // matching list rejected: nothing from this run is used
+  | "saved" // uploaded without review: the files were checked and stored, nothing else ran
   | "stopped"; // the pipeline could not go on (all files rejected, a file missing, or an error)
 
 export interface ProcessingStep {

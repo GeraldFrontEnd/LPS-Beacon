@@ -29,7 +29,8 @@ export interface ReviewContextValue {
   isOpen: boolean;
   setOpen: (open: boolean) => void;
   // Called by UploadProvider after an upload. batch identifies the upload for the pipeline (null in mock mode).
-  startProcessing: (fileNames: string[], batch: UploadBatch | null) => void;
+  // options.review false: the files are only checked and stored, no review starts (stage "saved" at the end).
+  startProcessing: (fileNames: string[], batch: UploadBatch | null, options?: { review?: boolean }) => void;
   // Starts a review of the data already uploaded, without uploading the files again.
   startStoredReview: () => void;
   canStartReview: boolean; // false while a review is in progress
@@ -38,6 +39,10 @@ export interface ReviewContextValue {
   reachedMatching: boolean;
   revisingForecast: boolean; // true while the forecast is open again after the matching was reached
   goToStep: (step: "forecast" | "matching") => void;
+  forecastDirty: boolean; // the reopened forecast differs from the one the matching was calculated from
+  leavePrompt: boolean; // asking whether to discard those changes before going back to the matching
+  discardForecastChanges: () => void; // undoes them and goes back to the matching
+  cancelLeave: () => void; // stays on the forecast
 
   // Step 1: conflicts. conflictId -> chosen option id.
   conflictChoices: Record<string, string>;

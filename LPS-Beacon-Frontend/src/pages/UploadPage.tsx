@@ -8,6 +8,7 @@ import type { ChangeEvent, DragEvent } from "react";
 import type { UploadItem } from "../api/types";
 import FileList from "../components/FileList";
 import ReviewDrawer from "../review/ReviewDrawer";
+import { useReview } from "../review/useReview";
 import { useUploads } from "../uploads/useUploads";
 
 // Rules for which files we accept. Confirm the real limits with your teammates.
@@ -23,6 +24,8 @@ function getExtension(name: string): string {
 export default function UploadPage() {
   // The shared list and the actions on it (they live above this page, so they survive leaving it).
   const { items, isUploading, addItems, removeItem, startUpload } = useUploads();
+  // A review in progress reads the stored files; saving new ones underneath it would change its data midway.
+  const { canStartReview } = useReview();
 
   // A message about files we rejected (wrong type, too big, duplicate), or null for none.
   const [message, setMessage] = useState<string | null>(null);
@@ -92,10 +95,10 @@ export default function UploadPage() {
     addFiles(e.dataTransfer.files); // dataTransfer.files = the files that were dropped
   }
 
-  // Runs when the Upload button is clicked.
-  function handleUpload() {
+  // Runs when an Upload button is clicked. review: false only checks and stores the files (no forecast or matching).
+  function handleUpload(review = true) {
     setMessage(null); // clear any old problem message
-    void startUpload(); // start sending; progress shows in the list
+    void startUpload({ review }); // start sending; progress shows in the list
   }
 
   // Numbers for the summary text and the button.
@@ -149,14 +152,29 @@ export default function UploadPage() {
         <p className="note">
           {items.length === 0 ? "No files selected." : `${doneCount} of ${items.length} uploaded.`}
         </p>
-        <button
-          type="button"
-          className="primary-button"
-          onClick={handleUpload}
-          disabled={isUploading || pendingCount === 0} // can't click while busy or with nothing to upload
-        >
-          {isUploading ? "Uploading…" : `Upload ${pendingCount} file${pendingCount === 1 ? "" : "s"}`}
-        </button>
+        <div className="upload-buttons">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => handleUpload(false)}
+            disabled={isUploading || pendingCount === 0 || !canStartReview}
+            title={
+              canStartReview
+                ? "Check and store the files without running the forecast and matching. Review them later from the review panel."
+                : "Finish or clear the review in progress first."
+            }
+          >
+            Upload without review
+          </button>
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => handleUpload()}
+            disabled={isUploading || pendingCount === 0} // can't click while busy or with nothing to upload
+          >
+            {isUploading ? "Uploading…" : `Upload and review ${pendingCount} file${pendingCount === 1 ? "" : "s"}`}
+          </button>
+        </div>
       </div>
 
       {/* The review bar along the bottom, and the panel that slides up from it. */}

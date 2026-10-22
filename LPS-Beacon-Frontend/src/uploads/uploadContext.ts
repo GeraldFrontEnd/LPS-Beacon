@@ -13,7 +13,8 @@ export interface UploadContextValue {
   lastBatch: UploadBatch | null; // the newest upload's folder (null in mock mode without a backend reply)
   addItems: (newItems: UploadItem[]) => void; // adds files to the list
   removeItem: (id: string) => void; // removes one file from the list
-  startUpload: () => Promise<void>; // sends every file that is waiting
+  // Sends every file that is waiting. review: false stores them without starting a review.
+  startUpload: (options?: { review?: boolean }) => Promise<void>;
 }
 
 // null is the starting value; it means "no UploadProvider above this component".

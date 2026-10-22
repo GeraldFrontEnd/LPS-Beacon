@@ -7,7 +7,9 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
+import Dialog from "../components/Dialog";
 import { CheckIcon, ChevronDownIcon } from "../components/icons";
 import ConflictsStep from "./ConflictsStep";
 import ForecastStep from "./ForecastStep";
@@ -96,12 +98,13 @@ export default function ReviewDrawer({ anchorRef }: ReviewDrawerProps) {
   else if (stage === "forecast") barText = "Step 2 of 3: forecast ready for your review";
   else if (stage === "matching") barText = "Step 3 of 3: matching list ready for your review";
   else if (stage === "done") barText = "Review complete";
+  else if (stage === "saved") barText = "Files saved without a review";
   else if (stage === "stopped") barText = `Review stopped: ${stopMessage ?? "the pipeline could not continue"}`;
   else barText = "Review ended: the matching list was rejected";
 
   // The step being looked at. While the forecast is open again after the matching, that is the forecast.
   const viewed = STEPPER.findIndex((s) => s.stage === stage);
-  const current = stage === "idle" ? -1 : viewed >= 0 ? viewed : progress;
+  const current = stage === "idle" || stage === "saved" ? -1 : viewed >= 0 ? viewed : progress;
   // Once the matching was reached, the Forecast and Matching steps can be opened from the stepper.
   const canOpen = (s: ReviewStage) =>
     review.reachedMatching &&
@@ -290,6 +293,25 @@ export default function ReviewDrawer({ anchorRef }: ReviewDrawerProps) {
             </div>
           )}
 
+          {stage === "saved" && (
+            <div className="review-finish">
+              <span className="review-finish-icon success" aria-hidden="true">
+                <CheckIcon size={28} />
+              </span>
+              <h3>Files saved</h3>
+              <p>
+                The files were checked, cleaned and saved, without a forecast or matching. The Analysis and Dashboard
+                pages are unchanged until a review is completed. Review the saved data whenever you are ready.
+              </p>
+              <div className="review-finish-actions">
+                <button type="button" className="secondary-button" onClick={review.reset}>
+                  Close
+                </button>
+                {reviewStoredButton("Review the data now", true)}
+              </div>
+            </div>
+          )}
+
           {stage === "ended" && (
             <div className="review-finish">
               <h3>Review ended</h3>
@@ -307,6 +329,21 @@ export default function ReviewDrawer({ anchorRef }: ReviewDrawerProps) {
           )}
         </div>
       </div>
+
+      {/* Going back to the matching with forecast changes nobody recalculated: undo them first.
+          Rendered on <body>: the sliding panel would otherwise trap the dialog inside itself. */}
+      {review.leavePrompt &&
+        createPortal(
+          <Dialog
+            title="Discard your forecast changes?"
+            body="The matching list is still based on the forecast you confirmed before. Going back to it undoes the changes you made here. To use them instead, cancel and click Recalculate matching."
+            confirmLabel="Discard changes"
+            destructive
+            onConfirm={review.discardForecastChanges}
+            onClose={review.cancelLeave}
+          />,
+          document.body
+        )}
     </>
   );
 }

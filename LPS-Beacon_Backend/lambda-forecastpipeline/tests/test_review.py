@@ -186,6 +186,28 @@ class ReviewFlowTests(Base):
             with self.assertRaises(ValueError):
                 self.start_stored(bad)
 
+    def test_upload_without_review_only_saves_the_files(self):
+        import lambda_function
+        manifest = "raw/user@example.com/2026-10-20/r1/_batch.json"
+        self.store.write_bytes(manifest, b'{"review": false}')
+        # The manifest's own S3 event comes before any file: it must not end the upload as "all rejected".
+        early = lambda_function.lambda_handler(s3_event(manifest))
+        self.assertEqual(early["batches"][0]["state"], "waiting_for_files")
+        result = self.upload_all()
+        self.assertEqual(result["batches"][0]["state"], "saved")
+        status = self.status()
+        self.assertEqual(status["run"]["state"], "saved")
+        self.assertIn("6 files checked and saved", status["run"]["message"])
+        self.assertTrue(all(f["status"] == "cleaned" for f in status["files"]), "the manifest is not a data file")
+        self.assertTrue(self.store.exists("clean/abcd/latest.json.gz"), "the files became the stored data")
+        self.assertFalse(self.store.exists(review.review_key(self.BATCH, "conflicts")), "no review started")
+        self.assertFalse(self.store.exists("results/latest.json"), "nothing was published")
+        # The saved files can then be reviewed without uploading them again.
+        stored = "user@example.com/2026-10-21/stored-02"
+        lambda_function.lambda_handler({"mode": "review_start", "batchId": stored, "asOf": "2026-09-01"})
+        run = self.store.read_json(f"results/uploads/{stored}/status.json")["run"]
+        self.assertEqual((run["state"], run["step"]), ("awaiting_review", "conflicts"))
+
     def test_going_back_to_the_forecast_redoes_the_matching(self):
         opps = self.run_to_matching()
         before = self.payload("matching")

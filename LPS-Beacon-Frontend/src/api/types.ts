@@ -45,6 +45,8 @@ export interface UploadUrlRequest {
   // The same id for every file of one upload, so the files land in one folder and the forecast pipeline
   // runs once, after the last of them.
   batchId?: string;
+  // false for "Upload without review": the files are checked and stored, but no review starts. Omitted otherwise.
+  review?: false;
 }
 
 // The backend answers with the link.
