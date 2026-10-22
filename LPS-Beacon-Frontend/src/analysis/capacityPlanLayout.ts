@@ -70,8 +70,16 @@ function monthIndexFor(date: Date): number {
 // The month we are in now, read from the computer's clock when the page loads, so it moves on by itself every month.
 export const CURRENT_MONTH_INDEX = monthIndexFor(new Date());
 
-// True for months that are over (before the current month). The current month and every later month are forecasts.
-export function isActualColumn(column: PlanColumn): boolean {
+// The months the backend has actual figures for (the UR report covers them), from GET /analysis. null when the plan
+// does not say (the sample plan), and the clock decides instead.
+export function actualMonthKeys(plan: { months?: { key: string; actual: boolean }[] } | null): Set<string> | null {
+  if (!plan?.months) return null;
+  return new Set(plan.months.filter((m) => m.actual).map((m) => m.key));
+}
+
+// True for a month with actual figures. Without the backend's list: the months before the current one.
+export function isActualColumn(column: PlanColumn, actualKeys?: Set<string> | null): boolean {
+  if (actualKeys) return column.kind === "month" && actualKeys.has(column.key);
   const i = MONTH_COLUMNS.indexOf(column);
   return i >= 0 && i < CURRENT_MONTH_INDEX;
 }
@@ -94,10 +102,10 @@ export const PLAN_SECTIONS: PlanSection[] = [
   { id: "joiners", label: "Joiners", format: "int", bands: true },
   { id: "leavers", label: "Leavers", format: "int", bands: true },
   { id: "ending-hc", label: "Ending HC", format: "int", bands: true },
-  { id: "revenue-per-fte", label: "Revenue per FTE ($ in M)", format: "usdM", bands: true },
-  { id: "revenue", label: "Revenue ($ in M)", format: "usdM", bands: false },
-  { id: "resource-cost", label: "Resource Cost ($ in M)", format: "usdM", bands: true },
-  { id: "gross-margin", label: "Gross Margin ($ in M)", format: "usdM", bands: false },
+  { id: "revenue-per-fte", label: "Revenue per FTE (USD in M)", format: "usdM", bands: true },
+  { id: "revenue", label: "Revenue (USD in M)", format: "usdM", bands: false },
+  { id: "resource-cost", label: "Resource Cost (USD in M)", format: "usdM", bands: true },
+  { id: "gross-margin", label: "Gross Margin (USD in M)", format: "usdM", bands: false },
   { id: "gross-margin-pct", label: "Gross Margin %", format: "pct1", bands: false },
   { id: "billable-ur", label: "Billable UR %", format: "pct1", bands: true, bandFormat: "pct0" },
   { id: "billable-hc", label: "Billable HC", format: "dec1", bands: true },

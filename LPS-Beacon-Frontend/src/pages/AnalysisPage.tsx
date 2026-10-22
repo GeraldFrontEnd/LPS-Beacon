@@ -3,13 +3,25 @@
 // everything else is calculated by the system and shown as it comes back.
 
 import { useEffect, useState } from "react";
-import { BANDS, FISCAL_YEARS, PLAN_COLUMNS, PLAN_SECTIONS, isEditableCell, maxFor, rowId } from "../analysis/capacityPlanLayout";
+import { createPortal } from "react-dom";
+import {
+  BANDS,
+  FISCAL_YEARS,
+  PLAN_COLUMNS,
+  PLAN_SECTIONS,
+  actualMonthKeys,
+  isActualColumn,
+  isEditableCell,
+  maxFor,
+  rowId,
+} from "../analysis/capacityPlanLayout";
 import type { PlanColumn, PlanSection, ValueFormat } from "../analysis/capacityPlanLayout";
 import { downloadCapacityPlan } from "../analysis/exportCapacityPlan";
 import { formatPlanValue, parseInputText, toInputText } from "../analysis/formatPlanValue";
-import { getCapacityPlan, saveCapacityPlanEdit } from "../api/client";
-import type { CapacityPlan, CapacityPlanEdit } from "../api/types";
+import { clearMyCapacityPlanEdits, getCapacityPlan, saveCapacityPlanEdit } from "../api/client";
+import type { CapacityPlan, CapacityPlanEdit, CellEditInfo } from "../api/types";
 import { useAuth } from "../auth/useAuth";
+import Dialog from "../components/Dialog";
 
 // Sections that have band rows underneath them, so they can be opened and closed.
 const EXPANDABLE_IDS = PLAN_SECTIONS.filter((s) => s.bands).map((s) => s.id);
@@ -58,6 +70,7 @@ function EditableCell({
   label,
   disabled,
   resetCount,
+  canReset,
   onCommit,
 }: {
   value: number | null | undefined;
@@ -66,7 +79,8 @@ function EditableCell({
   label: string;
   disabled: boolean;
   resetCount: number;
-  onCommit: (value: number) => void;
+  canReset: boolean; // the cell was changed by someone: clearing the box puts the calculated value back
+  onCommit: (value: number | null) => void;
 }) {
   const original = toInputText(value, format);
   return (
@@ -88,6 +102,10 @@ function EditableCell({
       onBlur={(e) => {
         const text = e.currentTarget.value.trim();
         if (text === original) return;
+        if (text === "" && canReset) {
+          onCommit(null); // back to the value the system works out
+          return;
+        }
         const parsed = parseInputText(text, format, max);
         if (parsed === null) {
           e.currentTarget.value = original; // not acceptable: put the old value back
@@ -105,6 +123,8 @@ export default function AnalysisPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [resetCount, setResetCount] = useState(0); // bumped after a failed save, to put the old values back in the boxes
+  const [confirmClear, setConfirmClear] = useState(false); // "Clear my edits?" dialog
+  const [status, setStatus] = useState<string | null>(null); // a short message after clearing
   // Which sections currently show their band rows. Everything starts open, like the template.
   const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set(EXPANDABLE_IDS));
   // Which financial years have their monthly columns hidden. Everything starts open.
@@ -134,9 +154,24 @@ export default function AnalysisPage() {
     });
   }
 
+  async function clearMine() {
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await clearMyCapacityPlanEdits(token ?? undefined);
+      setPlan(result);
+      setStatus(`${result.cleared ?? 0} of your changes removed.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not clear your changes.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function commitEdit(edit: CapacityPlanEdit) {
     setSaving(true);
     setError(null);
+    setStatus(null);
     try {
       setPlan(await saveCapacityPlanEdit(edit, token ?? undefined)); // the backend sends back the recalculated plan
     } catch (err) {
@@ -150,6 +185,9 @@ export default function AnalysisPage() {
   const values = plan?.values ?? {};
   const planIsEmpty = plan !== null && Object.keys(plan.values).length === 0;
   const slots = buildSlots(collapsedYears);
+  const actualKeys = actualMonthKeys(plan);
+  const edited = plan?.edited ?? {};
+  const myEditCount = Object.values(edited).filter((e) => e.mine).length;
 
   // The cells of one row, one per column on screen.
   function rowCells(section: PlanSection, band?: { id: string; label: string }) {
@@ -160,8 +198,10 @@ export default function AnalysisPage() {
       const { column } = slot;
       const value = values[id]?.[column.key];
       const editable = !planIsEmpty && isEditableCell(section.id, band?.id, column);
+      const change = edited[`${id}|${column.key}`];
+      const classes = [edgeClass(slot), change ? "plan-edited" : undefined].filter(Boolean).join(" ") || undefined;
       return (
-        <td key={column.key} className={edgeClass(slot)}>
+        <td key={column.key} className={classes} title={change ? changedBy(change) : undefined}>
           {editable ? (
             <EditableCell
               value={value}
@@ -170,6 +210,7 @@ export default function AnalysisPage() {
               label={`${section.label}${band ? `, ${band.label}` : ""}, ${column.label}`}
               disabled={saving}
               resetCount={resetCount}
+              canReset={!!change}
               onCommit={(v) => commitEdit({ rowId: id, columnKey: column.key, value: v })}
             />
           ) : (
@@ -184,7 +225,11 @@ export default function AnalysisPage() {
     <main className="analysis-page">
       <header className="page-header">
         <h1>Analysis</h1>
-        <p>Capacity plan generated by the system. Cells with a blue frame are inputs you can edit; the rest are calculated.</p>
+        <p>
+          Capacity plan generated by the system, in {plan?.currency ?? "USD"}. Cells with a blue frame are inputs you can
+          edit; the rest are calculated. Changes are shared with everyone and marked with an orange corner; clear an
+          edited box to go back to the calculated value.
+        </p>
       </header>
 
       <div className="analysis-toolbar">
@@ -196,7 +241,21 @@ export default function AnalysisPage() {
         >
           Download
         </button>
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={saving || myEditCount === 0}
+          onClick={() => setConfirmClear(true)}
+          title="Remove every change you made. Other people's changes stay."
+        >
+          Clear my edits{myEditCount > 0 ? ` (${myEditCount})` : ""}
+        </button>
         {saving && <span className="analysis-status">Saving…</span>}
+        {!saving && status && (
+          <span className="analysis-status" role="status">
+            {status}
+          </span>
+        )}
         <span className="analysis-toolbar-spacer" />
         {/* Rows: the band rows under each metric. Columns: the monthly columns of each financial year. */}
         <button type="button" className="secondary-button" onClick={() => setExpandedRows(new Set(EXPANDABLE_IDS))}>
@@ -219,6 +278,18 @@ export default function AnalysisPage() {
         </p>
       )}
       {!plan && !error && <p className="note analysis-banner">Loading…</p>}
+      {plan?.notes && plan.notes.length > 0 && (
+        <details className="review-notes analysis-banner">
+          <summary>
+            {plan.notes.length} note{plan.notes.length === 1 ? "" : "s"} about this plan
+          </summary>
+          <ul>
+            {plan.notes.map((n) => (
+              <li key={n}>{n}</li>
+            ))}
+          </ul>
+        </details>
+      )}
       {planIsEmpty && (
         <p className="note analysis-banner">
           No capacity plan has been generated yet. The fields will fill in once the system has processed the uploaded files.
@@ -262,6 +333,11 @@ export default function AnalysisPage() {
                   ) : (
                     <th key={slot.column.key} scope="col" className={edgeClass(slot)}>
                       {slot.column.label}
+                      {slot.column.kind === "month" && (
+                        <span className={`plan-col-kind${isActualColumn(slot.column, actualKeys) ? " actual" : ""}`}>
+                          {isActualColumn(slot.column, actualKeys) ? "Actual" : "Forecast"}
+                        </span>
+                      )}
                     </th>
                   )
                 )}
@@ -305,6 +381,29 @@ export default function AnalysisPage() {
           </table>
         </div>
       )}
+
+      {/* Rendered on <body>, like the other dialogs. */}
+      {confirmClear &&
+        createPortal(
+          <Dialog
+            title="Clear your changes?"
+            body={`This removes the ${myEditCount} cell${myEditCount === 1 ? "" : "s"} you changed and puts the calculated values back. Changes made by other people stay.`}
+            confirmLabel="Clear my edits"
+            destructive
+            onConfirm={() => void clearMine()}
+            onClose={() => setConfirmClear(false)}
+          />,
+          document.body
+        )}
     </main>
   );
+}
+
+// The tooltip of an edited cell: who changed it, and when.
+function changedBy(change: CellEditInfo): string {
+  const who = change.mine ? "you" : change.byName || "another user";
+  const when = change.at
+    ? new Date(change.at).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+    : null;
+  return `Changed by ${who}${when ? ` on ${when}` : ""}`;
 }
