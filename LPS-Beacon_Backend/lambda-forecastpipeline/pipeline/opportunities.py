@@ -32,8 +32,6 @@ import re
 
 import pandas as pd
 
-from .crossval import norm_position
-
 STOPWORDS = {"the", "and", "for", "with", "year", "renewal", "project", "services", "service", "of", "to"}
 
 
