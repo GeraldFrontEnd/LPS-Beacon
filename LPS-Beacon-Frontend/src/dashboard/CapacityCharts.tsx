@@ -11,6 +11,7 @@ import ChartCard from "../charts/ChartCard";
 import Heatmap from "../charts/Heatmap";
 import LineChart from "../charts/LineChart";
 import BandPicker from "./BandPicker";
+import DashboardSection from "./DashboardSection";
 import KpiBoxes from "./KpiBoxes";
 import { isUrFlagged, urTargetsOf } from "./flagRules";
 import { MONTH_LABELS, actualMask, forecastFrom, monthNotes, monthSeries } from "./planSeries";
@@ -84,8 +85,7 @@ export default function CapacityCharts() {
     <>
       <KpiBoxes plan={plan} />
 
-      <section className="dashboard-section">
-        <h2 className="dashboard-heading">Capacity plan</h2>
+      <DashboardSection id="capacity-plan" title="Capacity plan">
 
         <div className="chart-grid">
           <ChartCard title="Headcount outlook" subtitle="Ending headcount at the end of each month." legend={[{ name: "Ending headcount", color: BLUE }]}>
@@ -206,7 +206,7 @@ export default function CapacityCharts() {
             />
           </ChartCard>
         </div>
-      </section>
+      </DashboardSection>
     </>
   );
 }
