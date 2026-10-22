@@ -99,6 +99,33 @@ export interface CapacityPlan {
   // rowId -> column key -> number. For example values["joiners:b7"]["Oct'26"] = 2.
   // A missing entry or null means "no value", and the cell is shown empty.
   values: Record<string, Record<string, number | null>>;
+  // The rest comes from GET /analysis (the sample plan leaves it out).
+  months?: PlanMonthInfo[]; // which months are actual (the UR report has them) and which are forecast
+  edited?: Record<string, CellEditInfo>; // "<rowId>|<columnKey>" -> who changed that cell; edits are shared
+  currency?: string; // "USD": every amount in the plan
+  notes?: string[]; // what to know about the plan (assumed settings, missing files, ...)
+  settings?: Record<string, PlanFySettings>; // per fiscal year, e.g. settings["FY26"]
+  cleared?: number; // after "Clear my edits": how many were removed
+}
+
+export interface PlanMonthInfo {
+  key: string; // the column key, e.g. "Apr'26"
+  month: string; // "2026-04"
+  fiscalYear: string; // "FY26"
+  actual: boolean;
+}
+
+export interface CellEditInfo {
+  mine: boolean; // changed by the signed-in user
+  byName: string | null; // who changed it, when known
+  at: string | null; // when (ISO time)
+}
+
+export interface PlanFySettings {
+  urTargets: Record<string, number>; // "all" and "b9".."b3", as fractions
+  sgdPerUsd?: number;
+  revenuePerMonthUsd?: number;
+  basedOn?: string; // set when this year borrows another year's settings
 }
 
 // ---- Added for the Dashboard (headcount today, from the HR headcount file) ----
@@ -119,7 +146,7 @@ export interface HeadcountBreakdown {
 export interface CapacityPlanEdit {
   rowId: string; // for example "joiners:b7"
   columnKey: string; // for example "Oct'26"
-  value: number; // plain dollars, or a fraction for percentages
+  value: number | null; // plain US dollars, or a fraction for percentages; null puts the calculated value back
 }
 
 // ---- Chat history kept on the server (DynamoDB) ----

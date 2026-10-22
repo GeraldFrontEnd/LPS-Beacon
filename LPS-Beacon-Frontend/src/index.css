@@ -1069,6 +1069,35 @@ body {
   opacity: 0.6;
 }
 
+/* "Actual" or "Forecast" under each month's name. */
+.plan-col-kind {
+  display: block;
+  font-size: 0.625rem;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.plan-col-kind.actual {
+  color: var(--success);
+}
+
+/* A cell someone changed: an orange corner (the tooltip says who and when). */
+.plan-table td.plan-edited {
+  position: relative;
+}
+
+.plan-table td.plan-edited::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  border-style: solid;
+  border-width: 0 7px 7px 0;
+  border-color: transparent var(--chart-2) transparent transparent;
+  pointer-events: none;
+}
+
 /* ---- Dashboard charts ---- */
 
 /* Chart colours. Each one is also used in the legends, so change them here only. */

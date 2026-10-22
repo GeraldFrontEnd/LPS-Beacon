@@ -12,8 +12,8 @@ import Heatmap from "../charts/Heatmap";
 import LineChart from "../charts/LineChart";
 import BandPicker from "./BandPicker";
 import KpiBoxes from "./KpiBoxes";
-import { isUrFlagged } from "./flagRules";
-import { FORECAST_FROM, MONTH_LABELS, MONTH_NOTES, monthSeries } from "./planSeries";
+import { isUrFlagged, urTargetsOf } from "./flagRules";
+import { MONTH_LABELS, forecastFrom, monthNotes, monthSeries } from "./planSeries";
 
 // The colours live in index.css (--chart-*, --band-* and --flag).
 const BLUE = "var(--chart-1)";
@@ -67,7 +67,8 @@ export default function CapacityCharts() {
     );
   }
 
-  const common = { categories: MONTH_LABELS, notes: MONTH_NOTES, forecastFrom: FORECAST_FROM };
+  const common = { categories: MONTH_LABELS, notes: monthNotes(plan), forecastFrom: forecastFrom(plan) };
+  const urTargets = urTargetsOf(plan);
   const shownHcBands = BANDS.filter((b) => hcBands.includes(b.id));
   const shownUrBands = BANDS.filter((b) => urBands.includes(b.id));
 
@@ -188,18 +189,18 @@ export default function CapacityCharts() {
           <ChartCard
             wide
             title="Billable utilisation by band"
-            subtitle="Share of each band's headcount that is billable. Darker means more utilised; red is outside the band's target range."
+            subtitle="Share of each band's headcount that is billable. Darker means more utilised; red is below the band's target or above 100%."
             actions={<BandPicker selected={urBands} onChange={setUrBands} />}
           >
             <Heatmap
               columns={MONTH_LABELS}
-              forecastFrom={FORECAST_FROM}
+              forecastFrom={common.forecastFrom}
               rowLabels={["All bands", ...shownUrBands.map((b) => b.label)]}
               values={[monthSeries(plan, "billable-ur"), ...shownUrBands.map((b) => monthSeries(plan, rowId("billable-ur", b.id)))]}
               format="pct0"
               domain={[0.5, 1]}
-              isFlagged={(row, v) => isUrFlagged(urRowBandIds[row], v)}
-              flagText="Outside target range"
+              isFlagged={(row, v) => isUrFlagged(urRowBandIds[row], v, urTargets)}
+              flagText="Below target or above 100%"
               ariaLabel="Heat map of billable utilisation by band and month, with cells outside the target range in red"
             />
           </ChartCard>

@@ -1,21 +1,21 @@
 // src/dashboard/flagRules.ts
-// The limits the dashboard uses to flag numbers in red. Change the numbers here only.
+// When the dashboard flags a Billable UR in red: below the band's target, or above 100%.
+// The targets come with the capacity plan (GET /analysis, settings per fiscal year), so Finance changes them in
+// one place (pipeline/plan_settings.py) and this page follows.
 
-// Billable UR % outside [min, max] turns the heat map cell red. Fractions: 0.7 = 70%, 1 = 100%.
-// PLACEHOLDER values: every band uses 70% to 100% until the real targets are set.
-export const UR_LIMITS: Record<string, { min: number; max: number }> = {
-  all: { min: 0.7, max: 1 }, // the "All bands" row
-  b9: { min: 0.7, max: 1 },
-  b8: { min: 0.7, max: 1 },
-  b7: { min: 0.7, max: 1 },
-  b6: { min: 0.7, max: 1 },
-  b5: { min: 0.7, max: 1 },
-  b4: { min: 0.7, max: 1 },
-  b3: { min: 0.7, max: 1 },
-};
+import type { CapacityPlan } from "../api/types";
 
-// True when a band's billable UR is outside its limits. Use "all" for the total row.
-export function isUrFlagged(bandId: string, ur: number): boolean {
-  const limits = UR_LIMITS[bandId];
-  return !!limits && (ur < limits.min || ur > limits.max);
+export const UR_MAX = 1; // above 100% is flagged too: more billable days than working days points at a data problem
+const FALLBACK_MIN = 0.7; // used only when the plan carries no targets (the sample plan)
+
+// The UR targets per band ("all", "b9".."b3") of the plan's first fiscal year.
+export function urTargetsOf(plan: CapacityPlan | null): Record<string, number> {
+  const years = Object.keys(plan?.settings ?? {}).sort();
+  return years.length ? plan!.settings![years[0]].urTargets : {};
+}
+
+// True when a band's billable UR is below its target or above 100%. Use "all" for the total row.
+export function isUrFlagged(bandId: string, ur: number, targets: Record<string, number>): boolean {
+  const min = targets[bandId] ?? FALLBACK_MIN;
+  return ur < min - 1e-9 || ur > UR_MAX + 1e-9;
 }

@@ -50,6 +50,7 @@ export const API_ROUTES = {
     `/pipeline/uploads/${encodeURIComponent(b.date)}/${encodeURIComponent(b.batchId)}/review/${step}`,
   // POST: a review of the data already uploaded, without new files. Followed with uploadStatus, like an upload.
   storedReview: "/pipeline/reviews",
+  analysisEdits: "/analysis/edits", // DELETE: "Clear my edits" on the capacity plan
 } as const;
 
 // A tiny helper that pauses for a number of milliseconds (used to fake network delay).
@@ -218,11 +219,8 @@ export async function uploadFile(
 // Cells edited while the sample plan is in use. They live in memory only, so a page reload starts from scratch.
 const sampleEdits: Record<string, number> = {};
 
-// Loads the capacity plan the system generated.
-// With VITE_USE_SAMPLE_PLAN=true (or VITE_USE_MOCK=true) it returns a made-up sample plan so the Dashboard and
-// Analysis screens can be previewed.
-// TODO: the backend does not generate the plan yet, so otherwise this returns an empty plan and the screens show
-// no data. When it does, call GET /analysis (API_ROUTES.analysis) here (same pattern as the chat call) and return its JSON.
+// Loads the capacity plan: GET /analysis, worked out by the backend from the uploaded files and the shared edits.
+// With VITE_USE_SAMPLE_PLAN=true (or VITE_USE_MOCK=true) it returns a made-up sample plan instead.
 export async function getCapacityPlan(token?: string): Promise<CapacityPlan> {
   if (USE_MOCK || USE_SAMPLE_PLAN) {
     await wait(400);
@@ -230,31 +228,39 @@ export async function getCapacityPlan(token?: string): Promise<CapacityPlan> {
     const { buildSampleCapacityPlan } = await import("./sampleCapacityPlan");
     return buildSampleCapacityPlan(sampleEdits);
   }
-  void token; // will be sent as the login token once the real call exists
-  return { values: {} };
+  return apiRequest<CapacityPlan>("GET", API_ROUTES.analysis, token);
 }
 
-// Saves one edited cell and returns the WHOLE plan again, because changing one input changes many formula cells
-// (ending headcount, revenue, cost, margin, quarter and year totals). The screen shows what comes back.
-// TODO: when the backend exists, send the edit (PATCH /analysis with the edit as JSON) and return
-// the recalculated plan it answers with. Until then, only the sample plan can be edited.
+// Saves one changed cell (PATCH /analysis) and returns the recalculated plan. value null puts the calculated
+// value back. Edits are shared: everyone sees them, with who made them.
 export async function saveCapacityPlanEdit(edit: CapacityPlanEdit, token?: string): Promise<CapacityPlan> {
   if (USE_MOCK || USE_SAMPLE_PLAN) {
     await wait(150);
     const { buildSampleCapacityPlan, sampleEditKey } = await import("./sampleCapacityPlan");
-    sampleEdits[sampleEditKey(edit.rowId, edit.columnKey)] = edit.value;
+    const key = sampleEditKey(edit.rowId, edit.columnKey);
+    if (edit.value === null) delete sampleEdits[key];
+    else sampleEdits[key] = edit.value;
     return buildSampleCapacityPlan(sampleEdits);
   }
-  void token;
-  throw new Error("Saving changes is not available yet, because the backend does not support it.");
+  return apiRequest<CapacityPlan>("PATCH", API_ROUTES.analysis, token, edit);
+}
+
+// "Clear my edits": removes every cell the signed-in user changed (other people's edits stay). Returns the plan.
+export async function clearMyCapacityPlanEdits(token?: string): Promise<CapacityPlan> {
+  if (USE_MOCK || USE_SAMPLE_PLAN) {
+    await wait(150);
+    const cleared = Object.keys(sampleEdits).length;
+    Object.keys(sampleEdits).forEach((k) => delete sampleEdits[k]);
+    const { buildSampleCapacityPlan } = await import("./sampleCapacityPlan");
+    return { ...buildSampleCapacityPlan(sampleEdits), cleared };
+  }
+  return apiRequest<CapacityPlan>("DELETE", API_ROUTES.analysisEdits, token);
 }
 
 // ---- Added for the Dashboard headcount boxes ----
 
-// Loads today's headcount split by employment type (permanent staff and secondment).
-// With VITE_USE_SAMPLE_PLAN=true (or VITE_USE_MOCK=true) it returns made-up numbers so the Dashboard can be previewed.
-// TODO: the backend does not provide this yet, so otherwise this returns null and the boxes show "–". When it does,
-// call GET /dashboard (API_ROUTES.dashboard, same pattern as the chat call) and return its JSON.
+// Today's headcount split by employment type (GET /dashboard, from the staff list). null before a staff list
+// was uploaded. With VITE_USE_SAMPLE_PLAN=true (or VITE_USE_MOCK=true) it returns made-up numbers.
 export async function getHeadcountBreakdown(token?: string): Promise<HeadcountBreakdown | null> {
   if (USE_MOCK || USE_SAMPLE_PLAN) {
     await wait(300);
@@ -265,8 +271,7 @@ export async function getHeadcountBreakdown(token?: string): Promise<HeadcountBr
       secondment: 37,
     };
   }
-  void token;
-  return null;
+  return (await apiRequest<HeadcountBreakdown | undefined>("GET", API_ROUTES.dashboard, token)) ?? null;
 }
 
 // ---- Chat history kept on the server ----
