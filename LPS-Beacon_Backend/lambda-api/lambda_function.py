@@ -1081,12 +1081,16 @@ def post_review(event, caller):
     batch, step = _upload_path(event, caller), _review_step(event)
     status = _upload_status(batch) or {}
     run = status.get("run") or {}
-    if run.get("state") != "awaiting_review" or run.get("step") != step:
-        raise HttpError(409, "This upload is not waiting for the %s review" % step)
     body = json_body(event)
     decisions = body.get("decisions")
     if not isinstance(decisions, dict):
         raise HttpError(400, "Send {\"decisions\": {...}}")
+    # The step it waits for, or the forecast again while it waits for the matching, sent with "redo": true (the
+    # user went back to change the forecast; the pipeline then redoes the matching). Same rule as accepts_decision
+    # in the pipeline.
+    redo_forecast = step == "forecast" and run.get("step") == "matching" and decisions.get("redo") is True
+    if run.get("state") != "awaiting_review" or (run.get("step") != step and not redo_forecast):
+        raise HttpError(409, "This upload is not waiting for the %s review" % step)
     payload = json.dumps({"mode": "review", "batchId": batch, "step": step, "decisions": decisions,
                           "requestedBy": caller.user_id}).encode("utf-8")
     if len(payload) > MAX_DECISION_BYTES:

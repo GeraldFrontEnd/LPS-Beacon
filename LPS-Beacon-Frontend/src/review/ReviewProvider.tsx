@@ -102,6 +102,9 @@ function ReviewState({ children }: ReviewProviderProps) {
   const [stopMessage, setStopMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false); // a review of the stored data is being requested
+  // True once the matching step was reached: from then on the user may go back to the forecast, change it and have
+  // the matching redone (or return to the matching unchanged).
+  const [reachedMatching, setReachedMatching] = useState(false);
 
   const [conflictChoices, setConflictChoices] = useState<Record<string, string>>({});
   const [oppDecisions, setOppDecisions] = useState<Record<string, Decision>>({});
@@ -121,6 +124,13 @@ function ReviewState({ children }: ReviewProviderProps) {
   // show that step again in the moment before the pipeline picks the decisions up).
   const batchRef = useRef<UploadBatch | null>(null);
   const sentStep = useRef<ReviewStep | null>(null);
+  // When the run state last changed (status run.at), and the value it had when decisions were last sent. A status
+  // still carrying that old value is from before the pipeline picked the decisions up, so it is not shown. This
+  // matters when the forecast is changed again: the pipeline waits for "matching" both before and after.
+  const lastRunAt = useRef<string | null>(null);
+  const staleRunAt = useRef<string | null>(null);
+  // The forecast decisions last sent, to tell whether going back to the forecast changed anything.
+  const sentForecast = useRef<string | null>(null);
   const tokenRef = useRef(token);
   useEffect(() => {
     tokenRef.current = token;
@@ -212,6 +222,7 @@ function ReviewState({ children }: ReviewProviderProps) {
       setAssignment(p.assignment);
       setLineDecisions({});
       setNotices(p.notes ?? []);
+      setReachedMatching(true);
     }
     setProgress(STEP_PROGRESS[step]);
     arrive(step);
@@ -225,7 +236,9 @@ function ReviewState({ children }: ReviewProviderProps) {
       if (batchRef.current !== batch) return; // a newer upload replaced this one meanwhile
       showStatus(status);
       const { state, step, message } = status.run;
-      if (state === "awaiting_review" && step && step !== sentStep.current) {
+      const stale = !!status.run.at && status.run.at === staleRunAt.current;
+      if (status.run.at) lastRunAt.current = status.run.at;
+      if (state === "awaiting_review" && step && step !== sentStep.current && !stale) {
         sentStep.current = null;
         await loadStep(step);
         return;
@@ -272,12 +285,17 @@ function ReviewState({ children }: ReviewProviderProps) {
       return;
     }
     sentStep.current = step;
+    staleRunAt.current = lastRunAt.current;
     followPipeline(nextProgress);
   }
 
   // Forgets every decision of the previous run, so a new one starts clean.
   function clearRun() {
     clearTimers();
+    setReachedMatching(false);
+    sentForecast.current = null;
+    lastRunAt.current = null;
+    staleRunAt.current = null;
     setConflictChoices({});
     setOppDecisions({});
     setEdits({});
@@ -414,8 +432,37 @@ function ReviewState({ children }: ReviewProviderProps) {
       setMatchLines(lines);
       setAssignment(firstAssignment(lines));
       setLineDecisions({});
+      setReachedMatching(true);
       arrive("matching");
     });
+  }
+
+  // Back to the forecast from the matching (decisions kept), or back to the matching without changing anything.
+  function goToStep(step: "forecast" | "matching") {
+    if (!reachedMatching) return;
+    if (step === "forecast" && stage === "matching") {
+      log("Went back to the forecast", "To change it; the matching is redone when it is confirmed again");
+      setError(null);
+      setStage("forecast");
+    } else if (step === "matching" && stage === "forecast") {
+      setError(null);
+      setStage("matching");
+    }
+  }
+
+  // Sends the forecast decisions. After going back from the matching, the pipeline is told to redo the matching
+  // ("redo"); if nothing changed since the last time, it just returns to the matching as it was.
+  function sendForecast(decisions: object, acceptedIds: Set<string>) {
+    const key = JSON.stringify(decisions);
+    const revising = reachedMatching && stage === "forecast";
+    if (revising && key === sentForecast.current) {
+      log("Returned to matching", "The forecast did not change, so the matching was kept");
+      setStage("matching");
+      return;
+    }
+    sentForecast.current = key;
+    if (SAMPLE_MODE) startSampleMatching(acceptedIds);
+    else void send("forecast", revising ? { ...decisions, redo: true } : decisions, 2);
   }
 
   function confirmForecast() {
@@ -428,16 +475,14 @@ function ReviewState({ children }: ReviewProviderProps) {
       `${accepted.length} of ${data.opportunities.length} opportunities accepted, ${editedCount} resources edited, ${removedIds.length} removed`
     );
     setForecastRejected(false);
-    if (SAMPLE_MODE) startSampleMatching(new Set(accepted.map((o) => o.id)));
-    else void send("forecast", { opportunities: oppDecisions, edits, removed: removedIds }, 2);
+    sendForecast({ opportunities: oppDecisions, edits, removed: removedIds }, new Set(accepted.map((o) => o.id)));
   }
 
   // Rejecting the forecast keeps the pipeline out; matching still runs on current project demand.
   function rejectForecast() {
     log("Rejected forecast", "Pipeline opportunities left out; matching runs on current project demand only");
     setForecastRejected(true);
-    if (SAMPLE_MODE) startSampleMatching(new Set());
-    else void send("forecast", { rejectedAll: true }, 2);
+    sendForecast({ rejectedAll: true }, new Set());
   }
 
   // ---- Step 3: matching ----
@@ -507,6 +552,9 @@ function ReviewState({ children }: ReviewProviderProps) {
     startProcessing,
     startStoredReview: () => void startStoredReview(),
     canStartReview: !starting && (stage === "idle" || stage === "done" || stage === "ended" || stage === "stopped"),
+    reachedMatching,
+    revisingForecast: reachedMatching && stage === "forecast",
+    goToStep,
     conflictChoices,
     chooseConflict,
     confirmConflicts,
