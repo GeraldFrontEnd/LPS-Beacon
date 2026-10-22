@@ -15,9 +15,10 @@ How it is started, and what runs
       {"mode": "file", "keys": ["raw/..."], "autoRun": true}   re-clean files (and run)
   Schedule (EventBridge, monthly or quarterly)       {"mode": "full", "requestedBy": "schedule"}
   Deployment check                                   {"mode": "selfcheck"}
-  Capacity plan inputs (after changing pipeline/plan_settings.py)   {"mode": "capacity_inputs"}
-      rebuilds results/capacity/inputs.json; it is also rebuilt after a UR report or staff list is
-      cleaned and after every published run (see pipeline/capacity.py)
+  Capacity plan inputs and Dashboard insights   {"mode": "capacity_inputs"} (or "dashboard_data")
+      rebuilds results/capacity/inputs.json and results/dashboard/insights.json; both are also rebuilt
+      after a UR report, staff list or SFDC pipeline is cleaned and after every published run
+      (see pipeline/capacity.py and pipeline/insights.py). Run it after changing pipeline/plan_settings.py.
 
   Review of the data already uploaded (from the API Lambda; no new files)
       {"mode": "review_start", "batchId": "<user>/<yyyy-mm-dd>/<id>", "requestedBy": "..."}
@@ -46,7 +47,7 @@ import time
 import pandas as pd
 from urllib.parse import unquote_plus
 
-from pipeline import (batch, capacity, clean, config, crossval, forecast, matching, opportunities, publish, review,
+from pipeline import (batch, capacity, clean, insights, config, crossval, forecast, matching, opportunities, publish, review,
                       selfcheck, validate)
 from pipeline.s3io import Store
 
@@ -89,16 +90,18 @@ def clean_one(cfg, store: Store, key: str) -> dict:
         return {"key": key, "status": "quarantined", "reason": str(exc)}
 
 
-CAPACITY_DATASETS = ("bu_ur", "staff_list")
+DASHBOARD_DATASETS = ("bu_ur", "staff_list", "sfdc_pipeline")
 
 
-def _refresh_capacity_inputs(store: Store) -> None:
-    """Rebuilds the capacity plan's inputs. A failure is logged, never fatal: the files stay cleaned."""
-    try:
-        capacity.write(store)
-        _log("capacity_inputs_written", key=capacity.KEY)
-    except Exception:  # noqa: BLE001
-        log.exception("capacity plan inputs could not be rebuilt")
+def _refresh_dashboard_data(store: Store) -> None:
+    """Rebuilds the capacity plan's inputs and the Dashboard's insights. A failure is logged, never fatal:
+    the files stay cleaned and the run stays published."""
+    for name, module in (("capacity_inputs", capacity), ("dashboard_insights", insights)):
+        try:
+            module.write(store)
+            _log(f"{name}_written", key=module.KEY)
+        except Exception:  # noqa: BLE001
+            log.exception("%s could not be rebuilt", name)
 
 
 def run_file_mode(cfg, store: Store, event: dict, context=None) -> dict:
@@ -115,8 +118,8 @@ def run_file_mode(cfg, store: Store, event: dict, context=None) -> dict:
         result = clean_one(cfg, store, key)
         batch.record_file(store, key, result)
         results.append(result)
-    if any(r.get("status") == "cleaned" and r.get("dataset") in CAPACITY_DATASETS for r in results):
-        _refresh_capacity_inputs(store)
+    if any(r.get("status") == "cleaned" and r.get("dataset") in DASHBOARD_DATASETS for r in results):
+        _refresh_dashboard_data(store)
 
     auto = event.get("autoRun", cfg.auto_run_on_upload)
     runs = [maybe_run_batch(cfg, store, b, p, auto, context) for b, p in batches.items()]
@@ -491,7 +494,7 @@ def run_full_mode(cfg, store: Store, event: dict, prepared_inputs: dict | None =
         if "publish" in stages:
             manifest = timed("publish", lambda: publish.run(
                 cfg, store, run_id, fc_tables, fin_tables, match_tables, kpis, manifest))
-            _refresh_capacity_inputs(store)
+            _refresh_dashboard_data(store)
     except Exception as exc:
         if status is not None:
             batch.set_run(store, batch.load_status(store, batch_id, f"raw/{batch_id}/"), "failed", str(exc),
@@ -546,9 +549,10 @@ def lambda_handler(event, context=None):
             return run_review_mode(cfg, store, event)
         if mode == "review_start":
             return run_review_start(cfg, store, event)
-        if mode == "capacity_inputs":
+        if mode in ("capacity_inputs", "dashboard_data"):
             inputs = capacity.write(store)
-            return {"mode": mode, "key": capacity.KEY, "notes": inputs["notes"]}
+            extra = insights.write(store)
+            return {"mode": mode, "keys": [capacity.KEY, insights.KEY], "notes": inputs["notes"] + extra["notes"]}
         raise ValueError(f"unknown mode {mode!r}; use 'file', 'full', 'review', 'review_start', "
                          "'capacity_inputs' or 'selfcheck'")
     except Exception as exc:

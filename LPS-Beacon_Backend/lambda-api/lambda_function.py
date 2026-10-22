@@ -27,6 +27,8 @@ Routes (API Gateway route key -> handler). Unbuilt routes answer 501 so the fron
   DELETE /analysis/edits             finance_hr   "Clear my edits": removes the caller's edits, returns the
                                                   whole plan (built)
   GET    /dashboard                  finance_hr   headcount breakdown (204 before a staff list) (built)
+  GET    /dashboard/insights         finance_hr   charts from all uploaded files: sales pipeline, roll-offs,
+                                                  utilisation, leavers (204 before the first build) (built)
   POST   /runs/runForecast           finance_hr   start a forecast run                 (501)
   GET    /runs/{id}                  finance_hr   run status                           (501)
 
@@ -1115,6 +1117,17 @@ def get_dashboard(event, caller):
     return reply(200, breakdown) if breakdown else reply(204)
 
 
+DASHBOARD_INSIGHTS_KEY = "results/dashboard/insights.json"
+
+
+def get_dashboard_insights(event, caller):
+    """The Dashboard's charts from all uploaded files, prepared by the pipeline (pipeline/insights.py).
+    204 until the pipeline has built them (after a UR report, staff list or SFDC pipeline is cleaned)."""
+    caller.require_finance_hr()
+    found = _read_s3(DASHBOARD_INSIGHTS_KEY)
+    return reply(200, json.loads(found[0].decode("utf-8"))) if found else reply(204)
+
+
 def run_forecast(event, caller):
     caller.require_finance_hr()
     not_built("Forecast runs")
@@ -1234,6 +1247,7 @@ ROUTES = {
     "PATCH /analysis": edit_analysis,
     "GET /dashboard": get_dashboard,
     "DELETE /analysis/edits": clear_my_edits,
+    "GET /dashboard/insights": get_dashboard_insights,
     "POST /runs/runForecast": run_forecast,
     "GET /runs/{id}": get_run,
 }

@@ -476,6 +476,23 @@ def clean_sfdc(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     return out.reset_index(drop=True), warnings
 
 
+def sfdc_monthly_revenue(df: pd.DataFrame) -> pd.DataFrame:
+    """Forecast revenue per opportunity per month (USD), from the monthly "(converted)" columns. Months with no
+    revenue are left out. For the Dashboard's pipeline revenue by month."""
+    month_cols = [c for c in df.columns if re.match(r"^\d{2}/ ?\d{4}", str(c))]
+    if not month_cols or "CRM ID" not in df.columns:
+        return pd.DataFrame(columns=["CRM ID", "Month", "Revenue"])
+    wide = df[["CRM ID"] + month_cols].copy()
+    wide["CRM ID"] = _text(wide["CRM ID"])
+    wide = wide.dropna(subset=["CRM ID"])
+    long = wide.melt(id_vars="CRM ID", var_name="column", value_name="Revenue")
+    parts = long["column"].str.extract(r"^(\d{2})/ ?(\d{4})")
+    long["Month"] = parts[1] + "-" + parts[0]
+    long["Revenue"] = pd.to_numeric(long["Revenue"], errors="coerce").astype("float64")
+    long = long[long["Revenue"].fillna(0) != 0]
+    return long.groupby(["CRM ID", "Month"], as_index=False)["Revenue"].sum()
+
+
 ABCD_KEEP = {"Project_ID": "Project_ID", "Project_Name": "Project_Name", "SFDC_ID": "SFDC_ID",
              "End_Customer": "End_Customer", "Customer": "Customer", "Delivery_Region": "Delivery_Region",
              "Service_Line": "Service_Line", "Solution_Offering": "Solution_Offering",
@@ -528,6 +545,8 @@ def run_file(cfg: Config, store: Store, key: str, data: bytes, ext: str) -> dict
         cleaner = {"sl_rp": clean_sl_rp, "sfdc_pipeline": clean_sfdc, "abcd": clean_abcd}[dataset]
         table, warnings = cleaner(sheets["main"])
         tables = {"latest": table}
+        if dataset == "sfdc_pipeline":
+            tables["monthly_revenue"] = sfdc_monthly_revenue(sheets["main"])
         quality.update(rowsIn=len(sheets["main"]), rowsOut=len(table), warnings=warnings)
     elif dataset in ("bu_ur", "staff_list"):
         cleaner = clean_bu_ur if dataset == "bu_ur" else clean_staff_list

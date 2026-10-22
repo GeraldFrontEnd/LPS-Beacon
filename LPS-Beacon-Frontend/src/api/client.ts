@@ -18,6 +18,7 @@ import type {
   SessionSummary,
   FolderSummary,
 } from "./types";
+import type { DashboardInsights } from "../dashboard/insightTypes";
 
 // import.meta.env reads values from the .env file. Vite only exposes names that start with VITE_.
 // Values are always strings, so we compare to the text "true" instead of the boolean true.
@@ -51,6 +52,7 @@ export const API_ROUTES = {
   // POST: a review of the data already uploaded, without new files. Followed with uploadStatus, like an upload.
   storedReview: "/pipeline/reviews",
   analysisEdits: "/analysis/edits", // DELETE: "Clear my edits" on the capacity plan
+  dashboardInsights: "/dashboard/insights", // GET: the Dashboard's charts from all uploaded files
 } as const;
 
 // A tiny helper that pauses for a number of milliseconds (used to fake network delay).
@@ -272,6 +274,13 @@ export async function getHeadcountBreakdown(token?: string): Promise<HeadcountBr
     };
   }
   return (await apiRequest<HeadcountBreakdown | undefined>("GET", API_ROUTES.dashboard, token)) ?? null;
+}
+
+// The Dashboard's charts from all uploaded files (GET /dashboard/insights). null until the pipeline has built them.
+// In sample or mock mode there are none (null), and the Dashboard says so.
+export async function getDashboardInsights(token?: string): Promise<DashboardInsights | null> {
+  if (USE_MOCK || USE_SAMPLE_PLAN) return null;
+  return (await apiRequest<DashboardInsights | undefined>("GET", API_ROUTES.dashboardInsights, token)) ?? null;
 }
 
 // ---- Chat history kept on the server ----
