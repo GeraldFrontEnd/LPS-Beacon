@@ -1,6 +1,7 @@
 // src/review/ReviewProvider.tsx
 // Holds the review run ABOVE the pages, like UploadProvider, so a review in progress survives leaving the
-// Upload page. UploadProvider calls startProcessing() when an upload finishes.
+// Upload page. UploadProvider calls startProcessing() when an upload finishes; the review panel calls
+// startStoredReview() to review the data already uploaded without uploading it again.
 //
 // Two modes:
 //  - pipeline (default): the forecast pipeline Lambda does the work. After an upload it cleans the files and pauses
@@ -12,7 +13,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { getReviewStep, getUploadStatus, postReviewDecisions } from "../api/client";
+import { getReviewStep, getUploadStatus, postReviewDecisions, startStoredReview as requestStoredReview } from "../api/client";
 import type { PipelineUploadStatus, ReviewStep, UploadBatch } from "../api/types";
 import { useAuth } from "../auth/useAuth";
 import { ReviewContext } from "./reviewContext";
@@ -100,6 +101,7 @@ function ReviewState({ children }: ReviewProviderProps) {
   const [rejectedFiles, setRejectedFiles] = useState<RejectedFile[]>([]);
   const [stopMessage, setStopMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false); // a review of the stored data is being requested
 
   const [conflictChoices, setConflictChoices] = useState<Record<string, string>>({});
   const [oppDecisions, setOppDecisions] = useState<Record<string, Decision>>({});
@@ -171,8 +173,14 @@ function ReviewState({ children }: ReviewProviderProps) {
 
   // The checklist while the pipeline works: one line per file, then what the run is doing.
   function showStatus(status: PipelineUploadStatus) {
+    const stored = status.source === "stored";
     const fileSteps: ProcessingStep[] = status.files.map((f) => ({
-      label: f.status === "quarantined" ? `${f.name}: not used` : `${f.name}: checked and cleaned`,
+      label:
+        f.status === "quarantined"
+          ? `${f.name}: not used`
+          : stored
+            ? `${f.name}: already uploaded${f.cleanedAt ? ` (${formatStamp(f.cleanedAt)})` : ""}`
+            : `${f.name}: checked and cleaned`,
       state: "done",
     }));
     const running = status.run.state === "waiting_for_files" || status.run.state === "running";
@@ -267,12 +275,8 @@ function ReviewState({ children }: ReviewProviderProps) {
     followPipeline(nextProgress);
   }
 
-  // ---- Start: called by UploadProvider after files were uploaded ----
-  function startProcessing(fileNames: string[], batch: UploadBatch | null) {
-    if (fileNames.length === 0) return;
-    if (!SAMPLE_MODE && !batch) return; // the backend did not say which upload this was
-    log("Uploaded files", fileNames.join(", "));
-    // A new upload starts a fresh run.
+  // Forgets every decision of the previous run, so a new one starts clean.
+  function clearRun() {
     clearTimers();
     setConflictChoices({});
     setOppDecisions({});
@@ -286,12 +290,25 @@ function ReviewState({ children }: ReviewProviderProps) {
     setRejectedFiles([]);
     setStopMessage(null);
     setError(null);
+  }
+
+  // Sample mode: the same sample review, whether it came from an upload or the stored data.
+  function startSample(firstSteps: string[]) {
+    setData(SAMPLE_REVIEW);
+    runSteps(firstSteps, 0, () => {
+      if (SAMPLE_REVIEW.conflicts.length > 0) arrive("conflicts");
+      else runSteps(STEPS_AFTER_CONFLICTS, 1, () => arrive("forecast"));
+    });
+  }
+
+  // ---- Start: called by UploadProvider after files were uploaded ----
+  function startProcessing(fileNames: string[], batch: UploadBatch | null) {
+    if (fileNames.length === 0) return;
+    if (!SAMPLE_MODE && !batch) return; // the backend did not say which upload this was
+    log("Uploaded files", fileNames.join(", "));
+    clearRun(); // a new upload starts a fresh run
     if (SAMPLE_MODE) {
-      setData(SAMPLE_REVIEW);
-      runSteps(STEPS_AFTER_UPLOAD, 0, () => {
-        if (SAMPLE_REVIEW.conflicts.length > 0) arrive("conflicts");
-        else runSteps(STEPS_AFTER_CONFLICTS, 1, () => arrive("forecast"));
-      });
+      startSample(STEPS_AFTER_UPLOAD);
       return;
     }
     batchRef.current = batch;
@@ -299,6 +316,35 @@ function ReviewState({ children }: ReviewProviderProps) {
     setData(EMPTY_DATA);
     setSteps(fileNames.map((name) => ({ label: `${name}: waiting to be checked`, state: "waiting" })));
     followPipeline(0);
+  }
+
+  // ---- Start: a review of the data already uploaded (no new files) ----
+  async function startStoredReview() {
+    if (starting) return;
+    log("Started a review", "Using the data already uploaded");
+    clearRun();
+    setOpen(true);
+    if (SAMPLE_MODE) {
+      startSample(["Loading the data already uploaded", ...STEPS_AFTER_UPLOAD]);
+      return;
+    }
+    batchRef.current = null;
+    sentStep.current = null;
+    setData(EMPTY_DATA);
+    setProgress(0);
+    setStage("processing");
+    setSteps([{ label: "Loading the data already uploaded", state: "running" }]);
+    setStarting(true);
+    try {
+      const batch = await requestStoredReview(crypto.randomUUID(), tokenRef.current ?? undefined);
+      batchRef.current = batch;
+      followPipeline(0);
+    } catch (err) {
+      setStopMessage(err instanceof Error ? err.message : "Could not start the review.");
+      setStage("stopped");
+    } finally {
+      setStarting(false);
+    }
   }
 
   // ---- Step 1: conflicts ----
@@ -459,6 +505,8 @@ function ReviewState({ children }: ReviewProviderProps) {
     isOpen,
     setOpen,
     startProcessing,
+    startStoredReview: () => void startStoredReview(),
+    canStartReview: !starting && (stage === "idle" || stage === "done" || stage === "ended" || stage === "stopped"),
     conflictChoices,
     chooseConflict,
     confirmConflicts,
@@ -486,6 +534,14 @@ function ReviewState({ children }: ReviewProviderProps) {
   };
 
   return <ReviewContext.Provider value={value}>{children}</ReviewContext.Provider>;
+}
+
+// "20261022T022156Z" (when a stored file was cleaned) -> "22 Oct 2026, 10:21" in the viewer's time zone.
+function formatStamp(stamp: string): string {
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(stamp);
+  if (!m) return stamp;
+  const date = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]));
+  return date.toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 function capitalise(text: string): string {

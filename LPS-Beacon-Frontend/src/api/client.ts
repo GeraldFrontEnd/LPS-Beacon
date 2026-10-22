@@ -48,6 +48,8 @@ export const API_ROUTES = {
   uploadStatus: (b: UploadBatch) => `/pipeline/uploads/${encodeURIComponent(b.date)}/${encodeURIComponent(b.batchId)}`,
   uploadReview: (b: UploadBatch, step: ReviewStep) =>
     `/pipeline/uploads/${encodeURIComponent(b.date)}/${encodeURIComponent(b.batchId)}/review/${step}`,
+  // POST: a review of the data already uploaded, without new files. Followed with uploadStatus, like an upload.
+  storedReview: "/pipeline/reviews",
 } as const;
 
 // A tiny helper that pauses for a number of milliseconds (used to fake network delay).
@@ -343,6 +345,21 @@ export async function getReviewStep<T>(batch: UploadBatch, step: ReviewStep, tok
   if (response.status === 401) throw sessionExpired();
   if (!response.ok) throw new Error(`Could not load the ${step} review (${response.status}).`);
   return (await response.json()) as T;
+}
+
+// Starts a review of the data already uploaded (the latest cleaned copy of every file), so nothing has to be
+// uploaded again. batchId is a new id made by the page, as for an upload. The answer says which "upload" to follow
+// with getUploadStatus.
+export async function startStoredReview(batchId: string, token?: string): Promise<UploadBatch> {
+  const response = await fetch(`${requireApiUrl()}${API_ROUTES.storedReview}`, {
+    method: "POST",
+    headers: await authHeaders(token),
+    body: JSON.stringify({ batchId }),
+  });
+  if (response.status === 401) throw sessionExpired();
+  if (response.status === 403) throw new Error("Your role is not allowed to start a review.");
+  if (!response.ok) throw new Error(`Could not start the review (${response.status}).`);
+  return (await response.json()) as UploadBatch;
 }
 
 // Sends the user's decisions for a step. The pipeline continues in the background; follow it with getUploadStatus.

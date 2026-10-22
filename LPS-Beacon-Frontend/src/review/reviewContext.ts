@@ -30,6 +30,9 @@ export interface ReviewContextValue {
   setOpen: (open: boolean) => void;
   // Called by UploadProvider after an upload. batch identifies the upload for the pipeline (null in mock mode).
   startProcessing: (fileNames: string[], batch: UploadBatch | null) => void;
+  // Starts a review of the data already uploaded, without uploading the files again.
+  startStoredReview: () => void;
+  canStartReview: boolean; // false while a review is in progress
 
   // Step 1: conflicts. conflictId -> chosen option id.
   conflictChoices: Record<string, string>;

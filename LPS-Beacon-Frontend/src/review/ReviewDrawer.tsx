@@ -41,6 +41,18 @@ function ArrowUp() {
 export default function ReviewDrawer({ anchorRef }: ReviewDrawerProps) {
   const review = useReview();
   const { stage, steps, isOpen, setOpen, data, enabled, progress, notices, rejectedFiles, stopMessage, error } = review;
+
+  // Starts a review of the data already uploaded. Offered whenever no review is in progress.
+  const reviewStoredButton = (label: string, primary = false) => (
+    <button
+      type="button"
+      className={primary ? "primary-button" : "secondary-button"}
+      onClick={review.startStoredReview}
+      disabled={!review.canStartReview}
+    >
+      {label}
+    </button>
+  );
   const navigate = useNavigate();
 
   // Where the panel's top edge goes: just below the page title. Measured on open and when the window resizes.
@@ -78,7 +90,7 @@ export default function ReviewDrawer({ anchorRef }: ReviewDrawerProps) {
   // The words on the bar.
   let barText: string;
   if (!enabled) barText = "Review is not connected yet. Turn on VITE_USE_SAMPLE_REVIEW to preview it with sample data.";
-  else if (stage === "idle") barText = "No review waiting. Upload files to start one.";
+  else if (stage === "idle") barText = "No review waiting. Upload files, or open this to review the data already uploaded.";
   else if (stage === "processing") barText = `${running?.label ?? "Finishing"}…`;
   else if (stage === "conflicts") barText = `Step 1 of 3: ${data?.conflicts.length ?? 0} conflicts need your decision`;
   else if (stage === "forecast") barText = "Step 2 of 3: forecast ready for your review";
@@ -178,6 +190,11 @@ export default function ReviewDrawer({ anchorRef }: ReviewDrawerProps) {
                 After you upload files, the system cross-validates them, cleans them and maps position names. Its
                 findings show up here for you to check, one step at a time.
               </p>
+              <p>
+                Nothing changed since the last upload? Review the data already in the system instead. It uses the latest
+                version of every file uploaded so far.
+              </p>
+              <div className="review-finish-actions">{reviewStoredButton("Review the data already uploaded", true)}</div>
             </div>
           )}
 
@@ -222,6 +239,7 @@ export default function ReviewDrawer({ anchorRef }: ReviewDrawerProps) {
                 <button type="button" className="secondary-button" onClick={() => setOpen(false)}>
                   Close
                 </button>
+                {reviewStoredButton("Review again")}
               </div>
             </div>
           )}
@@ -243,6 +261,7 @@ export default function ReviewDrawer({ anchorRef }: ReviewDrawerProps) {
                 <button type="button" className="secondary-button" onClick={review.reset}>
                   Clear this review
                 </button>
+                {reviewStoredButton("Review the data already uploaded")}
               </div>
             </div>
           )}
@@ -252,12 +271,13 @@ export default function ReviewDrawer({ anchorRef }: ReviewDrawerProps) {
               <h3>Review ended</h3>
               <p>
                 You rejected the matching list, so nothing from this run is used. The Analysis and Dashboard pages are
-                unchanged. Upload the files again to start a new review.
+                unchanged. Review the data again, or upload new files to start a new review.
               </p>
               <div className="review-finish-actions">
                 <button type="button" className="secondary-button" onClick={review.reset}>
                   Clear this review
                 </button>
+                {reviewStoredButton("Review the data already uploaded")}
               </div>
             </div>
           )}

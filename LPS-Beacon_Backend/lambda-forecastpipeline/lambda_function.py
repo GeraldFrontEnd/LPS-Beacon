@@ -16,6 +16,10 @@ How it is started, and what runs
   Schedule (EventBridge, monthly or quarterly)       {"mode": "full", "requestedBy": "schedule"}
   Deployment check                                   {"mode": "selfcheck"}
 
+  Review of the data already uploaded (from the API Lambda; no new files)
+      {"mode": "review_start", "batchId": "<user>/<yyyy-mm-dd>/<id>", "requestedBy": "..."}
+                                                       starts the same review on the latest clean/ data
+
   Review decision (from the API Lambda, see pipeline/review.py)
       {"mode": "review", "batchId": "...", "step": "conflicts" | "forecast" | "matching",
        "decisions": {...}}                             continues a paused upload review
@@ -33,6 +37,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import re
 import time
 
 import pandas as pd
@@ -125,22 +130,14 @@ def maybe_run_batch(cfg, store: Store, batch_id: str, prefix: str, auto: bool, c
     if not any(f.get("status") == "cleaned" for f in processed):
         batch.set_run(store, status, "not_run", "every file in this upload was rejected; see the reasons")
         return {"batchId": batch_id, "state": "not_run"}
-    missing = [name for name, key in (("resource plan", "clean/resource_plan/latest_wide.json.gz"),
-                                      ("quote line", "clean/quoteline/latest_wide.json.gz"))
-               if not store.exists(key)]
+    missing = _missing_inputs(store)
     if missing:
         batch.set_run(store, status, "waiting_for_inputs",
                       f"upload a {' and a '.join(missing)} to run the forecast")
         return {"batchId": batch_id, "state": "waiting_for_inputs"}
 
     if cfg.review_on_upload:
-        try:
-            return start_review(cfg, store, batch_id)
-        except Exception as exc:  # noqa: BLE001 - same reasoning as below
-            log.exception("upload review failed to start")
-            publish.notify(cfg, "LPS-Beacon pipeline FAILED", {"batchId": batch_id, "error": str(exc)})
-            batch.set_run(store, batch.load_status(store, batch_id, prefix), "failed", str(exc))
-            return {"batchId": batch_id, "state": "failed", "error": str(exc)}
+        return _start_review_safely(cfg, store, batch_id)
 
     try:
         result = run_full_mode(cfg, store, {"mode": "full", "trigger": "upload", "batchId": batch_id,
@@ -154,6 +151,64 @@ def maybe_run_batch(cfg, store: Store, batch_id: str, prefix: str, auto: bool, c
             batch.set_run(store, latest, "failed", str(exc))
         return {"batchId": batch_id, "state": "failed", "error": str(exc)}
     return {"batchId": batch_id, "state": "published", "runId": result["runId"]}
+
+
+def _missing_inputs(store: Store) -> list[str]:
+    """The inputs a review can't run without, by name, when they were never cleaned."""
+    return [name for name, key in (("resource plan", "clean/resource_plan/latest_wide.json.gz"),
+                                   ("quote line", "clean/quoteline/latest_wide.json.gz"))
+            if not store.exists(key)]
+
+
+def _start_review_safely(cfg, store: Store, batch_id: str) -> dict:
+    try:
+        return start_review(cfg, store, batch_id)
+    except Exception as exc:  # noqa: BLE001 - the status file tells the user; a retry would not help
+        log.exception("review failed to start")
+        publish.notify(cfg, "LPS-Beacon pipeline FAILED", {"batchId": batch_id, "error": str(exc)})
+        batch.set_run(store, _status(store, batch_id), "failed", str(exc))
+        return {"batchId": batch_id, "state": "failed", "error": str(exc)}
+
+
+# ---------------------------------------------------------------- REVIEW of the data already uploaded
+STORED_BATCH_ID = re.compile(r"[A-Za-z0-9@._+-]{1,128}/\d{4}-\d{2}-\d{2}/[A-Za-z0-9-]{8,64}")
+
+
+def stored_files(store: Store) -> list[dict]:
+    """One entry per dataset in clean/: the file it was last cleaned from, and when."""
+    files = []
+    for dataset in clean.DATASETS:
+        quality = store.read_json_or(f"clean/{dataset}/latest.quality.json", None)
+        if not quality:
+            continue
+        source = str(quality.get("sourceKey") or dataset)
+        files.append({"key": source, "name": batch.file_name(source), "status": "cleaned", "dataset": dataset,
+                      "cleanedAt": quality.get("cleanedAt"), "warnings": quality.get("warnings") or [],
+                      "reason": None, "at": batch.now_iso()})
+    return files
+
+
+def run_review_start(cfg, store: Store, event: dict) -> dict:
+    """A review on the latest cleaned data, without uploading the files again. Uses the same status file and
+    review steps as an upload, so the review page follows it the same way."""
+    batch_id = str(event.get("batchId") or "")
+    if not STORED_BATCH_ID.fullmatch(batch_id) or ".." in batch_id:
+        raise ValueError("review_start needs a batchId like <user>/<yyyy-mm-dd>/<id>")
+    if store.exists(batch.status_key(batch_id)):
+        # The async retry of an invocation that already started this review: don't start it twice.
+        _log("review_start_ignored", batchId=batch_id)
+        return {"batchId": batch_id, "state": "ignored"}
+    status = batch.load_status(store, batch_id, f"raw/{batch_id}/")
+    status.update(source="stored", uploadedBy=event.get("requestedBy") or status["uploadedBy"],
+                  files=stored_files(store), expectedFiles=None)
+    _log("review_start", batchId=batch_id, datasets=[f["dataset"] for f in status["files"]])
+    missing = _missing_inputs(store)
+    if missing:
+        batch.set_run(store, status, "waiting_for_inputs",
+                      f"no {' or '.join(missing)} has been uploaded yet; upload one to start a review")
+        return {"batchId": batch_id, "state": "waiting_for_inputs"}
+    batch.set_run(store, status, "running", "loading the data already uploaded")
+    return _start_review_safely(cfg, store, batch_id)
 
 
 # ---------------------------------------------------------------- REVIEW flow (after an upload)
@@ -246,8 +301,10 @@ def finish_review(cfg, store: Store, batch_id: str) -> dict:
                                                   "batchId": batch_id, "reviewed": True})
     inputs, _ = _prepared_inputs(cfg, store, batch_id)
     gap = review.hiring_gap(reviewed["matching"], cfg.ql_full_month_mds)
-    return run_full_mode(cfg, store, {"mode": "full", "stages": ["forecast", "publish"], "trigger": "upload",
-                                      "batchId": batch_id, "requestedBy": _status(store, batch_id).get("uploadedBy")},
+    status = _status(store, batch_id)
+    trigger = "stored_review" if status.get("source") == "stored" else "upload"
+    return run_full_mode(cfg, store, {"mode": "full", "stages": ["forecast", "publish"], "trigger": trigger,
+                                      "batchId": batch_id, "requestedBy": status.get("uploadedBy")},
                          prepared_inputs=inputs, extra_summary={"hiring_gap": gap})
 
 
@@ -447,7 +504,9 @@ def lambda_handler(event, context=None):
             return run_full_mode(cfg, store, event)
         if mode == "review":
             return run_review_mode(cfg, store, event)
-        raise ValueError(f"unknown mode {mode!r}; use 'file', 'full', 'review' or 'selfcheck'")
+        if mode == "review_start":
+            return run_review_start(cfg, store, event)
+        raise ValueError(f"unknown mode {mode!r}; use 'file', 'full', 'review', 'review_start' or 'selfcheck'")
     except Exception as exc:
         log.exception("pipeline failed")
         publish.notify(cfg, "LPS-Beacon pipeline FAILED", {"mode": mode, "error": str(exc)})

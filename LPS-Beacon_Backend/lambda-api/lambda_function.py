@@ -9,6 +9,8 @@ Routes (API Gateway route key -> handler). Unbuilt routes answer 501 so the fron
   GET    /pipeline/uploads/{date}/{batchId}  finance_hr  progress of one upload (pipeline status file)  (built)
   GET    /pipeline/uploads/{date}/{batchId}/review/{step}   finance_hr  what the review page shows for a step  (built)
   POST   /pipeline/uploads/{date}/{batchId}/review/{step}   finance_hr  the user's decisions; starts the next step (built)
+  POST   /pipeline/reviews           finance_hr   review the data already uploaded, no new files; answers
+                                                  {batchId, date}, then follow it like an upload (built)
   POST   /chat                       signed in    AI agent answer, saved to history    (built)
   GET    /sessions                   signed in    the caller's chats, newest first     (built)
   GET    /sessions/{id}/messages     signed in    one chat's messages (own chats only) (built)
@@ -44,7 +46,7 @@ Permissions needed on the function's role:
   s3:GetObject  on  arn:aws:s3:::lps-beacon-data/results/*
   s3:ListBucket on  arn:aws:s3:::lps-beacon-data  with condition s3:prefix = results/*  (so a missing status file
                 answers NoSuchKey instead of AccessDenied; both are handled, this only makes the logs clearer)
-  lambda:InvokeFunction  on the PIPELINE_FUNCTION function (review decisions)
+  lambda:InvokeFunction  on the PIPELINE_FUNCTION function (review decisions, reviews of the stored data)
   bedrock:InvokeModel  on the CHAT_MODEL_ID inference profile (and its model, only through that profile)
   bedrock:ApplyGuardrail  on the GUARDRAIL_ID guardrail
 Lambda timeout: 29 seconds (API Gateway gives up after 30).
@@ -1094,6 +1096,24 @@ def post_review(event, caller):
     return reply(202, {"status": "started", "step": step})
 
 
+def start_stored_review(event, caller):
+    """Starts a review on the data already uploaded (the latest cleaned version of every file), so the same files
+    don't have to be uploaded again. The page sends a new batchId, as for an upload, and then follows the review
+    with get_upload_status, exactly like an upload's."""
+    caller.require_finance_hr()
+    batch_id = str(json_body(event).get("batchId") or "")
+    if not re.fullmatch(BATCH_ID_PATTERN, batch_id):
+        raise HttpError(400, "Send a valid batchId")
+    today = datetime.date.today().isoformat()
+    batch = "%s/%s/%s" % (caller.user_id, today, batch_id)
+    if _upload_status(batch) is not None:
+        raise HttpError(409, "This review has already started")
+    payload = json.dumps({"mode": "review_start", "batchId": batch, "requestedBy": caller.user_id}).encode("utf-8")
+    lambda_client.invoke(FunctionName=PIPELINE_FUNCTION, InvocationType="Event", Payload=payload)
+    print("Review of the stored data started by user", caller.user_id)
+    return reply(202, {"batchId": batch_id, "date": today})
+
+
 def get_run(event, caller):
     caller.require_finance_hr()
     path_id(event)
@@ -1106,6 +1126,7 @@ ROUTES = {
     "GET /pipeline/uploads/{date}/{batchId}": get_upload_status,
     "GET /pipeline/uploads/{date}/{batchId}/review/{step}": get_review,
     "POST /pipeline/uploads/{date}/{batchId}/review/{step}": post_review,
+    "POST /pipeline/reviews": start_stored_review,
     "POST /chat": chat,
     "GET /sessions": list_sessions,
     "GET /sessions/{id}/messages": get_session_messages,

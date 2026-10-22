@@ -61,7 +61,16 @@ export type ReviewStep = "conflicts" | "forecast" | "matching";
 // GET /pipeline/uploads/{date}/{batchId}: the pipeline's status file for one upload.
 export interface PipelineUploadStatus {
   batchId: string;
-  files: { name: string; status: "cleaned" | "quarantined"; dataset?: string | null; reason?: string | null; warnings?: string[] | null }[];
+  // "stored" when the review uses the data already uploaded instead of new files. Missing means an upload.
+  source?: "upload" | "stored";
+  files: {
+    name: string;
+    status: "cleaned" | "quarantined";
+    dataset?: string | null;
+    reason?: string | null;
+    warnings?: string[] | null;
+    cleanedAt?: string | null; // when the stored copy was cleaned, e.g. "20261022T022156Z" (stored reviews)
+  }[];
   run: {
     // waiting_for_files, waiting_for_inputs, not_run, disabled, running, awaiting_review, published, ended, failed
     state: string;

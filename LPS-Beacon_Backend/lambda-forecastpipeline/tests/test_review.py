@@ -143,6 +143,49 @@ class ReviewFlowTests(Base):
         self.assertEqual({o["value"] for o in conflicts[0]["options"]}, {"Band 6", "Band 7"})
         self.assertFalse(self.store.exists("results/latest.json"), "nothing is published before the review")
 
+    def start_stored(self, batch_id):
+        import lambda_function
+        return lambda_function.lambda_handler({"mode": "review_start", "batchId": batch_id,
+                                               "requestedBy": "user@example.com", "asOf": "2026-09-01"})
+
+    def test_review_of_stored_data_needs_no_upload(self):
+        import lambda_function
+        self.upload_all()
+        stored = "user@example.com/2026-10-21/stored-01"
+        result = self.start_stored(stored)
+        self.assertEqual(result["state"], "awaiting_review")
+        status = self.store.read_json(f"results/uploads/{stored}/status.json")
+        self.assertEqual(status["source"], "stored")
+        self.assertEqual((status["run"]["state"], status["run"]["step"]), ("awaiting_review", "conflicts"))
+        self.assertEqual({f["dataset"] for f in status["files"]},
+                         {"resource_plan", "quoteline", "position_mapping", "sl_rp", "sfdc_pipeline", "abcd"})
+        self.assertEqual({f["name"] for f in status["files"] if f["dataset"] == "abcd"}, {"abc-ABCD.csv"},
+                         "each dataset names the file it was cleaned from")
+        self.assertEqual(self.store.read_json(review.review_key(stored, "conflicts"))["conflicts"][0]["key"], "QL-2")
+        self.assertEqual(self.start_stored(stored)["state"], "ignored", "a retried invocation starts nothing")
+
+        # The stored review runs through to publishing like an upload review.
+        conflicts = self.store.read_json(review.review_key(stored, "conflicts"))["conflicts"]
+        lambda_function.lambda_handler({"mode": "review", "batchId": stored, "step": "conflicts",
+                                        "decisions": {"choices": {conflicts[0]["id"]: "a"}}, "asOf": "2026-09-01"})
+        lambda_function.lambda_handler({"mode": "review", "batchId": stored, "step": "forecast",
+                                        "decisions": {"rejectedAll": True}, "asOf": "2026-09-01"})
+        lambda_function.lambda_handler({"mode": "review", "batchId": stored, "step": "matching",
+                                        "decisions": {"assignment": {}, "decisions": {}}, "asOf": "2026-09-01"})
+        latest = self.store.read_json("results/latest.json")
+        self.assertEqual((latest["trigger"], latest["batchId"]), ("stored_review", stored))
+
+    def test_review_of_stored_data_waits_for_inputs(self):
+        result = self.start_stored("user@example.com/2026-10-21/empty-01")
+        self.assertEqual(result["state"], "waiting_for_inputs")
+        run = self.store.read_json("results/uploads/user@example.com/2026-10-21/empty-01/status.json")["run"]
+        self.assertIn("resource plan", run["message"])
+
+    def test_review_of_stored_data_rejects_odd_batch_ids(self):
+        for bad in ("", "../x/2026-10-21/abcdefgh", "user/2026-10-21/short"):
+            with self.assertRaises(ValueError):
+                self.start_stored(bad)
+
     def test_forecast_finds_crm_similar_and_manual(self):
         self.upload_all()
         conflicts = self.payload("conflicts")["conflicts"]
