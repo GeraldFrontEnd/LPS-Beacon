@@ -70,6 +70,20 @@ export interface SimilarBasis {
   shiftedMonths?: number; // how far its months were moved to line up with the opportunity's start
   score?: number; // 0-1, how alike the system judged the two
   reasons?: string[]; // why, e.g. "TCV 94% alike", "same offering (ATFM)"
+  // Added for the side-by-side comparison. Missing on reviews prepared before it existed.
+  durationMonths?: number | null; // the past project's length
+  opportunityMonths?: number | null; // the opportunity's length (revenue months)
+  threshold?: number; // the lowest score that counts as a match, 0-1
+  weights?: Record<string, number>; // how much each criterion counts, e.g. { tcv: 0.35, ... }
+  match?: SimilarMatch;
+}
+
+// How alike the opportunity and the past project are, criterion by criterion.
+export interface SimilarMatch {
+  tcv: number; // 0-1
+  duration: number; // 0-1, 0 when a length is unknown
+  offering: boolean;
+  name: number; // 0-1, share of name words in common
 }
 
 // One pipeline opportunity and the resources the system proposes for it.

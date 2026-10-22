@@ -114,8 +114,13 @@ def _flag_duplicates(resources: list[dict], quote_lines: set[str]) -> None:
             r["alreadyInQuoteLines"] = r["sourceId"]
 
 
-def _similar(opp: pd.Series, candidates: pd.DataFrame, threshold: float) -> tuple[pd.Series, float, list[str]] | None:
-    """The ABCD project most like the opportunity, with its score and the reasons, or None."""
+# How much each criterion counts towards the similarity score. Shown on the review page, so keep them in sync.
+WEIGHTS = {"tcv": 0.35, "offering": 0.25, "duration": 0.2, "name": 0.2}
+
+
+def _similar(opp: pd.Series, candidates: pd.DataFrame,
+             threshold: float) -> tuple[pd.Series, float, list[str], dict] | None:
+    """The ABCD project most like the opportunity: (row, score, reasons, per-criterion scores), or None."""
     if candidates.empty:
         return None
     tcv = _num(opp.get("TCV (converted)"))
@@ -131,7 +136,8 @@ def _similar(opp: pd.Series, candidates: pd.DataFrame, threshold: float) -> tupl
     off_score = [1.0 if offering and offering in (s1, s2) else 0.0
                  for s1, s2 in zip(candidates["_offering"], candidates["_service_line"])]
     name_score = [len(words & t) / len(words | t) if words and t else 0.0 for t in candidates["_tokens"]]
-    scores = [0.35 * a + 0.2 * b + 0.25 * c + 0.2 * d for a, b, c, d in zip(tcv_score, dur_score, off_score, name_score)]
+    scores = [WEIGHTS["tcv"] * a + WEIGHTS["duration"] * b + WEIGHTS["offering"] * c + WEIGHTS["name"] * d
+              for a, b, c, d in zip(tcv_score, dur_score, off_score, name_score)]
     best = max(range(len(scores)), key=scores.__getitem__)
     if scores[best] < threshold:
         return None
@@ -143,7 +149,10 @@ def _similar(opp: pd.Series, candidates: pd.DataFrame, threshold: float) -> tupl
         reasons.append(f"same offering ({opp.get('Major Solution Offering')})")
     if name_score[best]:
         reasons.append("similar name")
-    return row, round(scores[best], 2), reasons
+    parts = {"tcv": round(tcv_score[best], 2), "duration": round(dur_score[best], 2),
+             "offering": bool(off_score[best]), "name": round(name_score[best], 2),
+             "opportunityMonths": duration}
+    return row, round(scores[best], 2), reasons, parts
 
 
 def run(cfg, inputs: dict) -> tuple[list[dict], list[str]]:
@@ -201,7 +210,7 @@ def run(cfg, inputs: dict) -> tuple[list[dict], list[str]]:
         else:
             found = _similar(o, cand, cfg.similarity_threshold) if not cand.empty else None
             if found is not None:
-                row, score, reasons = found
+                row, score, reasons, parts = found
                 rows = project_rows[project_rows["ID"] == row["Project_ID"]]
                 anchor = o.get("Revenue From")
                 if pd.isna(anchor) and pd.notna(o.get("Expected Closed Date")):
@@ -215,6 +224,13 @@ def run(cfg, inputs: dict) -> tuple[list[dict], list[str]]:
                         "tcvUsd": round(_num(row["TCV_USD"])), "start": _ym(row["Planned_Start"]),
                         "end": _ym(row["Planned_End_Date"]), "offering": _text(row["Solution_Offering"]),
                         "shiftedMonths": shift, "score": score, "reasons": reasons,
+                        # For the side-by-side comparison on the review page.
+                        "durationMonths": None if pd.isna(row["_duration"]) else int(row["_duration"]),
+                        "opportunityMonths": parts["opportunityMonths"],
+                        "threshold": cfg.similarity_threshold,
+                        "weights": WEIGHTS,
+                        "match": {"tcv": parts["tcv"], "duration": parts["duration"],
+                                  "offering": parts["offering"], "name": parts["name"]},
                     }
         _flag_duplicates(resources, quote_lines)
         item["resources"] = resources

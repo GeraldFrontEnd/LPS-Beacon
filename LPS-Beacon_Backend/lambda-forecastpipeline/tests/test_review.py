@@ -156,6 +156,13 @@ class ReviewFlowTests(Base):
         self.assertEqual(opps["CRM-1"]["resources"][0]["fte"], 1.0)
         self.assertEqual(opps["CRM-2"]["source"], "similar")
         self.assertEqual(opps["CRM-2"]["basis"]["projectId"], "PROJ-PAST")
+        basis = opps["CRM-2"]["basis"]
+        self.assertEqual((basis["durationMonths"], basis["opportunityMonths"]), (6, 5))
+        self.assertNotIn("customer", basis["match"], "agency is not a reason for the match")
+        self.assertEqual(basis["match"]["tcv"], 0.95)
+        self.assertEqual(basis["match"]["offering"], True)
+        self.assertGreater(basis["match"]["name"], 0)
+        self.assertEqual(set(basis["weights"]), {"tcv", "offering", "duration", "name"})
         self.assertEqual(opps["CRM-2"]["resources"][0]["start"], "2026-11", "moved to the revenue start")
         self.assertEqual(opps["CRM-3"]["source"], "manual")
 
