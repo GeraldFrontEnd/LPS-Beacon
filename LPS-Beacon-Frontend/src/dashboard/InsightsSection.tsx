@@ -14,6 +14,7 @@ import BarChart from "../charts/BarChart";
 import ChartCard from "../charts/ChartCard";
 import LineChart from "../charts/LineChart";
 import { formatChartValue } from "../charts/chartMath";
+import DashboardSection from "./DashboardSection";
 import type { ChartFormat } from "../charts/chartMath";
 import type { DashboardInsights, SalesPipeline, ResourceOutlook, Utilisation, Workforce } from "./insightTypes";
 
@@ -83,8 +84,7 @@ function PipelineSection({ pipeline }: { pipeline: SalesPipeline }) {
   const stages = pipeline.byStage;
   const revenue = pipeline.revenueByMonth;
   return (
-    <section className="dashboard-section">
-      <h2 className="dashboard-heading">Sales pipeline (SFDC)</h2>
+    <DashboardSection id="sales-pipeline" title="Sales pipeline (SFDC)">
       <div className="stats">
         <Stat value={show(k.openCount, "int")} label="Open opportunities" />
         <Stat value={show(k.openTcv, "usdCompact")} label="Open pipeline TCV" />
@@ -169,7 +169,7 @@ function PipelineSection({ pipeline }: { pipeline: SalesPipeline }) {
           </div>
         </ChartCard>
       </div>
-    </section>
+    </DashboardSection>
   );
 }
 
@@ -177,11 +177,15 @@ function ResourceSection({ resources }: { resources: ResourceOutlook }) {
   const rolls = resources.rollOffs ?? [];
   const bench = resources.benchRisk ?? [];
   return (
-    <section className="dashboard-section">
-      <h2 className="dashboard-heading">
-        Resource supply and demand
-        {resources.run.asOf && <span className="kpi-asof"> · from the review planned as of {monthLabel(resources.run.asOf.slice(0, 7))}</span>}
-      </h2>
+    <DashboardSection
+      id="resources"
+      title="Resource supply and demand"
+      aside={
+        resources.run.asOf && (
+          <span className="kpi-asof"> · from the review planned as of {monthLabel(resources.run.asOf.slice(0, 7))}</span>
+        )
+      }
+    >
       <div className="chart-grid">
         {rolls.length > 0 && (
           <ChartCard
@@ -240,7 +244,7 @@ function ResourceSection({ resources }: { resources: ResourceOutlook }) {
           </ChartCard>
         )}
       </div>
-    </section>
+    </DashboardSection>
   );
 }
 
@@ -288,8 +292,7 @@ function UtilisationSection({ utilisation }: { utilisation: Utilisation }) {
     </ChartCard>
   );
   return (
-    <section className="dashboard-section">
-      <h2 className="dashboard-heading">Utilisation (UR report)</h2>
+    <DashboardSection id="utilisation" title="Utilisation (UR report)">
       <div className="chart-grid">
         <ChartCard
           wide
@@ -309,14 +312,13 @@ function UtilisationSection({ utilisation }: { utilisation: Utilisation }) {
         {utilisation.byTeam.length > 0 && table("By team", utilisation.byTeam)}
         {utilisation.byTier.length > 0 && table("By tier", utilisation.byTier)}
       </div>
-    </section>
+    </DashboardSection>
   );
 }
 
 function WorkforceSection({ workforce }: { workforce: Workforce }) {
   return (
-    <section className="dashboard-section">
-      <h2 className="dashboard-heading">Workforce (staff list)</h2>
+    <DashboardSection id="workforce" title="Workforce (staff list)">
       <div className="chart-grid">
         <ChartCard
           title="Leavers already recorded"
@@ -362,7 +364,7 @@ function WorkforceSection({ workforce }: { workforce: Workforce }) {
           )}
         </ChartCard>
       </div>
-    </section>
+    </DashboardSection>
   );
 }
 

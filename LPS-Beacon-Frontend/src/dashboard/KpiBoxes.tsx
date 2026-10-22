@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from "react";
 import { getHeadcountBreakdown } from "../api/client";
+import DashboardSection from "./DashboardSection";
 import type { CapacityPlan, HeadcountBreakdown } from "../api/types";
 import { useAuth } from "../auth/useAuth";
 import { formatChartValue } from "../charts/chartMath";
@@ -41,11 +42,11 @@ export default function KpiBoxes({ plan }: { plan: CapacityPlan | null }) {
   const asOf = hc ? new Date(hc.asOf).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : null;
 
   return (
-    <section className="dashboard-section">
-      <h2 className="dashboard-heading">
-        This month, {monthLabel}
-        {asOf && <span className="kpi-asof"> · headcount as of {asOf}</span>}
-      </h2>
+    <DashboardSection
+      id="this-month"
+      title={`This month, ${monthLabel}`}
+      aside={asOf && <span className="kpi-asof"> · headcount as of {asOf}</span>}
+    >
       {hcError && (
         <p className="error-banner dashboard-banner" role="alert">
           {hcError}
@@ -74,6 +75,6 @@ export default function KpiBoxes({ plan }: { plan: CapacityPlan | null }) {
           <div className="stat-label">Gross margin</div>
         </div>
       </div>
-    </section>
+    </DashboardSection>
   );
 }
