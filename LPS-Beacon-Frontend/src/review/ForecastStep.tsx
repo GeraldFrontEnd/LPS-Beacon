@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 import Dialog from "../components/Dialog";
 import type { DialogOptions } from "../components/Dialog";
 import { ChevronDownIcon, ChevronRightIcon } from "../components/icons";
+import MatchBasis from "./MatchBasis";
 import { editedResource, formatMonth, formatUsd, resourceProblem } from "./reviewLogic";
 import type { Decision, EditableResourceField, ForecastSource, Opportunity } from "./types";
 import { useReview } from "./useReview";
@@ -184,16 +185,7 @@ export default function ForecastStep() {
                 </div>
               </dl>
 
-              {o.source === "similar" && o.basis && (
-                <p className="review-warning">
-                  <strong>Recommendation only.</strong> No resource plan exists for this opportunity, so these resources
-                  are copied from the past project <strong>{o.basis.projectName}</strong> ({o.basis.projectId}, TCV{" "}
-                  {formatUsd(o.basis.tcvUsd)}, {o.basis.offering})
-                  {o.basis.shiftedMonths ? `, with its months moved to start in ${formatMonth(o.start)}` : ""}.
-                  {o.basis.reasons && o.basis.reasons.length > 0 ? ` Why this project: ${o.basis.reasons.join(", ")}.` : ""}{" "}
-                  Check every resource before accepting.
-                </p>
-              )}
+              {o.source === "similar" && o.basis && <MatchBasis opp={o} basis={o.basis} />}
               {o.source === "manual" && (
                 <p className="review-warning muted">
                   No resource plan in SL x RP and no similar past project. Entering resources by hand comes later; leave

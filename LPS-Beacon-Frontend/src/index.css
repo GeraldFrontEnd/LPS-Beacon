@@ -2392,6 +2392,49 @@ body {
   border-color: var(--line);
 }
 
+/* Forecast step: an opportunity side by side with the past project it was based on. */
+.basis-panel p {
+  margin: 0;
+}
+
+.basis-table-wrap {
+  margin: 8px 0;
+  overflow-x: auto;
+}
+
+.basis-table {
+  margin: 0;
+  color: var(--ink);
+  background: var(--surface);
+  border-radius: 6px;
+}
+
+.basis-table th[scope="row"] {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.basis-cell {
+  font-weight: 600;
+}
+
+.basis-good {
+  color: var(--success);
+}
+
+.basis-weak {
+  color: var(--error);
+}
+
+.basis-unknown {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.basis-footnote {
+  font-size: 0.75rem;
+}
+
 .field-error {
   display: block;
   margin-top: 4px;

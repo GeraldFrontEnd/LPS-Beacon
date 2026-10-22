@@ -989,7 +989,21 @@ export const SAMPLE_REVIEW: ReviewData = {
     "start": "2026-04",
     "end": "2027-03",
     "offering": "ATFM",
-    "shiftedMonths": 14
+    "shiftedMonths": 14,
+    "durationMonths": 12,
+    "opportunityMonths": 10,
+    "weights": {
+     "tcv": 0.35,
+     "offering": 0.25,
+     "duration": 0.2,
+     "name": 0.2
+    },
+    "match": {
+     "tcv": 0.03,
+     "duration": 0.83,
+     "offering": true,
+     "name": 0.0
+    }
    },
    "resources": [
     {
@@ -1084,7 +1098,21 @@ export const SAMPLE_REVIEW: ReviewData = {
     "start": "2026-04",
     "end": "2027-03",
     "offering": "ATFM",
-    "shiftedMonths": 12
+    "shiftedMonths": 12,
+    "durationMonths": 12,
+    "opportunityMonths": 12,
+    "weights": {
+     "tcv": 0.35,
+     "offering": 0.25,
+     "duration": 0.2,
+     "name": 0.2
+    },
+    "match": {
+     "tcv": 0.04,
+     "duration": 1.0,
+     "offering": true,
+     "name": 0.0
+    }
    },
    "resources": [
     {
@@ -1169,7 +1197,21 @@ export const SAMPLE_REVIEW: ReviewData = {
     "start": "2023-01",
     "end": "2024-12",
     "offering": "ATFM",
-    "shiftedMonths": 37
+    "shiftedMonths": 37,
+    "durationMonths": 24,
+    "opportunityMonths": 7,
+    "weights": {
+     "tcv": 0.35,
+     "offering": 0.25,
+     "duration": 0.2,
+     "name": 0.2
+    },
+    "match": {
+     "tcv": 0.04,
+     "duration": 0.29,
+     "offering": false,
+     "name": 0.0
+    }
    },
    "resources": [
     {
