@@ -59,9 +59,10 @@ export default function UploadPage() {
         problems.push(`${file.name}: larger than ${MAX_SIZE_MB} MB.`);
         continue;
       }
-      // Check 3: same name and size as a file already in the list.
+      // Check 3: same name and size as a file in the list that is still waiting to be sent. A file that was
+      // already uploaded doesn't count, so the same file can be sent again (e.g. "Upload without review" later).
       const alreadyAdded = items.some(
-        (i) => i.file.name === file.name && i.file.size === file.size
+        (i) => i.status !== "done" && i.file.name === file.name && i.file.size === file.size
       );
       if (alreadyAdded) {
         problems.push(`${file.name}: already in the list.`);
