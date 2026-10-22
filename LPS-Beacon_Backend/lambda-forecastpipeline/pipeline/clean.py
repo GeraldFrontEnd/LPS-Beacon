@@ -5,7 +5,9 @@ What it recognises (by its columns, not its file name):
   quoteline         Quote Line export (has "Name" and months Apr..Mar)
   position_mapping  workbook with a sheet holding "Position Name" + "Standard Role"
   rates             optional finance table: "Grade" plus "Daily Rate" and/or "Daily Cost"
-                    (optionally "Standard Role" for role-specific rates)
+                    (optionally "Standard Role" for role-specific rates), and a "Currency" column (USD or
+                    SGD). Money is stored in USD: SGD rates are converted with the fiscal year's Finance rate
+                    (plan_settings.py). A rates file that does not say its currency is rejected.
   sl_rp             Service Line x Resource Plan export (has "Demand Type", "ID", "Calendar Date",
                     "MD"): demand per project / quote and person per month. Used by the review flow
                     to find the resources a pipeline opportunity needs (pipeline/opportunities.py)
@@ -13,6 +15,13 @@ What it recognises (by its columns, not its file name):
                     header is a few rows down, under the report title)
   abcd              ABCD cost report (has "Project_ID", "SFDC_ID", "TCVBefore_Tax_USD_Currency_Contract"):
                     past projects, used to find a similar project for an opportunity
+  bu_ur             BU utilisation (UR) report, sheet "Export" (has "Report Month", "Grade", "Billable",
+                    "Standard Working days (Current month)"; row 1 holds subtotals, the header is row 2).
+                    Billable UR = sum of Billable / sum of Standard Working days, per month (and band).
+                    Used for the capacity plan's actual months. Staff names are dropped.
+  staff_list        MSPO SG Staff List (has "IT Code", "Grade", "Employee Type"; header on row 2, plus a
+                    hidden Dynamics sheet). Today's headcount by band and employment type, for the capacity
+                    plan's starting headcount and the Dashboard. Staff names are dropped.
 
 Resource plan and quote line exports that were edited by hand can lose the columns that tell
 them apart ("Project Owner" in the resource plan, "Name" and "Apr" in the quote line). When a
@@ -39,16 +48,20 @@ import re
 
 import pandas as pd
 
-from . import fiscal
+from . import fiscal, plan_settings
 from .config import Config
 from .s3io import Store
 
-DATASETS = ("resource_plan", "quoteline", "position_mapping", "rates", "sl_rp", "sfdc_pipeline", "abcd")
+DATASETS = ("resource_plan", "quoteline", "position_mapping", "rates", "sl_rp", "sfdc_pipeline", "abcd",
+            "bu_ur", "staff_list")
 
 PLAN_MINIMUM = {"Project ID", "Quote Line Number", "Resource", "Grade", "Position Name", "Fiscal Year"}
 SL_RP_REQUIRED = {"Demand Type", "ID", "Calendar Date", "MD", "Grade", "Position Name"}
 SFDC_REQUIRED = {"CRM ID", "Stage", "TCV (converted)"}
 ABCD_REQUIRED = {"Project_ID", "Project_Name", "TCVBefore_Tax_USD_Currency_Contract"}
+UR_WORKING_DAYS = "Standard Working days (Current month)"
+BU_UR_REQUIRED = {"Report Month", "Grade", "Billable", UR_WORKING_DAYS}
+STAFF_REQUIRED = {"IT Code", "Grade", "Employee Type"}
 HEADER_SEARCH_ROWS = 30     # report exports put a title block above the real header
 
 RP_REQUIRED = {"Project ID", "Quote Line Number", "Resource", "Grade", "Position Name",
@@ -66,7 +79,16 @@ class CleanError(ValueError):
 
 # ---------------------------------------------------------------- reading
 def _norm_header(name) -> str:
-    return re.sub(r"\s+", " ", str(name)).strip()
+    # \u200b: Dynamics exports put an invisible zero-width space in some headings ("CCC Billable Status").
+    return re.sub(r"\s+", " ", str(name).replace("\u200b", "")).strip()
+
+
+def _is_number(text: str) -> bool:
+    try:
+        float(text)
+        return True
+    except ValueError:
+        return False
 
 
 def read_any(data: bytes, ext: str) -> dict[str, pd.DataFrame]:
@@ -91,8 +113,9 @@ def read_any(data: bytes, ext: str) -> dict[str, pd.DataFrame]:
         df.columns = [_norm_header(c) for c in df.columns]
         named = [c for c in df.columns if c and not c.startswith("Unnamed:")]
         # A report with a title block above its header has almost no named columns in row 1; keep them
-        # all so detect() can find the real header further down.
-        if len(named) >= 3:
+        # all so detect() can find the real header further down. The same when row 1 holds numbers (the UR
+        # report's subtotals above its real header): numbers are never column names.
+        if len(named) >= 3 and not any(_is_number(c) for c in named):
             df = df.loc[:, named]
         out[name] = df.dropna(how="all")
     return out
@@ -140,6 +163,13 @@ def detect(sheets: dict[str, pd.DataFrame], source_name: str = "") -> tuple[str,
         found = _header_lower_down(df, SFDC_REQUIRED)
         if found is not None:
             return "sfdc_pipeline", {"main": found}
+    for df in sheets.values():
+        found = df if BU_UR_REQUIRED <= set(df.columns) else _header_lower_down(df, BU_UR_REQUIRED)
+        if found is not None:
+            return "bu_ur", {"main": found}
+        found = df if STAFF_REQUIRED <= set(df.columns) else _header_lower_down(df, STAFF_REQUIRED)
+        if found is not None:
+            return "staff_list", {"main": found}
     mapping = {n: df for n, df in sheets.items() if {"Position Name", "Standard Role"} <= set(df.columns)}
     if mapping:
         return "position_mapping", sheets
@@ -163,7 +193,7 @@ def detect(sheets: dict[str, pd.DataFrame], source_name: str = "") -> tuple[str,
     shown = {n: df for n, df in sheets.items() if str(n) != "hiddenSheet"} or sheets
     found = "; ".join(f"{short(n)}: {heading(df)}" for n, df in shown.items())
     raise CleanError("columns not recognised as resource plan, quote line, position mapping, rates, "
-                     f"SL x RP, SFDC pipeline or ABCD ({found})")
+                     f"SL x RP, SFDC pipeline, ABCD, BU UR report or staff list ({found})")
 
 
 # ---------------------------------------------------------------- cleaning
@@ -250,13 +280,28 @@ def to_long(wide: pd.DataFrame, dataset: str, full_month_mds: float) -> pd.DataF
     return long.sort_values(["row_id", "month"]).reset_index(drop=True)
 
 
-def clean_rates(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+def clean_rates(df: pd.DataFrame, today: dt.date | None = None) -> tuple[pd.DataFrame, list[str]]:
     df = df.copy()
+    if "Currency" not in df.columns:
+        raise CleanError("the rates file does not say its currency: add a Currency column (USD or SGD) so the "
+                         "rates can be stored in USD")
+    currency = _text(df["Currency"]).str.upper()
+    unknown = sorted(set(currency.dropna()) - set(plan_settings.SUPPORTED_CURRENCIES))
+    if unknown or currency.isna().any():
+        raise CleanError(f"rates in an unsupported or missing currency ({', '.join(unknown) or 'blank'}); "
+                         f"use {' or '.join(plan_settings.SUPPORTED_CURRENCIES)}")
     df["Grade"] = pd.to_numeric(df["Grade"], errors="coerce").astype("Int64")
+    fy = fiscal.fy_label(today or dt.date.today())
+    sgd_per_usd = plan_settings.resolve(fy)["sgdPerUsd"]
+    warnings = []
     for col in ("Daily Rate", "Daily Cost"):
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-    warnings = []
+            value = pd.to_numeric(df[col], errors="coerce")
+            df[col] = value.where(currency == "USD", value / sgd_per_usd).round(2)
+    if (currency == "SGD").any():
+        warnings.append(f"{int((currency == 'SGD').sum())} SGD rates converted to USD at {sgd_per_usd} SGD per USD "
+                        f"({fy} Finance rate)")
+    df["Currency"] = "USD"
     if df["Grade"].isna().any():
         warnings.append(f"{int(df['Grade'].isna().sum())} rate rows without a Grade dropped")
     return df.dropna(subset=["Grade"]).reset_index(drop=True), warnings
@@ -274,6 +319,100 @@ def _dates(series: pd.Series, dayfirst: bool = False) -> pd.Series:
     serial = pd.to_datetime("1899-12-30") + pd.to_timedelta(numbers.where(numbers.between(1, 80000)), unit="D")
     parsed = pd.to_datetime(series.where(numbers.isna()).astype("string"), errors="coerce", dayfirst=dayfirst)
     return serial.fillna(parsed).dt.normalize()
+
+
+BANDS = range(3, 10)    # band 3 .. band 9, as in the capacity plan
+
+
+def _band(series: pd.Series) -> pd.Series:
+    """Grade -> band number 3..9 (the grade is the band), <NA> when missing or outside 3..9."""
+    grade = pd.to_numeric(series, errors="coerce").round().astype("Int64")
+    return grade.where(grade.isin(list(BANDS)))
+
+
+UR_KEEP = ["Report Month", "IT Code", "Grade", "Tier", "Billable", "Internal", "Presales", "Admin", "Bench",
+           "Training", "Missing Manday", "Leave", "Submitted Manday", UR_WORKING_DAYS, "Staff Region",
+           "Working City", "Cost Center", "Team (Finance View)", "Team"]
+UR_NUMBERS = ["Billable", "Internal", "Presales", "Admin", "Bench", "Training", "Missing Manday", "Leave",
+              "Submitted Manday", UR_WORKING_DAYS]
+
+
+def clean_bu_ur(df: pd.DataFrame) -> tuple[dict[str, pd.DataFrame], list[str]]:
+    """Row-level UR report without staff names, and Billable UR per month for all staff and per band.
+
+    Billable UR = sum(Billable) / sum(Standard Working days), the report's own subtotal formula. Rows with no
+    grade count towards the all-staff figure but not towards any band (the report's grade lookup was broken)."""
+    warnings = []
+    dropped = [c for c in df.columns if c not in UR_KEEP]
+    out = df.reindex(columns=[c for c in UR_KEEP if c in df.columns]).copy()
+    if "Staff Name" in dropped:
+        warnings.append("staff names were dropped")
+    out["Month"] = _dates(out["Report Month"]).dt.strftime("%Y-%m")
+    out = out.drop(columns=["Report Month"])
+    for col in [c for c in UR_NUMBERS if c in out.columns]:
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0).astype("float64")
+    for col in ("IT Code", "Tier", "Staff Region", "Working City", "Cost Center", "Team (Finance View)", "Team"):
+        if col in out.columns:
+            out[col] = _text(out[col])
+    out["Band"] = _band(out["Grade"])
+    out = out.drop(columns=["Grade"])
+    unreadable = int(out["Month"].isna().sum())
+    if unreadable:
+        warnings.append(f"{unreadable} rows without a readable Report Month dropped")
+        out = out.dropna(subset=["Month"])
+    no_band = int(out["Band"].isna().sum())
+    if no_band:
+        warnings.append(f"{no_band} rows have no grade 3-9: they count towards the all-staff UR but no band")
+    out = out.reset_index(drop=True)
+
+    def ur(group: pd.DataFrame) -> pd.Series:
+        days = group[UR_WORKING_DAYS].sum()
+        return pd.Series({"billable": group["Billable"].sum(), "workingDays": days,
+                          "billableUr": group["Billable"].sum() / days if days else None, "staff": len(group)})
+
+    overall = out.groupby("Month").apply(ur, include_groups=False).reset_index()
+    overall.insert(1, "Band", pd.NA)
+    by_band = out.dropna(subset=["Band"]).groupby(["Month", "Band"]).apply(ur, include_groups=False).reset_index()
+    monthly = pd.concat([overall, by_band], ignore_index=True)
+    monthly["Band"] = monthly["Band"].astype("Int64")
+    monthly["staff"] = monthly["staff"].astype("int64")
+    # Working days of the month itself (the same for everyone; the most common value guards against odd rows).
+    days = out.groupby("Month")[UR_WORKING_DAYS].agg(lambda s: s.mode().iloc[0] if not s.mode().empty else None)
+    calendar = days.rename("standardWorkingDays").reset_index()
+    return {"latest": out, "monthly": monthly, "working_days": calendar}, warnings
+
+
+STAFF_KEEP = ["IT Code", "Grade", "Join Date", "Last Employment Date", "Cost Center Code", "Working City",
+              "Employee Type", "Target Working Hours Per Week", "Billable Status", "CCC Billable Status", "Created On"]
+
+
+def clean_staff_list(df: pd.DataFrame) -> tuple[dict[str, pd.DataFrame], list[str]]:
+    """The staff list without names, and today's headcount by band and by employment type."""
+    warnings = []
+    if "Name" in df.columns:
+        warnings.append("staff names were dropped")
+    out = df.reindex(columns=[c for c in STAFF_KEEP if c in df.columns]).copy()
+    for col in ("IT Code", "Cost Center Code", "Working City", "Employee Type", "Billable Status",
+                "CCC Billable Status"):
+        if col in out.columns:
+            out[col] = _text(out[col])
+    for col in ("Join Date", "Last Employment Date", "Created On"):
+        if col in out.columns:
+            out[col] = _dates(out[col])
+    out["Band"] = _band(out["Grade"])
+    out = out.drop(columns=["Grade"])
+    missing = int(out["IT Code"].isna().sum())
+    if missing:
+        warnings.append(f"{missing} rows without an IT Code dropped")
+        out = out.dropna(subset=["IT Code"])
+    no_band = int(out["Band"].isna().sum())
+    if no_band:
+        warnings.append(f"{no_band} staff have no grade 3-9 and are left out of the headcount by band")
+    out = out.reset_index(drop=True)
+    by_band = (out.dropna(subset=["Band"]).groupby("Band").size().rename("headcount").reset_index())
+    by_band["Band"] = by_band["Band"].astype("Int64")
+    by_type = out.groupby(out["Employee Type"].fillna("(blank)")).size().rename("headcount").reset_index()
+    return {"latest": out, "headcount_by_band": by_band, "headcount_by_type": by_type}, warnings
 
 
 SL_RP_KEEP = ["Demand Type", "ID", "Name", "Customer", "CRM ID", "Planned Start Date", "Planned End Date",
@@ -390,6 +529,10 @@ def run_file(cfg: Config, store: Store, key: str, data: bytes, ext: str) -> dict
         table, warnings = cleaner(sheets["main"])
         tables = {"latest": table}
         quality.update(rowsIn=len(sheets["main"]), rowsOut=len(table), warnings=warnings)
+    elif dataset in ("bu_ur", "staff_list"):
+        cleaner = clean_bu_ur if dataset == "bu_ur" else clean_staff_list
+        tables, warnings = cleaner(sheets["main"])
+        quality.update(rowsIn=len(sheets["main"]), rowsOut=len(tables["latest"]), warnings=warnings)
     else:  # rates
         rates, warnings = clean_rates(sheets["main"])
         tables = {"latest": rates}
