@@ -12,6 +12,7 @@ import Heatmap from "../charts/Heatmap";
 import LineChart from "../charts/LineChart";
 import BandPicker from "./BandPicker";
 import DashboardSection from "./DashboardSection";
+import SectionControls from "./SectionControls";
 import KpiBoxes from "./KpiBoxes";
 import { isUrFlagged, urTargetsOf } from "./flagRules";
 import { MONTH_LABELS, actualMask, forecastFrom, monthNotes, monthSeries } from "./planSeries";
@@ -61,6 +62,7 @@ export default function CapacityCharts() {
     return (
       <>
         <KpiBoxes plan={null} />
+        <SectionControls />
         <p className="note">
           No capacity plan has been generated yet. The charts will appear once the system has processed the uploaded files.
         </p>
@@ -84,6 +86,7 @@ export default function CapacityCharts() {
   return (
     <>
       <KpiBoxes plan={plan} />
+      <SectionControls />
 
       <DashboardSection id="capacity-plan" title="Capacity plan">
 
