@@ -85,6 +85,13 @@ const EMPTY_DATA: ReviewData = {
   people: {},
 };
 
+// The decisions on the forecast screen.
+interface ForecastState {
+  oppDecisions: Record<string, Decision>;
+  edits: Record<string, ResourceEdit>;
+  removed: Record<string, boolean>;
+}
+
 interface ReviewProviderProps {
   children: ReactNode;
 }
@@ -105,6 +112,9 @@ function ReviewState({ children }: ReviewProviderProps) {
   // True once the matching step was reached: from then on the user may go back to the forecast, change it and have
   // the matching redone (or return to the matching unchanged).
   const [reachedMatching, setReachedMatching] = useState(false);
+  const [leavePrompt, setLeavePrompt] = useState(false); // "discard your forecast changes?" is showing
+  // The forecast screen's state when it was last sent, to spot and undo changes made after going back to it.
+  const [sentForecastState, setSentForecastState] = useState<ForecastState | null>(null);
 
   const [conflictChoices, setConflictChoices] = useState<Record<string, string>>({});
   const [oppDecisions, setOppDecisions] = useState<Record<string, Decision>>({});
@@ -131,6 +141,7 @@ function ReviewState({ children }: ReviewProviderProps) {
   const staleRunAt = useRef<string | null>(null);
   // The forecast decisions last sent, to tell whether going back to the forecast changed anything.
   const sentForecast = useRef<string | null>(null);
+
   const tokenRef = useRef(token);
   useEffect(() => {
     tokenRef.current = token;
@@ -253,6 +264,10 @@ function ReviewState({ children }: ReviewProviderProps) {
         arrive("ended");
         return;
       }
+      if (state === "saved") {
+        arrive("saved");
+        return;
+      }
       if (state === "failed" || state === "not_run" || state === "waiting_for_inputs" || state === "disabled") {
         setStopMessage(message || "The pipeline stopped.");
         arrive("stopped");
@@ -294,6 +309,8 @@ function ReviewState({ children }: ReviewProviderProps) {
     clearTimers();
     setReachedMatching(false);
     sentForecast.current = null;
+    setSentForecastState(null);
+    setLeavePrompt(false);
     lastRunAt.current = null;
     staleRunAt.current = null;
     setConflictChoices({});
@@ -320,13 +337,15 @@ function ReviewState({ children }: ReviewProviderProps) {
   }
 
   // ---- Start: called by UploadProvider after files were uploaded ----
-  function startProcessing(fileNames: string[], batch: UploadBatch | null) {
+  function startProcessing(fileNames: string[], batch: UploadBatch | null, options: { review?: boolean } = {}) {
     if (fileNames.length === 0) return;
     if (!SAMPLE_MODE && !batch) return; // the backend did not say which upload this was
-    log("Uploaded files", fileNames.join(", "));
+    const review = options.review !== false;
+    log(review ? "Uploaded files" : "Uploaded files without review", fileNames.join(", "));
     clearRun(); // a new upload starts a fresh run
     if (SAMPLE_MODE) {
-      startSample(STEPS_AFTER_UPLOAD);
+      if (review) startSample(STEPS_AFTER_UPLOAD);
+      else runSteps(["Checking and cleaning the files", "Saving them for later reviews"], 0, () => arrive("saved"));
       return;
     }
     batchRef.current = batch;
@@ -445,9 +464,38 @@ function ReviewState({ children }: ReviewProviderProps) {
       setError(null);
       setStage("forecast");
     } else if (step === "matching" && stage === "forecast") {
+      if (forecastDirty) {
+        setLeavePrompt(true); // the drawer asks whether to discard the changes first
+        return;
+      }
       setError(null);
       setStage("matching");
     }
+  }
+
+  // The forecast screen's decisions in a comparable form (removed resources as a sorted list of ids).
+  function forecastKey(state: ForecastState): string {
+    const removedIds = Object.keys(state.removed).filter((id) => state.removed[id]).sort();
+    return JSON.stringify([state.oppDecisions, state.edits, removedIds]);
+  }
+
+  const forecastDirty =
+    reachedMatching &&
+    stage === "forecast" &&
+    sentForecastState !== null &&
+    forecastKey({ oppDecisions, edits, removed }) !== forecastKey(sentForecastState);
+
+  function discardForecastChanges() {
+    const sent = sentForecastState;
+    if (sent) {
+      setOppDecisions(sent.oppDecisions);
+      setEdits(sent.edits);
+      setRemovedMap(sent.removed);
+    }
+    log("Discarded forecast changes", "Went back to the matching calculated from the earlier forecast");
+    setLeavePrompt(false);
+    setError(null);
+    setStage("matching");
   }
 
   // Sends the forecast decisions. After going back from the matching, the pipeline is told to redo the matching
@@ -461,6 +509,7 @@ function ReviewState({ children }: ReviewProviderProps) {
       return;
     }
     sentForecast.current = key;
+    setSentForecastState({ oppDecisions, edits, removed });
     if (SAMPLE_MODE) startSampleMatching(acceptedIds);
     else void send("forecast", revising ? { ...decisions, redo: true } : decisions, 2);
   }
@@ -551,10 +600,15 @@ function ReviewState({ children }: ReviewProviderProps) {
     setOpen,
     startProcessing,
     startStoredReview: () => void startStoredReview(),
-    canStartReview: !starting && (stage === "idle" || stage === "done" || stage === "ended" || stage === "stopped"),
+    canStartReview:
+      !starting && (stage === "idle" || stage === "done" || stage === "ended" || stage === "stopped" || stage === "saved"),
     reachedMatching,
     revisingForecast: reachedMatching && stage === "forecast",
     goToStep,
+    forecastDirty,
+    leavePrompt,
+    discardForecastChanges,
+    cancelLeave: () => setLeavePrompt(false),
     conflictChoices,
     chooseConflict,
     confirmConflicts,

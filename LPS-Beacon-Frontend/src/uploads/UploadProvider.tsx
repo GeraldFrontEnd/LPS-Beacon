@@ -42,7 +42,7 @@ function UploadState({ children }: UploadProviderProps) {
 
   // Uploads every file that is waiting (new ones, and ones that failed before), one after another.
   // If you leave the Upload page meanwhile, this keeps running, because it lives here, not in the page.
-  async function startUpload() {
+  async function startUpload({ review = true }: { review?: boolean } = {}) {
     setIsUploading(true);
 
     const toUpload = items.filter((i) => i.status === "ready" || i.status === "error");
@@ -55,7 +55,7 @@ function UploadState({ children }: UploadProviderProps) {
     for (const item of toUpload) {
       updateItem(item.id, { status: "uploading", error: undefined }); // show "Uploading…"
       try {
-        batch = (await uploadFile(item.file, token ?? undefined, batchId)) ?? batch; // one file at a time
+        batch = (await uploadFile(item.file, token ?? undefined, batchId, review)) ?? batch; // one file at a time
         if (batch) setLastBatch(batch);
         updateItem(item.id, { status: "done" });
         uploadedNames.push(item.file.name);
@@ -70,7 +70,8 @@ function UploadState({ children }: UploadProviderProps) {
 
     setIsUploading(false);
     // The system now checks, cleans and forecasts the new files; the review panel shows its findings.
-    startProcessing(uploadedNames, batch);
+    // Without review it only checks and stores them; the panel says when that is done.
+    startProcessing(uploadedNames, batch, { review });
   }
 
   // The data every component will be able to read.

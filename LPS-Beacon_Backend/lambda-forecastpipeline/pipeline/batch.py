@@ -12,10 +12,13 @@ Batch = the folder the files were uploaded into. Recommended key layout for the 
 All files with the same <batchId> folder are one batch. Keys in the older layout
 raw/<user>/<date>/<id>-<n>.<ext> still work: the batch is then raw/<user>/<date>/.
 
-Optional manifest: the upload page may PUT raw/<...>/<batchId>/_batch.json containing
-{"expectedFiles": 3}. The run then waits until that many files are processed. Without it
-the pipeline waits until no file in the folder is unprocessed and the newest one is at
-least UPLOAD_SETTLE_SECONDS old.
+Optional manifest: raw/<...>/<batchId>/_batch.json, containing any of
+    {"expectedFiles": 3}   the run waits until that many files are processed. Without it the
+                           pipeline waits until no file in the folder is unprocessed and the
+                           newest one is at least UPLOAD_SETTLE_SECONDS old.
+    {"review": false}      "Upload without review": the files are checked and cleaned (so they
+                           become the stored data), but no review or run starts. Written by the
+                           API Lambda before it hands out the first upload link of the batch.
 
 Status file (read by the API Lambda, which already has GetObject on results/*):
 
@@ -36,6 +39,7 @@ run.state values:
     disabled            AUTO_RUN_ON_UPLOAD is false; use "Run forecast"
     running             match -> forecast -> publish in progress
     published           done; results are at resultsPrefix (and results/latest.json)
+    saved               uploaded without review: the files are cleaned and stored, nothing else ran
     failed              the run failed; message has the error; "Run forecast" retries it
 """
 from __future__ import annotations
@@ -113,15 +117,28 @@ def set_run(store: Store, status: dict, state: str, message: str = "", **extra) 
 
 
 # ---------------------------------------------------------------- readiness
-def expected_files(store: Store, prefix: str) -> int | None:
+def _manifest(store: Store, prefix: str) -> dict:
     key = prefix + MANIFEST_NAME
     if not store.exists(key):
-        return None
+        return {}
     try:
-        value = json.loads(store.read_bytes(key).decode("utf-8")).get("expectedFiles")
+        manifest = json.loads(store.read_bytes(key).decode("utf-8"))
+        return manifest if isinstance(manifest, dict) else {}
+    except (ValueError, UnicodeDecodeError):
+        return {}
+
+
+def expected_files(store: Store, prefix: str) -> int | None:
+    try:
+        value = _manifest(store, prefix).get("expectedFiles")
         return int(value) if value else None
-    except (ValueError, AttributeError, TypeError):
+    except (ValueError, TypeError):
         return None
+
+
+def review_wanted(store: Store, prefix: str) -> bool:
+    """False for "Upload without review" (manifest {"review": false}); true otherwise."""
+    return _manifest(store, prefix).get("review") is not False
 
 
 def wait_until_quiet(store: Store, prefix: str, settle_seconds: int,

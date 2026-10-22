@@ -774,6 +774,11 @@ def upload_url(event, caller):
         if not re.fullmatch(BATCH_ID_PATTERN, batch_id):
             raise HttpError(400, "Send a valid batchId")
         key = "raw/%s/%s/%s/%s%s" % (caller.user_id, today, batch_id, safe_stem, extension)
+        if body.get("review") is False:
+            # "Upload without review": tells the pipeline to clean and store the files but start no review.
+            # Written before the link is handed out, so it is there before any file of the batch arrives.
+            s3.put_object(Bucket=BUCKET, Key="raw/%s/%s/%s/_batch.json" % (caller.user_id, today, batch_id),
+                          Body=b'{"review": false}', ContentType="application/json")
     else:
         key = "raw/%s/%s/%s-%s%s" % (caller.user_id, today, uuid.uuid4().hex[:8], safe_stem, extension)
     link = s3.generate_presigned_url(

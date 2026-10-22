@@ -171,12 +171,21 @@ export async function getUploadUrl(
 // Uploads one file: step 1 (get the link) and step 2 (send the file to that link).
 // batchId groups the files of one upload (see UploadUrlRequest). Returns the upload's batch, when the backend
 // sent one back, or null.
-export async function uploadFile(file: File, token?: string, batchId?: string): Promise<UploadBatch | null> {
+// review: false stores the files without starting a review ("Upload without review").
+export async function uploadFile(
+  file: File,
+  token?: string,
+  batchId?: string,
+  review = true
+): Promise<UploadBatch | null> {
   // Some computers don't report a type for CSV files, so we fall back to a generic one.
   // The SAME value is used in both steps; if they differ, S3 can reject the upload.
   const contentType = file.type || "application/octet-stream";
 
-  const link = await getUploadUrl({ fileName: file.name, contentType, batchId }, token);
+  const link = await getUploadUrl(
+    { fileName: file.name, contentType, batchId, ...(review ? {} : { review: false as const }) },
+    token
+  );
   const { uploadUrl } = link;
   const batch = link.batchId && link.date ? { batchId: link.batchId, date: link.date } : null;
 
