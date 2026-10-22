@@ -13,7 +13,7 @@ import LineChart from "../charts/LineChart";
 import BandPicker from "./BandPicker";
 import KpiBoxes from "./KpiBoxes";
 import { isUrFlagged, urTargetsOf } from "./flagRules";
-import { MONTH_LABELS, forecastFrom, monthNotes, monthSeries } from "./planSeries";
+import { MONTH_LABELS, actualMask, forecastFrom, monthNotes, monthSeries } from "./planSeries";
 
 // The colours live in index.css (--chart-*, --band-* and --flag).
 const BLUE = "var(--chart-1)";
@@ -69,6 +69,7 @@ export default function CapacityCharts() {
 
   const common = { categories: MONTH_LABELS, notes: monthNotes(plan), forecastFrom: forecastFrom(plan) };
   const urTargets = urTargetsOf(plan);
+  const actualMonths = actualMask(plan);
   const shownHcBands = BANDS.filter((b) => hcBands.includes(b.id));
   const shownUrBands = BANDS.filter((b) => urBands.includes(b.id));
 
@@ -189,7 +190,7 @@ export default function CapacityCharts() {
           <ChartCard
             wide
             title="Billable utilisation by band"
-            subtitle="Share of each band's headcount that is billable. Darker means more utilised; red is below the band's target or above 100%."
+            subtitle="Billable UR per band. Actual months are red when below target (All bands: the overall target; each band: its own). Forecast months show the targets."
             actions={<BandPicker selected={urBands} onChange={setUrBands} />}
           >
             <Heatmap
@@ -199,8 +200,8 @@ export default function CapacityCharts() {
               values={[monthSeries(plan, "billable-ur"), ...shownUrBands.map((b) => monthSeries(plan, rowId("billable-ur", b.id)))]}
               format="pct0"
               domain={[0.5, 1]}
-              isFlagged={(row, v) => isUrFlagged(urRowBandIds[row], v, urTargets)}
-              flagText="Below target or above 100%"
+              isFlagged={(row, v, col) => isUrFlagged(urRowBandIds[row], v, urTargets, actualMonths[col])}
+              flagText="Actual below target"
               ariaLabel="Heat map of billable utilisation by band and month, with cells outside the target range in red"
             />
           </ChartCard>

@@ -11,7 +11,7 @@ interface Props {
   format: ChartFormat;
   domain: [number, number]; // the values that get the lightest and the darkest colour
   forecastFrom?: number;
-  isFlagged?: (row: number, value: number) => boolean; // true turns the cell red
+  isFlagged?: (row: number, value: number, column: number) => boolean; // true turns the cell red
   flagText?: string; // what a red cell means, shown in the scale below the grid
   ariaLabel: string;
   width?: number;
@@ -69,7 +69,7 @@ export default function Heatmap({
             {columns.map((c, i) => {
               const v = values[r][i];
               const t = v === null ? 0 : Math.min(1, Math.max(0, (v - lo) / (hi - lo)));
-              const flagged = v !== null && !!isFlagged?.(r, v);
+              const flagged = v !== null && !!isFlagged?.(r, v, i);
               return (
                 <g key={c}>
                   <rect

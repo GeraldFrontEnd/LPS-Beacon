@@ -1070,6 +1070,30 @@ body {
 }
 
 /* "Actual" or "Forecast" under each month's name. */
+/* Tables in the Dashboard's insight cards. */
+.insight-table-wrap {
+  overflow-x: auto;
+}
+
+.insight-table td {
+  vertical-align: middle;
+}
+
+.insight-table th.num {
+  text-align: right;
+}
+
+.insight-sub {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--muted);
+}
+
+.insight-table td.insight-flag {
+  font-weight: 600;
+  color: var(--flag);
+}
+
 .plan-col-kind {
   display: block;
   font-size: 0.625rem;

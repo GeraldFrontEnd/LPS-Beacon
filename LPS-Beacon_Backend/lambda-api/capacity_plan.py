@@ -18,7 +18,9 @@ Formulas per band and month (all money in USD):
   Revenue per FTE   Ending HC x day rate x Billable UR x working days
   Resource Cost     Ending HC x day rate x working days
   Joiners %         Joiners / Ending HC;  Leavers % = Leavers / Current HC   (as in the template)
-Totals: headcount, cost and revenue per FTE add up the bands; Billable UR = Billable HC / Ending HC.
+Totals: headcount, cost and revenue per FTE add up the bands. The total Billable UR is the UR report's figure
+  for all staff in actual months and the fiscal year's overall target in forecast months (the template's row 54),
+  not an average of the bands.
   Revenue           typed in by Finance; placeholder from the settings ($8M a month)
   Gross Margin      Revenue - Resource Cost;  Gross Margin % = Gross Margin / Revenue
 Quarter and year columns: headcount rows are averages, flows (joiners, leavers, money, days) are sums,
@@ -154,6 +156,8 @@ def build(inputs: dict, edits: dict[str, float]) -> dict[str, dict[str, float | 
                          ("cost", cost), ("bill", billable)):
                 total[k] += v
 
+        all_ur = (ur_actual.get(month) or {}).get("all") if m.get("actual") else None
+        all_ur = targets.get("all", 0.0) if all_ur is None else all_ur
         revenue = edited("revenue", col)
         revenue = float(settings["revenuePerMonthUsd"]) if revenue is None else revenue
         margin = revenue - total["cost"]
@@ -161,7 +165,7 @@ def build(inputs: dict, edits: dict[str, float]) -> dict[str, dict[str, float | 
                            ("ending-hc", total["end"]), ("revenue-per-fte", total["rev"]),
                            ("resource-cost", total["cost"]), ("billable-hc", total["bill"]),
                            ("non-billable-hc", total["end"] - total["bill"]),
-                           ("billable-ur", total["bill"] / total["end"] if total["end"] else 0.0),
+                           ("billable-ur", all_ur),
                            ("working-days", days), ("revenue", revenue), ("gross-margin", margin),
                            ("gross-margin-pct", margin / revenue if revenue else 0.0),
                            ("joiners-pct", total["join"] / total["end"] if total["end"] else 0.0),
@@ -191,6 +195,8 @@ def build(inputs: dict, edits: dict[str, float]) -> dict[str, dict[str, float | 
                     v = total_of(row)
                 elif section == "gross-margin-pct":
                     v = total_of("gross-margin") / total_of("revenue") if total_of("revenue") else 0.0
+                elif section == "billable-ur" and not suffix:
+                    v = avg(row)  # the total row: the average of the months' overall UR
                 elif section == "billable-ur":
                     end = avg(f"ending-hc{suffix}")
                     v = avg(f"billable-hc{suffix}") / end if end else 0.0

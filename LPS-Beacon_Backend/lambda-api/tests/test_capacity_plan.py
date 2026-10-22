@@ -48,7 +48,7 @@ class FormulaTests(unittest.TestCase):
         self.assertEqual(v["revenue"][apr], 8_000_000, "the placeholder")
         self.assertEqual(v["gross-margin"][apr], 8_000_000 - 4000)
         self.assertAlmostEqual(v["gross-margin-pct"][apr], (8_000_000 - 4000) / 8_000_000)
-        self.assertEqual(v["billable-ur"][apr], 0.5, "total = billable HC / ending HC")
+        self.assertEqual(v["billable-ur"][apr], 0.6, "total in an actual month: the UR report's all-staff figure")
 
     def test_forecast_month_uses_targets_weekdays_and_edits(self):
         v = cp.build(inputs(), {"joiners:b9|May'26": 1, "revenue|May'26": 5_000_000})
@@ -60,6 +60,7 @@ class FormulaTests(unittest.TestCase):
         self.assertEqual(v["resource-cost:b9"][may], 3 * 100 * 21)
         self.assertEqual(v["revenue"][may], 5_000_000)
         self.assertAlmostEqual(v["joiners-pct:b9"][may], 1 / 3, msg="joiners / ending HC, as in the template")
+        self.assertEqual(v["billable-ur"][may], 0.8, "total in a forecast month: the overall target")
 
     def test_quarter_and_year_columns(self):
         v = cp.build(inputs(), {"joiners:b9|May'26": 1})
@@ -67,6 +68,7 @@ class FormulaTests(unittest.TestCase):
         self.assertEqual(v["joiners:b9"]["Q1'26"], 1, "flows: sum")
         self.assertEqual(v["resource-cost"]["FY'26"], 4000 + 6300)
         self.assertEqual(v["revenue"]["FY'26"], 16_000_000)
+        self.assertAlmostEqual(v["billable-ur"]["Q1'26"], (0.6 + 0.8) / 2, msg="total UR: average of the months")
         self.assertAlmostEqual(v["gross-margin-pct"]["FY'26"], (16_000_000 - 10300) / 16_000_000)
 
 
@@ -144,6 +146,12 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(self.call("PATCH /analysis", {"rowId": "revenue", "columnKey": "May'26", "value": 1})[0], 409)
         status, plan = self.call("GET /analysis")
         self.assertEqual((status, plan["values"]), (200, {}), "no plan yet: empty, with a note")
+
+    def test_dashboard_insights(self):
+        self.assertEqual(self.call("GET /dashboard/insights")[0], 204, "not built yet")
+        self.objects["results/dashboard/insights.json"] = json.dumps({"pipeline": {"kpis": {"openCount": 3}}}).encode()
+        status, body = self.call("GET /dashboard/insights")
+        self.assertEqual((status, body["pipeline"]["kpis"]["openCount"]), (200, 3))
 
     def test_dashboard(self):
         status, body = self.call("GET /dashboard")

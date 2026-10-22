@@ -18,6 +18,12 @@ export function monthNotes(plan: CapacityPlan | null): string[] {
   );
 }
 
+// One flag per month: true when the plan has actual figures for it.
+export function actualMask(plan: CapacityPlan | null): boolean[] {
+  const actual = actualMonthKeys(plan);
+  return MONTH_COLUMNS.map((c) => isActualColumn(c, actual));
+}
+
 // Index of the first forecast month. Charts shade everything from here on. Undefined if there is none.
 export function forecastFrom(plan: CapacityPlan | null): number | undefined {
   const actual = actualMonthKeys(plan);

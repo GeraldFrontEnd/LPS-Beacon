@@ -17,7 +17,8 @@ from test_pipeline import Base, s3_event  # noqa: E402
 
 import pandas as pd  # noqa: E402
 
-from pipeline import capacity, clean, plan_settings  # noqa: E402
+from pipeline import capacity, clean, insights, plan_settings  # noqa: E402
+from test_review import sfdc_xlsx  # noqa: E402
 
 UR_HEADER = ["BU UR Tgt", "Tier & Grade", "Grade Group", "Grade", "Report Month", "Staff Name", "IT Code", "Tier",
              "Billable", "Internal", "Presales", "Admin", "Bench", "Training", "Missing Manday", "Leave",
@@ -166,6 +167,36 @@ class CapacityInputsTests(Base):
         inputs = self.store.read_json(capacity.KEY)
         self.assertIsNone(inputs["startingHeadcount"])
         self.assertFalse(any(m["actual"] for m in inputs["months"]))
+
+
+class InsightsTests(Base):
+    def test_dashboard_insights_from_the_uploaded_files(self):
+        import lambda_function
+        for name, data in (("BU_UR.xlsx", ur_xlsx()), ("MSPO SG Staff List.xlsx", staff_xlsx()),
+                           ("YTD_Pipeline.xlsx", sfdc_xlsx())):
+            lambda_function.lambda_handler(s3_event(self.put(name, data)))
+        monthly = self.store.read_table("clean/sfdc_pipeline/monthly_revenue.json.gz")
+        self.assertEqual(sorted(monthly[monthly["CRM ID"] == "CRM-1"]["Month"]),
+                         ["2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03"])
+
+        data = insights.build(self.store, dt.date(2026, 10, 15))
+        pipe = data["pipeline"]
+        self.assertEqual(pipe["kpis"]["openCount"], 3, "O4, O3 and O2; Closed Lost is not open")
+        self.assertEqual([s["stage"][:2] for s in pipe["byStage"]], ["O2", "O3", "O4"])
+        o4 = next(s for s in pipe["byStage"] if s["stage"].startswith("O4"))
+        self.assertEqual((o4["tcv"], o4["weightedTcv"]), (100000, 60000), "TCV x probability")
+        oct_ = pipe["revenueByMonth"][0]
+        self.assertEqual((oct_["month"], oct_["open"], oct_["openWeighted"]), ("2026-10", 10, 6.0))
+        self.assertEqual(pipe["topOpen"][0]["crmId"], "CRM-2", "largest weighted TCV first")
+        self.assertEqual(pipe["kpis"]["winRate"], 0.0, "one closed in the last 12 months, and it was lost")
+
+        util = data["utilisation"]
+        self.assertEqual(util["latestMonth"], "2026-05")
+        self.assertEqual(util["overallTarget"], 0.854)
+        self.assertEqual(util["nonBillableByMonth"][0]["workingDays"], 84)
+        self.assertIsNone(data["resources"], "no review completed, so no roll-off figures")
+        self.assertEqual(data["workforce"]["upcomingLeaversTotal"], 0)
+        self.assertTrue(self.store.exists(insights.KEY), "written when the files were cleaned")
 
 
 if __name__ == "__main__":
