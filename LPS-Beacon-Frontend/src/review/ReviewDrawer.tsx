@@ -99,7 +99,13 @@ export default function ReviewDrawer({ anchorRef }: ReviewDrawerProps) {
   else if (stage === "stopped") barText = `Review stopped: ${stopMessage ?? "the pipeline could not continue"}`;
   else barText = "Review ended: the matching list was rejected";
 
-  const current = stage === "idle" ? -1 : progress;
+  // The step being looked at. While the forecast is open again after the matching, that is the forecast.
+  const viewed = STEPPER.findIndex((s) => s.stage === stage);
+  const current = stage === "idle" ? -1 : viewed >= 0 ? viewed : progress;
+  // Once the matching was reached, the Forecast and Matching steps can be opened from the stepper.
+  const canOpen = (s: ReviewStage) =>
+    review.reachedMatching &&
+    ((s === "forecast" && stage === "matching") || (s === "matching" && stage === "forecast"));
 
   return (
     <>
@@ -139,16 +145,34 @@ export default function ReviewDrawer({ anchorRef }: ReviewDrawerProps) {
         <header className="review-head">
           <h2 id="review-title">Review</h2>
           <ol className="review-stepper" aria-label="Review steps">
-            {STEPPER.map((s, i) => (
-              <li
-                key={s.stage}
-                className={i < current ? "done" : i === current ? "current" : ""}
-                aria-current={i === current ? "step" : undefined}
-              >
-                <span className="review-step-dot">{i < current ? <CheckIcon size={12} /> : i + 1}</span>
-                {s.label}
-              </li>
-            ))}
+            {STEPPER.map((s, i) => {
+              const content = (
+                <>
+                  <span className="review-step-dot">{i < current ? <CheckIcon size={12} /> : i + 1}</span>
+                  {s.label}
+                </>
+              );
+              return (
+                <li
+                  key={s.stage}
+                  className={i < current ? "done" : i === current ? "current" : ""}
+                  aria-current={i === current ? "step" : undefined}
+                >
+                  {canOpen(s.stage) ? (
+                    <button
+                      type="button"
+                      className="review-step-link"
+                      onClick={() => review.goToStep(s.stage as "forecast" | "matching")}
+                      title={s.stage === "forecast" ? "Go back and change the forecast" : "Back to the matching list"}
+                    >
+                      {content}
+                    </button>
+                  ) : (
+                    content
+                  )}
+                </li>
+              );
+            })}
           </ol>
           <button type="button" className="review-close" onClick={() => setOpen(false)} aria-label="Close review">
             <ChevronDownIcon size={18} />

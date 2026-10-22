@@ -76,6 +76,7 @@ export interface PipelineUploadStatus {
     state: string;
     message?: string;
     step?: ReviewStep; // with awaiting_review: the step it waits for
+    at?: string; // when the run state last changed (ISO time)
     runId?: string;
     warnings?: string[];
   };

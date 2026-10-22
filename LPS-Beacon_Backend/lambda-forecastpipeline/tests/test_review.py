@@ -186,6 +186,24 @@ class ReviewFlowTests(Base):
             with self.assertRaises(ValueError):
                 self.start_stored(bad)
 
+    def test_going_back_to_the_forecast_redoes_the_matching(self):
+        opps = self.run_to_matching()
+        before = self.payload("matching")
+        pipeline_before = [l for l in before["lines"] if l["source"] == "pipeline"]
+        self.assertTrue(pipeline_before, "accepted opportunities add pipeline demand")
+        # The user goes back and rejects every opportunity: the matching is redone without pipeline demand.
+        result = self.decide("forecast", {"opportunities": {o["id"]: "rejected" for o in opps.values()},
+                                          "edits": {}, "removed": [], "redo": True})
+        self.assertEqual(result["state"], "awaiting_review")
+        run = self.status()["run"]
+        self.assertEqual((run["state"], run["step"]), ("awaiting_review", "matching"))
+        after = self.payload("matching")
+        self.assertEqual([l for l in after["lines"] if l["source"] == "pipeline"], [])
+        self.assertEqual(self.store.read_json(f"curated/review/{self.BATCH}/decisions/forecast.json")["opportunities"],
+                         {o["id"]: "rejected" for o in opps.values()}, "the new forecast decisions are kept")
+        # Conflicts can't be sent again once the review has moved past them.
+        self.assertTrue(self.decide("conflicts", {"choices": {}}).get("ignored"))
+
     def test_forecast_finds_crm_similar_and_manual(self):
         self.upload_all()
         conflicts = self.payload("conflicts")["conflicts"]

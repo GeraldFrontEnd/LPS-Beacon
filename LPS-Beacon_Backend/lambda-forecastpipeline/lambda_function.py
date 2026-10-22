@@ -308,20 +308,32 @@ def finish_review(cfg, store: Store, batch_id: str) -> dict:
                          prepared_inputs=inputs, extra_summary={"hiring_gap": gap})
 
 
+def accepts_decision(run: dict, step: str, decisions: dict) -> bool:
+    """Whether the review can take a decision for this step now: the step it is waiting for, or the forecast
+    again while it waits for the matching, when the page says so with "redo": true (the user went back to change
+    the forecast; the matching is redone). Without the flag, a late copy of the first forecast message is ignored."""
+    if run.get("state") != "awaiting_review":
+        return False
+    if run.get("step") == step:
+        return True
+    return step == "forecast" and run.get("step") == "matching" and decisions.get("redo") is True
+
+
 def run_review_mode(cfg, store: Store, event: dict) -> dict:
-    """A decision from the review page. Ignored unless the upload is waiting for exactly that step,
+    """A decision from the review page. Ignored unless the review can take it now (see accepts_decision),
     so a repeated or late message can't move the review twice."""
     batch_id, step = str(event.get("batchId") or ""), str(event.get("step") or "")
     if step not in review.STEPS or not batch_id:
         raise ValueError(f"review events need a batchId and a step in {review.STEPS}")
     run = _status(store, batch_id).get("run", {})
-    if run.get("state") != "awaiting_review" or run.get("step") != step:
+    if not accepts_decision(run, step, event.get("decisions") or {}):
         _log("review_ignored", batchId=batch_id, step=step, state=run.get("state"), waiting_for=run.get("step"))
         return {"batchId": batch_id, "state": run.get("state"), "ignored": True}
     decisions = event.get("decisions") or {}
     store.write_json(f"{review.work_prefix(batch_id)}decisions/{step}.json",
                      {**decisions, "by": event.get("requestedBy"), "at": batch.now_iso()})
-    _log("review_decided", batchId=batch_id, step=step, by=event.get("requestedBy"))
+    _log("review_decided", batchId=batch_id, step=step, by=event.get("requestedBy"),
+         redo=run.get("step") != step)
     try:
         if step == "conflicts":
             return forecast_step(cfg, store, batch_id)

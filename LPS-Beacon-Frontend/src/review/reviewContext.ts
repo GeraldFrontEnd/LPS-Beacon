@@ -34,6 +34,11 @@ export interface ReviewContextValue {
   startStoredReview: () => void;
   canStartReview: boolean; // false while a review is in progress
 
+  // Going back and forth between the forecast and the matching, once the matching was reached.
+  reachedMatching: boolean;
+  revisingForecast: boolean; // true while the forecast is open again after the matching was reached
+  goToStep: (step: "forecast" | "matching") => void;
+
   // Step 1: conflicts. conflictId -> chosen option id.
   conflictChoices: Record<string, string>;
   chooseConflict: (conflictId: string, optionId: string) => void;

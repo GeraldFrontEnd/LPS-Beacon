@@ -193,6 +193,9 @@ export default function MatchingStep() {
           <button type="button" className="secondary-button danger" onClick={askRejectAll}>
             Reject matching list
           </button>
+          <button type="button" className="secondary-button" onClick={() => review.goToStep("forecast")}>
+            Change forecast
+          </button>
           <button
             type="button"
             className="primary-button"

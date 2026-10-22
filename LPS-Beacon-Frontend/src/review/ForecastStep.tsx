@@ -75,6 +75,13 @@ export default function ForecastStep() {
     <section className="review-step" aria-labelledby="forecast-title">
       <div className="review-step-intro">
         <h3 id="forecast-title">Forecast for pipeline opportunities</h3>
+        {review.revisingForecast && (
+          <p className="review-warning">
+            <strong>Changing the forecast.</strong> Your earlier decisions are kept below. When you confirm, the
+            matching is recalculated from the new forecast and the matching list starts over, so decisions made there
+            are cleared. To keep them, go back to the matching without changing anything.
+          </p>
+        )}
         <p>
           {counts.crm} from their own resource plan (CRM match), {counts.similar} based on a similar past project,{" "}
           {counts.manual} with no plan. Accept or reject each opportunity. Open one to edit or remove its resources.
@@ -323,13 +330,18 @@ export default function ForecastStep() {
           <button type="button" className="secondary-button danger" onClick={askRejectAll}>
             Reject forecast
           </button>
+          {review.revisingForecast && (
+            <button type="button" className="secondary-button" onClick={() => review.goToStep("matching")}>
+              Back to matching
+            </button>
+          )}
           <button
             type="button"
             className="primary-button"
             disabled={decided < opps.length || blocked}
             onClick={review.confirmForecast}
           >
-            Confirm and run matching
+            {review.revisingForecast ? "Recalculate matching" : "Confirm and run matching"}
           </button>
         </div>
       </footer>
