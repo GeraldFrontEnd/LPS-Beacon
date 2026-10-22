@@ -21,9 +21,12 @@ Routes (API Gateway route key -> handler). Unbuilt routes answer 501 so the fron
   POST   /folders                    signed in    create a folder {id, name}           (built)
   PATCH  /folders/{id}               signed in    rename a folder {name}               (built)
   DELETE /folders/{id}               signed in    delete a folder; its chats move out  (built)
-  GET    /analysis                   finance_hr   capacity plan                        (501)
-  PATCH  /analysis                   finance_hr   edit one cell, return the whole plan (501)
-  GET    /dashboard                  finance_hr   headcount breakdown                  (501)
+  GET    /analysis                   finance_hr   capacity plan                        (built)
+  PATCH  /analysis                   finance_hr   edit one cell, return the whole plan (built; value null
+                                                  removes the edit)
+  DELETE /analysis/edits             finance_hr   "Clear my edits": removes the caller's edits, returns the
+                                                  whole plan (built)
+  GET    /dashboard                  finance_hr   headcount breakdown (204 before a staff list) (built)
   POST   /runs/runForecast           finance_hr   start a forecast run                 (501)
   GET    /runs/{id}                  finance_hr   run status                           (501)
 
@@ -42,6 +45,7 @@ Settings: Lambda > Configuration > Environment variables
 API Gateway integration: payload format version 2.0 (the code reads requestContext.authorizer.jwt.claims).
 Permissions needed on the function's role:
   s3:PutObject  on  arn:aws:s3:::lps-beacon-data/raw/*
+  s3:GetObject, s3:PutObject  on  arn:aws:s3:::lps-beacon-data/plan/*   (the capacity plan's shared edits)
   dynamodb:GetItem, PutItem, UpdateItem, DeleteItem, Query, BatchWriteItem  on the CHAT_TABLE table only
   s3:GetObject  on  arn:aws:s3:::lps-beacon-data/results/*
   s3:ListBucket on  arn:aws:s3:::lps-beacon-data  with condition s3:prefix = results/*  (so a missing status file
@@ -81,6 +85,8 @@ import time
 
 import boto3
 from boto3.dynamodb.conditions import Key
+
+import capacity_plan
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
@@ -169,6 +175,8 @@ class Caller:
     def __init__(self, event):
         claims = event.get("requestContext", {}).get("authorizer", {}).get("jwt", {}).get("claims", {})
         self.user_id = str(claims.get("sub", ""))
+        # For "changed by" on the capacity plan. Access tokens carry the username, ID tokens the email.
+        self.display_name = str(claims.get("email") or claims.get("username") or claims.get("cognito:username") or "")
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", self.user_id):
             raise HttpError(401, "Not signed in")
         # HTTP APIs pass the group list as text, for example "[finance_hr restricted]".
@@ -1015,19 +1023,96 @@ def delete_folder(event, caller):
     return reply(204)
 
 
+# ---------- capacity plan (Analysis page) and Dashboard ----------
+# The pipeline writes the plan's inputs (results/capacity/inputs.json); the cells people typed in are shared by
+# everyone and kept in plan/edits.json as {"cells": {"<rowId>|<columnKey>": {"value", "by", "byName", "at"}}}.
+# Every request works the whole plan out again from both (capacity_plan.py), which takes milliseconds.
+CAPACITY_INPUTS_KEY = "results/capacity/inputs.json"
+PLAN_EDITS_KEY = "plan/edits.json"
+
+
+def _capacity_inputs():
+    found = _read_s3(CAPACITY_INPUTS_KEY)
+    return json.loads(found[0].decode("utf-8")) if found else None
+
+
+def _plan_edits():
+    found = _read_s3(PLAN_EDITS_KEY)
+    doc = json.loads(found[0].decode("utf-8")) if found else {}
+    return doc if isinstance(doc.get("cells"), dict) else {"cells": {}}
+
+
+def _save_plan_edits(doc):
+    # Last write wins: two people saving within the same moment could overwrite each other's cell.
+    s3.put_object(Bucket=BUCKET, Key=PLAN_EDITS_KEY, Body=json.dumps(doc).encode("utf-8"),
+                  ContentType="application/json")
+
+
+def _plan_reply(inputs, doc, caller, **extra):
+    if inputs is None:
+        return reply(200, dict(values={}, months=[], edited={}, currency="USD",
+                               notes=["No capacity plan yet: upload a UR report and a staff list"], **extra))
+    cells = doc["cells"]
+    values = capacity_plan.build(inputs, {k: c["value"] for k, c in cells.items()})
+    edited = {k: {"mine": c.get("by") == caller.user_id, "byName": c.get("byName") or None, "at": c.get("at")}
+              for k, c in cells.items()}
+    months = [{"key": capacity_plan.column_key(m["month"]), "month": m["month"], "fiscalYear": m["fiscalYear"],
+               "actual": bool(m.get("actual"))} for m in inputs["months"]]
+    return reply(200, dict(values=values, months=months, edited=edited, currency=inputs.get("currency", "USD"),
+                           settings=inputs.get("settings"), sources=inputs.get("sources"),
+                           notes=inputs.get("notes") or [], generatedAt=inputs.get("generatedAt"), **extra))
+
+
 def get_analysis(event, caller):
     caller.require_finance_hr()
-    not_built("The capacity plan")
+    return _plan_reply(_capacity_inputs(), _plan_edits(), caller)
 
 
 def edit_analysis(event, caller):
+    """One changed cell: {"rowId", "columnKey", "value"}; value null puts the cell back to its worked-out value."""
     caller.require_finance_hr()
-    not_built("Editing the capacity plan")
+    body = json_body(event)
+    row_id, column = str(body.get("rowId") or ""), str(body.get("columnKey") or "")
+    if not re.fullmatch(r"[a-z-]{1,40}(:b[3-9])?", row_id) or not re.fullmatch(r"[A-Za-z0-9']{1,10}", column):
+        raise HttpError(400, "Send {\"rowId\", \"columnKey\", \"value\"}")
+    inputs = _capacity_inputs()
+    if inputs is None:
+        raise HttpError(409, "There is no capacity plan yet: upload a UR report and a staff list first")
+    try:
+        value = capacity_plan.check_edit(inputs, row_id, column, body.get("value"))
+    except capacity_plan.EditError as e:
+        raise HttpError(400, str(e))
+    doc = _plan_edits()
+    key = "%s|%s" % (row_id, column)
+    if value is None:
+        doc["cells"].pop(key, None)
+    else:
+        doc["cells"][key] = {"value": value, "by": caller.user_id, "byName": caller.display_name,
+                             "at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")}
+    _save_plan_edits(doc)
+    print("Capacity plan cell", key, "changed by user", caller.user_id)
+    return _plan_reply(inputs, doc, caller)
+
+
+def clear_my_edits(event, caller):
+    """Removes every cell the caller changed; other people's changes stay."""
+    caller.require_finance_hr()
+    doc = _plan_edits()
+    mine = [k for k, c in doc["cells"].items() if c.get("by") == caller.user_id]
+    for k in mine:
+        del doc["cells"][k]
+    if mine:
+        _save_plan_edits(doc)
+    print("Capacity plan: user", caller.user_id, "cleared", len(mine), "edits")
+    return _plan_reply(_capacity_inputs(), doc, caller, cleared=len(mine))
 
 
 def get_dashboard(event, caller):
+    """Today's headcount by employment type (staff list). 204 when no staff list was uploaded yet."""
     caller.require_finance_hr()
-    not_built("The headcount breakdown")
+    inputs = _capacity_inputs() or {}
+    breakdown = inputs.get("headcountBreakdown")
+    return reply(200, breakdown) if breakdown else reply(204)
 
 
 def run_forecast(event, caller):
@@ -1148,6 +1233,7 @@ ROUTES = {
     "GET /analysis": get_analysis,
     "PATCH /analysis": edit_analysis,
     "GET /dashboard": get_dashboard,
+    "DELETE /analysis/edits": clear_my_edits,
     "POST /runs/runForecast": run_forecast,
     "GET /runs/{id}": get_run,
 }
