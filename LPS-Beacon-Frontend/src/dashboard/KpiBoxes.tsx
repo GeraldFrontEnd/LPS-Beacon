@@ -4,7 +4,6 @@
 
 import { useEffect, useState } from "react";
 import { getHeadcountBreakdown } from "../api/client";
-import DashboardSection from "./DashboardSection";
 import type { CapacityPlan, HeadcountBreakdown } from "../api/types";
 import { useAuth } from "../auth/useAuth";
 import { formatChartValue } from "../charts/chartMath";
@@ -41,40 +40,37 @@ export default function KpiBoxes({ plan }: { plan: CapacityPlan | null }) {
   const total = permanent !== null && secondment !== null ? permanent + secondment : null;
   const asOf = hc ? new Date(hc.asOf).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : null;
 
+  const figures: { value: string; label: string }[] = [
+    { value: show(total, "int"), label: "Total headcount" },
+    { value: show(permanent, "int"), label: "Permanent staff" },
+    { value: show(secondment, "int"), label: "Secondment" },
+    { value: show(atNow("billable-ur"), "pct1"), label: "Billable UR" },
+    { value: show(atNow("gross-margin-pct"), "pct1"), label: "Gross margin" },
+  ];
+
   return (
-    <DashboardSection
-      id="this-month"
-      title={`This month, ${monthLabel}`}
-      aside={asOf && <span className="kpi-asof"> · headcount as of {asOf}</span>}
-    >
+    <section className="kpi-summary" aria-labelledby="kpi-summary-title">
+      <div className="kpi-summary-head">
+        <h2 id="kpi-summary-title" className="kpi-summary-title">
+          This month <span className="kpi-summary-month">{monthLabel}</span>
+        </h2>
+        {asOf && <span className="kpi-summary-asof">Headcount as of {asOf}</span>}
+      </div>
+
       {hcError && (
         <p className="error-banner dashboard-banner" role="alert">
           {hcError}
         </p>
       )}
 
-      <div className="stats">
-        <div className="stat">
-          <div className="stat-value">{show(total, "int")}</div>
-          <div className="stat-label">Total headcount</div>
-        </div>
-        <div className="stat">
-          <div className="stat-value">{show(permanent, "int")}</div>
-          <div className="stat-label">Permanent staff</div>
-        </div>
-        <div className="stat">
-          <div className="stat-value">{show(secondment, "int")}</div>
-          <div className="stat-label">Secondment</div>
-        </div>
-        <div className="stat">
-          <div className="stat-value">{show(atNow("billable-ur"), "pct1")}</div>
-          <div className="stat-label">Average billable UR</div>
-        </div>
-        <div className="stat">
-          <div className="stat-value">{show(atNow("gross-margin-pct"), "pct1")}</div>
-          <div className="stat-label">Gross margin</div>
-        </div>
-      </div>
-    </DashboardSection>
+      <dl className="kpi-row">
+        {figures.map((f) => (
+          <div key={f.label} className="kpi">
+            <dt className="kpi-label">{f.label}</dt>
+            <dd className="kpi-value">{f.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }

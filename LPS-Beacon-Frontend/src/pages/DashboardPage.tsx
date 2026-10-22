@@ -3,7 +3,6 @@
 // and margin; the route in App.tsx does the check.
 
 import CapacityCharts from "../dashboard/CapacityCharts";
-import { setAllDashboardSections } from "../dashboard/sectionState";
 import InsightsSection from "../dashboard/InsightsSection";
 
 export default function DashboardPage() {
@@ -14,14 +13,6 @@ export default function DashboardPage() {
         <p>Headcount, utilisation and margin from the capacity plan, plus the sales pipeline, roll-offs and utilisation from the uploaded files. All amounts in USD.</p>
       </header>
 
-      <div className="dashboard-toolbar">
-        <button type="button" className="secondary-button" onClick={() => setAllDashboardSections(true)}>
-          Expand all sections
-        </button>
-        <button type="button" className="secondary-button" onClick={() => setAllDashboardSections(false)}>
-          Collapse all sections
-        </button>
-      </div>
 
       <div className="dashboard-body">
         <CapacityCharts />
