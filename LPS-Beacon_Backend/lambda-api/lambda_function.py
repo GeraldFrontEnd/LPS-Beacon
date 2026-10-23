@@ -29,6 +29,9 @@ Routes (API Gateway route key -> handler). Unbuilt routes answer 501 so the fron
   GET    /dashboard                  finance_hr   headcount breakdown (204 before a staff list) (built)
   GET    /dashboard/insights         finance_hr   charts from all uploaded files: sales pipeline, roll-offs,
                                                   utilisation, leavers (204 before the first build) (built)
+  GET    /activity                   finance_hr   the bell: who uploaded, reviewed or changed the plan, newest
+                                                  first, and how many the caller hasn't seen (built, activity.py)
+  POST   /activity/seen              finance_hr   the caller opened the bell: clears their red dot (built)
   POST   /runs/runForecast           finance_hr   start a forecast run                 (501)
   GET    /runs/{id}                  finance_hr   run status                           (501)
 
@@ -71,6 +74,8 @@ ever reach their own chats: someone else's chat id simply finds nothing.
   Message   PK = USER#{sub}#SESSION#{id}  SK = MSG#{milliseconds}#{random}
   Folder    PK = USER#{sub}               SK = FOLDER#{id}
   Marker    PK = USER#{sub}               SK = META#folders   (the default folders were created for this user)
+  Activity  PK = ACTIVITY                 SK = EVT#... / OPEN#...   and  PK = USER#{sub}  SK = META#activity-seen
+            (the bell on the top bar; see activity.py)
 Runtime: Python 3.12.  Handler: lambda_function.lambda_handler
 """
 
@@ -88,6 +93,7 @@ import time
 import boto3
 from boto3.dynamodb.conditions import Key
 
+import activity
 import capacity_plan
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -797,6 +803,10 @@ def upload_url(event, caller):
         ExpiresIn=LINK_LIFETIME_SECONDS,
     )
     print("Upload link issued for user", caller.user_id, "type", extension)
+    # Every file of one upload folds into one bell entry ("uploaded 8 files for review").
+    activity.record(table, caller.user_id, caller.display_name, "upload", detail=name,
+                    group="upload#" + batch_id if batch_id else None,
+                    extra={"review": body.get("review") is not False})
     result = {"uploadUrl": link, "key": key}
     if batch_id:
         result.update(batchId=batch_id, date=today)
@@ -1094,6 +1104,9 @@ def edit_analysis(event, caller):
                              "at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")}
     _save_plan_edits(doc)
     print("Capacity plan cell", key, "changed by user", caller.user_id)
+    activity.record(table, caller.user_id, caller.display_name, "plan_edit",
+                    detail=activity.cell_detail(row_id, column, value), group="plan",
+                    fold_ms=activity.FOLD_MINUTES * 60 * 1000)
     return _plan_reply(inputs, doc, caller)
 
 
@@ -1106,6 +1119,7 @@ def clear_my_edits(event, caller):
         del doc["cells"][k]
     if mine:
         _save_plan_edits(doc)
+        activity.record(table, caller.user_id, caller.display_name, "plan_clear", extra={"cleared": len(mine)})
     print("Capacity plan: user", caller.user_id, "cleared", len(mine), "edits")
     return _plan_reply(_capacity_inputs(), doc, caller, cleared=len(mine))
 
@@ -1201,7 +1215,44 @@ def post_review(event, caller):
         raise HttpError(413, "Too many decisions in one request")
     lambda_client.invoke(FunctionName=PIPELINE_FUNCTION, InvocationType="Event", Payload=payload)
     print("Review decision for step", step, "sent to the pipeline by user", caller.user_id)
+    kind, extra = _review_activity(batch, step, decisions, redo_forecast)
+    activity.record(table, caller.user_id, caller.display_name, kind, extra=extra)
     return reply(202, {"status": "started", "step": step})
+
+
+def _review_activity(batch, step, decisions, redo_forecast):
+    """(kind, numbers) for the bell entry of one review decision (texts in activity.py)."""
+    if step == "conflicts":
+        return "conflicts", {"conflicts": len(decisions.get("choices") or {})}
+    if step == "forecast":
+        if decisions.get("rejectedAll"):
+            return "forecast_rejected", None
+        verdicts = [str(v) for v in (decisions.get("opportunities") or {}).values()]
+        return ("forecast_redo" if redo_forecast else "forecast",
+                {"accepted": verdicts.count("accepted"), "rejected": verdicts.count("rejected")})
+    if decisions.get("rejectedAll"):
+        return "matching_rejected", None
+    # What the script suggested (the page the user reviewed), to count the lines given to someone else.
+    found = _read_s3("results/uploads/%s/review/matching.json" % batch)
+    page = json.loads(found[0].decode("utf-8")) if found else {}
+    suggested = page.get("assignment") or {}
+    chosen, verdict = decisions.get("assignment") or {}, decisions.get("decisions") or {}
+    lines = [line.get("id") for line in page.get("lines") or []] or list(verdict)
+    filled = [i for i in lines if verdict.get(i) == "accepted" and chosen.get(i)]
+    reassigned = sum(1 for i in filled if chosen.get(i) != suggested.get(i))
+    return "matching", {"filled": len(filled), "reassigned": reassigned, "unfilled": len(lines) - len(filled)}
+
+
+def get_activity(event, caller):
+    """The bell: the latest uploads, review decisions and capacity plan changes, with who and when."""
+    caller.require_finance_hr()
+    return reply(200, activity.feed(table, caller.user_id, iso))
+
+
+def mark_activity_seen(event, caller):
+    """The caller opened the bell: entries up to now no longer count as new for them."""
+    caller.require_finance_hr()
+    return reply(200, {"seenAt": iso(activity.mark_seen(table, caller.user_id))})
 
 
 def start_stored_review(event, caller):
@@ -1219,6 +1270,7 @@ def start_stored_review(event, caller):
     payload = json.dumps({"mode": "review_start", "batchId": batch, "requestedBy": caller.user_id}).encode("utf-8")
     lambda_client.invoke(FunctionName=PIPELINE_FUNCTION, InvocationType="Event", Payload=payload)
     print("Review of the stored data started by user", caller.user_id)
+    activity.record(table, caller.user_id, caller.display_name, "stored_review")
     return reply(202, {"batchId": batch_id, "date": today})
 
 
@@ -1249,6 +1301,8 @@ ROUTES = {
     "GET /dashboard": get_dashboard,
     "DELETE /analysis/edits": clear_my_edits,
     "GET /dashboard/insights": get_dashboard_insights,
+    "GET /activity": get_activity,
+    "POST /activity/seen": mark_activity_seen,
     "POST /runs/runForecast": run_forecast,
     "GET /runs/{id}": get_run,
 }

@@ -17,6 +17,7 @@ import type {
   ChatMessage,
   SessionSummary,
   FolderSummary,
+  ActivityFeed,
 } from "./types";
 import type { DashboardInsights } from "../dashboard/insightTypes";
 
@@ -53,6 +54,8 @@ export const API_ROUTES = {
   storedReview: "/pipeline/reviews",
   analysisEdits: "/analysis/edits", // DELETE: "Clear my edits" on the capacity plan
   dashboardInsights: "/dashboard/insights", // GET: the Dashboard's charts from all uploaded files
+  activity: "/activity", // GET: the bell's list of uploads, reviews and capacity plan changes
+  activitySeen: "/activity/seen", // POST: the user opened the bell (clears the red dot)
 } as const;
 
 // A tiny helper that pauses for a number of milliseconds (used to fake network delay).
@@ -281,6 +284,36 @@ export async function getHeadcountBreakdown(token?: string): Promise<HeadcountBr
 export async function getDashboardInsights(token?: string): Promise<DashboardInsights | null> {
   if (USE_MOCK || USE_SAMPLE_PLAN) return null;
   return (await apiRequest<DashboardInsights | undefined>("GET", API_ROUTES.dashboardInsights, token)) ?? null;
+}
+
+// ---- Activity (the bell on the top bar) ----
+
+const SAMPLE_ACTIVITY: ActivityFeed = {
+  seenAt: null,
+  unseen: 2,
+  events: [
+    { id: "3", email: "gerald@lps.com", mine: false, area: "Analysis", text: "changed 2 cells in the capacity plan",
+      details: ["Joiners · Band 7 · Nov'26: 3", "Revenue · Dec'26: $7.50M"], count: 2,
+      at: new Date(Date.now() - 6 * 60_000).toISOString(), new: true },
+    { id: "2", email: "gerald@lps.com", mine: false, area: "Review",
+      text: "confirmed the matching: 40 lines filled (2 reassigned), 5 lines left unfilled. This publishes a new forecast",
+      details: [], count: 1, at: new Date(Date.now() - 3 * 3600_000).toISOString(), new: true },
+    { id: "1", email: "you@lps.com", mine: true, area: "Upload", text: "uploaded 3 files for review",
+      details: ["Resource_Plan.xlsx", "Quote_Line.xlsx", "Position Name Mapping.xlsx"], count: 3,
+      at: new Date(Date.now() - 26 * 3600_000).toISOString(), new: false },
+  ],
+};
+
+// The latest uploads, review decisions and capacity plan changes by everyone, newest first.
+export async function getActivity(token?: string): Promise<ActivityFeed> {
+  if (USE_MOCK) return SAMPLE_ACTIVITY;
+  return apiRequest<ActivityFeed>("GET", API_ROUTES.activity, token);
+}
+
+// Tells the server the user has opened the bell, so what they saw no longer shows the red dot (on any device).
+export async function markActivitySeen(token?: string): Promise<void> {
+  if (USE_MOCK) return;
+  await apiRequest<unknown>("POST", API_ROUTES.activitySeen, token, {});
 }
 
 // ---- Chat history kept on the server ----

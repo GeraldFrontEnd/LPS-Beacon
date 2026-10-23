@@ -4,7 +4,8 @@
 // NavLink is like a normal link, but it knows whether it points to the page you are on.
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
-import { ANALYSIS_ROLES, DASHBOARD_ROLES, ROLE_LABELS, UPLOAD_ROLES } from "../auth/permissions";
+import { ACTIVITY_ROLES, ANALYSIS_ROLES, DASHBOARD_ROLES, ROLE_LABELS, UPLOAD_ROLES } from "../auth/permissions";
+import ActivityBell from "./ActivityBell";
 
 // NavLink calls this function with { isActive } and uses the text we return as the class name.
 function linkClass({ isActive }: { isActive: boolean }): string {
@@ -44,7 +45,8 @@ export default function NavBar() {
           Upload files
         </NavLink>
       )}
-      {/* Pushed to the right edge by CSS (margin-left: auto). */}
+      {/* The bell (Finance/HR only) and the name are pushed to the right edge by CSS (margin-left: auto). */}
+      {ACTIVITY_ROLES.includes(user.role) && <ActivityBell />}
       <span className="nav-user">
         {user.name} · {ROLE_LABELS[user.role]}
       </span>

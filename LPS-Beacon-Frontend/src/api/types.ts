@@ -174,3 +174,26 @@ export interface FolderSummary {
   name: string;
   createdAt: number;
 }
+
+// ---- Activity (the bell on the top bar) ----
+
+// One entry: who did what, and when. Several files of one upload, or capacity plan changes made close
+// together, arrive as one entry with a count and up to 20 detail lines.
+export interface ActivityEvent {
+  id: string;
+  email: string;
+  mine: boolean; // done by the signed-in user (shown as "You", never counted as new)
+  area: "Upload" | "Review" | "Analysis" | "Other";
+  text: string; // what they did, e.g. "changed 3 cells in the capacity plan"
+  details: string[]; // e.g. file names, or "Joiners · Band 7 · Nov'26: 3"
+  count: number;
+  at: string; // ISO time of the latest action in the entry
+  new: boolean; // by someone else, after this user last opened the bell
+}
+
+// GET /activity
+export interface ActivityFeed {
+  events: ActivityEvent[];
+  seenAt: string | null;
+  unseen: number; // entries by other people since this user last opened the bell: the red dot
+}

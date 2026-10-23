@@ -24,3 +24,6 @@ export const UPLOAD_ROLES: Role[] = FINANCE_HR;
 
 // Roles that are allowed to open the Analysis page (the capacity plan, with revenue, cost and margin).
 export const ANALYSIS_ROLES: Role[] = FINANCE_HR;
+
+// Roles that see the bell on the top bar (who uploaded files, went through a review or changed the capacity plan).
+export const ACTIVITY_ROLES: Role[] = FINANCE_HR;
