@@ -64,7 +64,11 @@ class FormulaTests(unittest.TestCase):
 
     def test_quarter_and_year_columns(self):
         v = cp.build(inputs(), {"joiners:b9|May'26": 1})
-        self.assertEqual(v["ending-hc:b9"]["Q1'26"], 2.5, "headcount: average of the months")
+        self.assertEqual(v["current-hc:b9"]["Q1'26"], 2, "opening headcount: the first month's Current HC")
+        self.assertEqual(v["ending-hc:b9"]["Q1'26"], 3, "closing headcount: the last month's Ending HC")
+        self.assertEqual(v["ending-hc"]["FY'26"], 3, "the year too, and the total row")
+        self.assertEqual(v["billable-hc:b9"]["Q1'26"], (1 + 3 * 0.8) / 2, "billable HC stays an average")
+        self.assertAlmostEqual(v["joiners-pct:b9"]["Q1'26"], 1 / 2.5, msg="ratios use the average ending HC")
         self.assertEqual(v["joiners:b9"]["Q1'26"], 1, "flows: sum")
         self.assertEqual(v["resource-cost"]["FY'26"], 4000 + 6300)
         self.assertEqual(v["revenue"]["FY'26"], 16_000_000)

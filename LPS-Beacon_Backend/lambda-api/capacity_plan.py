@@ -25,8 +25,14 @@ Totals: headcount, cost and revenue per FTE add up the bands. The total Billable
   not an average of the bands.
   Revenue           typed in by Finance; placeholder from the settings ($8M a month)
   Gross Margin      Revenue - Resource Cost;  Gross Margin % = Gross Margin / Revenue
-Quarter and year columns: headcount rows are averages, flows (joiners, leavers, money, days) are sums,
-ratios are worked out again from those.
+Quarter and year columns:
+  Current HC        the opening headcount: the first month's Current HC
+  Ending HC         the closing headcount: the last month's Ending HC
+  Billable HC, Non-Billable HC   averages of the months (capacity used over the period)
+  flows (joiners, leavers, money, days)   sums
+  ratios            worked out again from those, with the period's AVERAGE headcount as the base
+(The Excel template averages Current and Ending HC too; opening and closing are the right figures for a
+headcount at a point in time, so this deliberately differs from the template.)
 """
 from __future__ import annotations
 
@@ -41,7 +47,9 @@ SECTIONS = ("current-hc", "joiners", "leavers", "ending-hc", "revenue-per-fte", 
             "joiners-pct", "leavers-pct")
 BAND_SECTIONS = {"current-hc", "joiners", "leavers", "ending-hc", "revenue-per-fte", "resource-cost",
                  "billable-ur", "billable-hc", "non-billable-hc", "joiners-pct", "leavers-pct"}
-AVERAGED = {"current-hc", "ending-hc", "billable-hc", "non-billable-hc"}
+AVERAGED = {"billable-hc", "non-billable-hc"}
+OPENING = {"current-hc"}   # quarter / year column = the first month's value
+CLOSING = {"ending-hc"}    # quarter / year column = the last month's value
 SUMMED = {"joiners", "leavers", "revenue-per-fte", "revenue", "resource-cost", "gross-margin", "working-days"}
 MONEY = {"revenue-per-fte", "revenue", "resource-cost", "gross-margin"}
 
@@ -194,7 +202,11 @@ def build(inputs: dict, edits: dict[str, float]) -> dict[str, dict[str, float | 
             rows = [section] + ([f"{section}:{b}" for b in BANDS] if section in BAND_SECTIONS else [])
             for row in rows:
                 suffix = row[len(section):]
-                if section in AVERAGED:
+                if section in OPENING:
+                    v = values[row][cols[0]] or 0.0
+                elif section in CLOSING:
+                    v = values[row][cols[-1]] or 0.0
+                elif section in AVERAGED:
                     v = avg(row)
                 elif section in SUMMED:
                     v = total_of(row)
