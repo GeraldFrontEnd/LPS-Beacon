@@ -325,6 +325,9 @@ def finish_review(cfg, store: Store, batch_id: str) -> dict:
     tables = store.read_tables(work + "matching/")
     reviewed = review.reviewed_tables(tables, _decisions(store, batch_id, "matching"))
     reviewed.setdefault("matching", pd.DataFrame())
+    # The script's availability forecast predates the review; rebuild it so swaps and unfilled lines count.
+    reviewed.update(review.availability_tables(reviewed["matching"], cfg.as_of, cfg.window_months,
+                                               cfg.renewal_rate, cfg.rp_full_month_mds, cfg.ql_full_month_mds))
     run_id = publish.new_run_id()
     _save_stage(store, "matching", run_id, reviewed)
     _save_json(store, "matching", run_id, "run", {"runId": run_id, "asOf": cfg.as_of.isoformat(),
