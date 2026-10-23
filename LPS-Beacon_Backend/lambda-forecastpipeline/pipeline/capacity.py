@@ -16,6 +16,10 @@ What it holds (all money in USD):
   billableUr           actual Billable UR per month, for all staff and per band (UR report)
   workingDays          standard working days per month (UR report)
   startingHeadcount    headcount per band (staff list), used as the plan's first month
+  hiringNeeds          the people the latest published review found must be hired (its hiring gap: demand
+                       nobody could be matched to), per month and band, with the roles. They are the plan's
+                       default joiners. A need starting in an actual month is moved to the first forecast
+                       month (the demand already started unstaffed, so the hire comes as soon as possible).
   headcountBreakdown   today's headcount by employment type, for the Dashboard boxes
   sources, notes       which files were used, and what to know about them
 """
@@ -50,6 +54,51 @@ def _source(store: Store, dataset: str) -> dict | None:
 def _plan_months(first_fy_start: int) -> list[str]:
     start = dt.date(first_fy_start, 4, 1)
     return [fiscal.add_months(start, i).strftime("%Y-%m") for i in range(12 * PLAN_FISCAL_YEARS)]
+
+
+def _hiring_needs(store: Store, months: list[str], first_forecast: str | None) -> tuple[dict | None, list[str]]:
+    """The latest published review's hiring gap, per month and band: {"2026-11": {"b7": {"heads", "roles"}}}."""
+    pointer = store.read_json_or("results/latest.json", None)
+    if not pointer or not pointer.get("prefix"):
+        return None, ["no review has been published yet, so joiners start at 0"]
+    key = pointer["prefix"] + "summary/hiring_gap.json"
+    if not store.exists(key):
+        return None, ["the latest published run has no hiring gap (it did not go through the review), "
+                      "so joiners start at 0"]
+    by_month: dict[str, dict] = {}
+    no_band = moved = outside = 0
+    for row in store.read_json(key):
+        heads = int(row.get("heads") or 0)
+        if heads <= 0:
+            continue
+        try:
+            band = int(row.get("band") or 0)
+        except (TypeError, ValueError):
+            band = 0
+        if band not in range(3, 10):
+            no_band += heads
+            continue
+        month = str(row.get("month") or "")
+        if first_forecast and month < first_forecast:
+            month, moved = first_forecast, moved + heads
+        if month not in months:
+            outside += heads
+            continue
+        cell = by_month.setdefault(month, {}).setdefault(f"b{band}", {"heads": 0, "roles": {}})
+        cell["heads"] += heads
+        role = str(row.get("role") or "UNMAPPED - FOR REVIEW")
+        cell["roles"][role] = cell["roles"].get(role, 0) + heads
+    total = sum(c["heads"] for m in by_month.values() for c in m.values())
+    published = str(pointer.get("publishedAt") or "")[:10]
+    notes = [f"joiners in forecast months default to the {total} people the review published on {published} "
+             "found must be hired (its hiring gap); type over a cell to change it"]
+    if moved:
+        notes.append(f"{moved} of those hires were needed before the first forecast month and are counted in it")
+    if no_band:
+        notes.append(f"{no_band} hires have no band (grade) and are left out of the joiners")
+    if outside:
+        notes.append(f"{outside} hires fall after the plan's last month and are left out")
+    return {"runId": pointer.get("runId"), "publishedAt": pointer.get("publishedAt"), "byMonth": by_month}, notes
 
 
 def build(store: Store, today: dt.date | None = None) -> dict:
@@ -107,6 +156,10 @@ def build(store: Store, today: dt.date | None = None) -> dict:
     else:
         notes.append("no staff list uploaded yet: the starting headcount is empty")
 
+    first_forecast = next((m for m in months if m not in billable_ur), None)
+    hiring, hiring_notes = _hiring_needs(store, months, first_forecast)
+    notes.extend(hiring_notes)
+
     return {
         "version": 1, "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "currency": "USD",
@@ -115,6 +168,7 @@ def build(store: Store, today: dt.date | None = None) -> dict:
         "billableUr": billable_ur,
         "workingDays": working_days,
         "startingHeadcount": starting,
+        "hiringNeeds": hiring,
         "headcountBreakdown": breakdown,
         "sources": sources,
         "notes": notes,

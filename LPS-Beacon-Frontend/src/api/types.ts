@@ -106,6 +106,14 @@ export interface CapacityPlan {
   notes?: string[]; // what to know about the plan (assumed settings, missing files, ...)
   settings?: Record<string, PlanFySettings>; // per fiscal year, e.g. settings["FY26"]
   cleared?: number; // after "Clear my edits": how many were removed
+  hires?: HiringNeeds | null; // the latest review's hiring gap: the default joiners
+}
+
+// The people the latest published review found must be hired, per month ("2026-11") and band ("b7").
+export interface HiringNeeds {
+  runId: string | null;
+  publishedAt: string | null;
+  byMonth: Record<string, Record<string, { heads: number; roles: Record<string, number> }>>;
 }
 
 export interface PlanMonthInfo {

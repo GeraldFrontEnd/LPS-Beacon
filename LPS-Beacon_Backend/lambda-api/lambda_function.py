@@ -1062,6 +1062,7 @@ def _plan_reply(inputs, doc, caller, **extra):
                "actual": bool(m.get("actual"))} for m in inputs["months"]]
     return reply(200, dict(values=values, months=months, edited=edited, currency=inputs.get("currency", "USD"),
                            settings=inputs.get("settings"), sources=inputs.get("sources"),
+                           hires=inputs.get("hiringNeeds"),
                            notes=inputs.get("notes") or [], generatedAt=inputs.get("generatedAt"), **extra))
 
 
