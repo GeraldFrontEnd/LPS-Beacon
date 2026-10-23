@@ -21,7 +21,9 @@ const REVENUE_DIP: Record<string, number> = { "Dec'26": 0.82, "Jan'27": 0.86 };
 const WORKING_DAYS = [21, 20, 22, 22, 21, 22, 21, 22, 20, 21, 22, 19, 22, 20, 23, 21, 22, 21, 22, 21, 22, 20, 22, 21];
 
 // How the quarter and year columns are worked out from the months.
-const AVERAGED = new Set(["current-hc", "ending-hc", "billable-hc", "non-billable-hc"]); // headcount: average
+const AVERAGED = new Set(["billable-hc", "non-billable-hc"]); // capacity over the period: average
+const OPENING = new Set(["current-hc"]); // opening headcount: the first month's value
+const CLOSING = new Set(["ending-hc"]); // closing headcount: the last month's value
 const SUMMED = new Set(["joiners", "leavers", "revenue-per-fte", "revenue", "resource-cost", "gross-margin", "working-days"]);
 
 // The key under which an edited cell is remembered: "<row id>|<column key>", for example "joiners:b7|Oct'26".
@@ -125,7 +127,9 @@ function build(edits: Record<string, number>, revenueDefault: number): CapacityP
       for (const rid of ids) {
         const suffix = rid.slice(section.id.length); // "" for a total row, ":b9" for a band row
         let v: number;
-        if (AVERAGED.has(section.id)) v = avg(rid);
+        if (OPENING.has(section.id)) v = values[rid]?.[months[0].key] ?? 0;
+        else if (CLOSING.has(section.id)) v = values[rid]?.[months[months.length - 1].key] ?? 0;
+        else if (AVERAGED.has(section.id)) v = avg(rid);
         else if (SUMMED.has(section.id)) v = sum(rid);
         else if (section.id === "gross-margin-pct") v = sum("revenue") ? sum("gross-margin") / sum("revenue") : 0;
         else if (section.id === "billable-ur") v = avg(`ending-hc${suffix}`) ? avg(`billable-hc${suffix}`) / avg(`ending-hc${suffix}`) : 0;
