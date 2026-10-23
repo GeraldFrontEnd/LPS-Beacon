@@ -39,7 +39,8 @@ Settings: Lambda > Configuration > Environment variables
   DATA_BUCKET     the bucket NAME, for example  lps-beacon-data   (not the ARN)
   BUCKET_REGION   the region the BUCKET is in, for example  ap-southeast-1
   CHAT_TABLE      the DynamoDB table NAME, for example  lps-beacon-chat
-  CHAT_RETENTION_DAYS   optional, how long an unused chat is kept (default 90)
+  CHAT_RETENTION_DAYS   optional, how long an unused chat is kept (default 90 when not set). Every new message
+                  moves the whole chat's expiry (the chat and all its messages) to that many days from now.
   CHAT_MODEL_ID   the Bedrock inference profile ID, for example  global.anthropic.claude-haiku-5-5
   GUARDRAIL_ID    the Bedrock Guardrail ID, for example  ksbdqfuhq6ql
   GUARDRAIL_VERSION   the guardrail version number, for example  1
@@ -290,6 +291,24 @@ def save_message(user_id, session_id, sender, text, ms):
         "createdAt": ms,
         "expiresAt": ms // 1000 + RETENTION_SECONDS,
     })
+
+
+EXPIRY_SLACK_SECONDS = 24 * 3600   # messages already expiring within a day of the new date are left alone
+
+
+def extend_chat_expiry(user_id, session_id, expires_at):
+    """Moves every message of a chat to the chat's new expiry, so a chat in use never loses its older messages.
+    Only messages more than a day behind are rewritten, so a busy chat costs at most one write per message a day.
+    A failure here only means older messages may expire sooner; the answer is still returned."""
+    try:
+        items = query_all(KeyConditionExpression=Key("PK").eq(messages_pk(user_id, session_id)),
+                          ProjectionExpression="PK, SK, expiresAt")
+        for item in items:
+            if int(item.get("expiresAt", 0)) < expires_at - EXPIRY_SLACK_SECONDS:
+                table.update_item(Key={"PK": item["PK"], "SK": item["SK"]},
+                                  UpdateExpression="SET expiresAt = :e", ExpressionAttributeValues={":e": expires_at})
+    except Exception as e:
+        print("Could not extend the chat's message expiry:", type(e).__name__, e)
 
 
 def query_all(**kwargs):
@@ -853,11 +872,13 @@ def chat(event, caller):
     replied_at = max(now_ms(), asked_at + 1)   # keeps the reply after the question
     save_message(caller.user_id, session_id, "assistant", reply_text, replied_at)
 
+    expires_at = replied_at // 1000 + RETENTION_SECONDS
     table.update_item(
         Key=session_key(caller.user_id, session_id),
         UpdateExpression="SET updatedAt = :u, expiresAt = :e",
-        ExpressionAttributeValues={":u": replied_at, ":e": replied_at // 1000 + RETENTION_SECONDS},
+        ExpressionAttributeValues={":u": replied_at, ":e": expires_at},
     )
+    extend_chat_expiry(caller.user_id, session_id, expires_at)
     return reply(200, {"reply": reply_text})
 
 
