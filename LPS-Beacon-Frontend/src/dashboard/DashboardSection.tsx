@@ -1,5 +1,6 @@
 // src/dashboard/DashboardSection.tsx
-// One section of the Dashboard ("Capacity plan", "Sales pipeline", ...) whose heading opens and closes it.
+// One section of the Dashboard ("Capacity plan", "Sales pipeline", ...), drawn as a box whose heading opens and
+// closes it. Closed, only the heading row of the box shows.
 // Which sections are closed is remembered in this browser only (a convenience; nothing is lost without it).
 // The page's "Expand all" / "Collapse all" buttons reach every section through setAllDashboardSections()
 // (sectionState.ts).
@@ -39,13 +40,16 @@ export default function DashboardSection({ id, title, aside, children }: Props) 
   return (
     <section className={`dashboard-section${open ? "" : " closed"}`}>
       <h2 className="dashboard-heading">
+        {/* The whole heading row is the button, so a closed box opens wherever it is clicked. */}
         <button type="button" className="dashboard-toggle" aria-expanded={open} aria-controls={bodyId} onClick={toggle}>
           <span className="dashboard-chevron" aria-hidden="true">
             {open ? "▾" : "▸"}
           </span>
-          {title}
+          <span>
+            {title}
+            {aside}
+          </span>
         </button>
-        {aside}
       </h2>
       {/* Charts are only drawn while open, so a closed section costs nothing. */}
       <div id={bodyId} className="dashboard-section-body" hidden={!open}>

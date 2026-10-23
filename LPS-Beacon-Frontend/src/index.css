@@ -1163,10 +1163,13 @@ body {
   max-width: 1240px;
 }
 
+/* Each section is a box (DashboardSection.tsx); closed, only its heading row shows. */
 .dashboard-section {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
 }
 
 .dashboard-heading {
@@ -1175,19 +1178,25 @@ body {
   font-weight: 600;
 }
 
-/* The heading of a section opens and closes it (DashboardSection.tsx). */
+/* The heading row of a section opens and closes it. */
 .dashboard-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 6px;
-  margin: -2px -6px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 14px 20px;
   font: inherit;
+  text-align: left;
   color: inherit;
   background: none;
   border: none;
-  border-radius: 6px;
+  border-radius: 10px;
   cursor: pointer;
+}
+
+.dashboard-section:not(.closed) .dashboard-toggle {
+  border-bottom: 1px solid var(--line);
+  border-radius: 10px 10px 0 0;
 }
 
 .dashboard-toggle:hover {
@@ -1196,11 +1205,12 @@ body {
 
 .dashboard-toggle:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 
 .dashboard-chevron {
   width: 1em;
+  flex-shrink: 0;
   color: var(--muted);
 }
 
@@ -1208,6 +1218,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding: 16px 20px 20px;
 }
 
 .dashboard-section-body[hidden] {
@@ -1295,15 +1306,12 @@ body {
   }
 }
 
-/* "Expand all · Collapse all", above the collapsible sections. */
+/* "Expand all" and "Collapse all", right-aligned above the collapsible sections. */
 .dashboard-section-controls {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 6px;
-  margin-bottom: -8px;
-  font-size: 0.8125rem;
-  color: var(--muted);
+  gap: 8px;
 }
 
 .chart-grid {
