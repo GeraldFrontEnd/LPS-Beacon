@@ -274,6 +274,36 @@ class ReviewFlowTests(Base):
         self.assertTrue(any(str(r.get("QL | Quote Line Number", "")).startswith(review.PIPELINE_PREFIX)
                             for r in matching), "pipeline demand is part of the published matching")
 
+    def test_rebuilt_availability_matches_the_script_before_any_change(self):
+        self.run_to_matching()
+        tables = self.store.read_tables(review.work_prefix(self.BATCH) + "matching/")
+        from pipeline.config import load
+        cfg = load({"asOf": "2026-09-01"})
+        rebuilt = review.availability_tables(tables["matching"], cfg.as_of, cfg.window_months, cfg.renewal_rate,
+                                             cfg.rp_full_month_mds, cfg.ql_full_month_mds)
+        for name in ("availability_forecast", "forecast_6_12m_summary"):
+            ours, script = rebuilt[name], tables[name]
+            self.assertEqual(list(ours.columns), list(script.columns), name)
+            numeric = [c for c in script.columns if c not in ("Month", "Horizon", "Standardized Position", "Window")]
+            pd.testing.assert_frame_equal(ours[numeric].reset_index(drop=True).astype(float),
+                                          script[numeric].reset_index(drop=True).astype(float),
+                                          check_exact=False, atol=0.01, obj=name)
+
+    def test_unfilled_lines_reach_the_published_availability_forecast(self):
+        self.run_to_matching()
+        page = self.payload("matching")
+        matched = [line for line in page["lines"] if page["assignment"].get(line["id"])]
+        self.assertTrue(matched, "the fixture has at least one match to undo")
+        decisions = {"decisions": {line["id"]: "accepted" for line in page["lines"]},
+                     "assignment": {line["id"]: None for line in page["lines"]}}
+        self.assertEqual(self.decide("matching", decisions)["state"], "published")
+        prefix = self.store.read_json("results/latest.json")["prefix"]
+        forecast = pd.DataFrame(self.store.read_json(prefix + "summary/availability_forecast.json"))
+        self.assertEqual(int(forecast["Matched Starting"].sum()), 0, "nobody was assigned in the review")
+        last = forecast.groupby("Standardized Position").tail(1)
+        self.assertTrue((last["Surplus Resources After Matching"] == last["Cumulative Available (plan)"]).all(),
+                        "everyone stays available when no line is filled")
+
     def test_rejected_matching_ends_without_publishing(self):
         self.run_to_matching()
         result = self.decide("matching", {"rejectedAll": True})
@@ -292,6 +322,33 @@ class PieceTests(unittest.TestCase):
         self.assertEqual([c["key"] for c in found], ["QL-1"], "QL-2 has two PMs (bands 6 and 7): two people")
         crossval.apply({"sl_rp": {"table": sl}, "quoteline": {"wide": ql}}, found, {found[0]["id"]: "b"})
         self.assertEqual(set(ql.loc[ql["Quote Line Number"] == "QL-1", "Grade"]), {7})
+
+    def test_a_swap_moves_the_surplus_to_the_other_role(self):
+        def person(role, basis="CONFIRMED_END"):
+            return {"PRP | Standardized Position": role, "PRP | Available From": "2026-09-15",
+                    "PRP | Availability Basis": basis, "PRP | Last MDs": 18.0}
+        line = {"QL | Standardized Position": "Developer", "QL | Start Date": "2026-10-01", "QL | Start MDs": 18.5}
+        before = pd.DataFrame([{"Match Status": "MATCHED", **person("Developer"), **line},
+                               {"Match Status": "UNMATCHED RESOURCE", **person("Tester", "FY_END")}])
+        after = pd.DataFrame([{"Match Status": "MATCHED", **person("Tester", "FY_END"), **line},
+                              {"Match Status": "UNMATCHED RESOURCE", **person("Developer")}])
+        args = ("2026-09-01", 12, 0.8, 18.0, 18.5)
+        surplus = {}
+        for name, table in (("before", before), ("after", after)):
+            f = review.availability_tables(table, *args)["availability_forecast"]
+            last = f.groupby("Standardized Position").tail(1).set_index("Standardized Position")
+            surplus[name] = last["Surplus Resources After Matching"].to_dict()
+            self.assertEqual(int(f["Matched Starting"].sum()), 1)
+            oct_dev = f[(f["Standardized Position"] == "Developer") & (f["Month"] == "2026-10-01")]
+            self.assertEqual(int(oct_dev["Matched Starting"].iloc[0]), 1, "the line's role and month count it")
+        self.assertEqual(surplus["before"], {"Developer": 0, "Tester": 1})
+        self.assertEqual(surplus["after"], {"Developer": 1, "Tester": 0})
+        summary = review.availability_tables(after, *args)["forecast_6_12m_summary"]
+        total = summary[(summary["Window"] == "Next 6 months") & (summary["Standardized Position"] == "ALL ROLES")]
+        self.assertEqual(int(total["Surplus Resources After Matching"].iloc[0]), 1)
+
+    def test_availability_needs_the_matching_columns(self):
+        self.assertEqual(review.availability_tables(pd.DataFrame({"x": [1]}), "2026-09-01", 12, 0.8, 18, 18.5), {})
 
     def test_hiring_gap_adds_fte_before_rounding_up(self):
         rows = [{"Match Status": "UNMATCHED PROJECT", "QL | Start Date": "2026-10-01", "QL | Grade": 5,

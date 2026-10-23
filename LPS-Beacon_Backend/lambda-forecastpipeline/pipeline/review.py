@@ -277,6 +277,108 @@ def hiring_gap(matching: pd.DataFrame, full_month_mds: float) -> pd.DataFrame:
     return out.sort_values(["month", "band", "role"]).reset_index(drop=True)
 
 
+def availability_tables(matching: pd.DataFrame, as_of, window_months: int, renewal_rate: float,
+                        rp_full_month_mds: float, ql_full_month_mds: float) -> dict[str, pd.DataFrame]:
+    """availability_forecast and forecast_6_12m_summary rebuilt from the reviewed matching table.
+
+    Your script makes these from its own pairs, before the review, so swaps, rejected lines and "no match"
+    would not show. Same formulas as availability_sheets in matching_script.py: supply = every person in
+    the table, demand = every quote line, a pair counts in the month the line starts (for the line's role
+    and for the person's role). Returns {} when the table lacks the columns."""
+    need = {"Match Status", "PRP | Standardized Position", "PRP | Available From", "PRP | Availability Basis",
+            "PRP | Last MDs", "QL | Standardized Position", "QL | Start Date", "QL | Start MDs"}
+    if matching is None or not need <= set(matching.columns):
+        return {}
+    as_of = pd.Timestamp(as_of).replace(day=1)
+    end = as_of + pd.DateOffset(months=window_months)
+    six = as_of + pd.DateOffset(months=6)
+    months = pd.date_range(as_of, periods=window_months, freq="MS")
+    status = matching["Match Status"]
+    people = matching[status.isin(["MATCHED", "UNMATCHED RESOURCE"])]
+    lines = matching[status.isin(["MATCHED", "UNMATCHED PROJECT"])]
+    pairs = matching[status == "MATCHED"]
+
+    def month(col):
+        return pd.to_datetime(col, errors="coerce").dt.to_period("M").dt.to_timestamp()
+
+    s = pd.DataFrame({"Role": people["PRP | Standardized Position"].astype("string"),
+                      "Month": month(people["PRP | Available From"]).clip(lower=as_of)})
+    s["conf"] = (people["PRP | Availability Basis"] == "CONFIRMED_END").astype(int).to_numpy()
+    s["fy"] = 1 - s["conf"]
+    s["fte"] = pd.to_numeric(people["PRP | Last MDs"], errors="coerce").fillna(0).to_numpy() / rp_full_month_mds
+    q = pd.DataFrame({"Role": lines["QL | Standardized Position"].astype("string"),
+                      "Month": month(lines["QL | Start Date"]), "one": 1})
+    q["fte"] = pd.to_numeric(lines["QL | Start MDs"], errors="coerce").fillna(0).to_numpy() / ql_full_month_mds
+    m = pd.DataFrame({"Month": month(pairs["QL | Start Date"]),
+                      "QL Role": pairs["QL | Standardized Position"].astype("string"),
+                      "PRP Role": pairs["PRP | Standardized Position"].astype("string"), "one": 1})
+
+    roles = sorted(set(s["Role"].dropna()) | set(q["Role"].dropna()))
+    grid = pd.MultiIndex.from_product([roles, months], names=["Standardized Position", "Month"])
+
+    def count(df, role_col, value, name):
+        if df.empty:
+            return pd.Series(0.0, index=grid, name=name)
+        return (df.groupby([role_col, "Month"])[value].sum()
+                .rename_axis(["Standardized Position", "Month"]).reindex(grid, fill_value=0).rename(name))
+
+    t = pd.concat([
+        count(s, "Role", "conf", "New Available - confirmed end"),
+        count(s, "Role", "fy", "New Available - FY-end (plan)"),
+        count(s, "Role", "fte", "New Available FTE"),
+        count(q, "Role", "one", "Pipeline Demand Starting"),
+        count(q, "Role", "fte", "Pipeline Demand FTE"),
+        count(m, "QL Role", "one", "Matched Starting"),
+        count(m, "PRP Role", "one", "_matched_supply"),
+    ], axis=1).reset_index()
+
+    g = t.groupby("Standardized Position")
+    new_plan = t["New Available - confirmed end"] + t["New Available - FY-end (plan)"]
+    new_risk = t["New Available - confirmed end"] + t["New Available - FY-end (plan)"] * (1 - renewal_rate)
+    t["Cumulative Available (plan)"] = new_plan.groupby(t["Standardized Position"]).cumsum()
+    t["Cumulative Available (risk-adjusted)"] = new_risk.groupby(t["Standardized Position"]).cumsum()
+    t["Cumulative Demand"] = g["Pipeline Demand Starting"].cumsum()
+    t["Cumulative Matched"] = g["Matched Starting"].cumsum()
+    t["Surplus Resources After Matching"] = t["Cumulative Available (plan)"] - g["_matched_supply"].cumsum()
+    t["Unfilled Pipeline (cumulative)"] = t["Cumulative Demand"] - t["Cumulative Matched"]
+    t["Coverage % (cum. matched / cum. demand)"] = (
+        t["Cumulative Matched"] / t["Cumulative Demand"].replace(0, np.nan) * 100).round(1)
+    t["Horizon"] = np.where(t["Month"] < six, "0-6 months", "7-12 months")
+    for c in ("New Available FTE", "Pipeline Demand FTE", "Cumulative Available (risk-adjusted)"):
+        t[c] = t[c].round(2)
+    forecast = t[["Month", "Horizon", "Standardized Position", "New Available - confirmed end",
+                  "New Available - FY-end (plan)", "New Available FTE", "Cumulative Available (plan)",
+                  "Cumulative Available (risk-adjusted)", "Pipeline Demand Starting", "Pipeline Demand FTE",
+                  "Matched Starting", "Cumulative Matched", "Surplus Resources After Matching",
+                  "Unfilled Pipeline (cumulative)", "Coverage % (cum. matched / cum. demand)"]]
+    int_cols = ["New Available - confirmed end", "New Available - FY-end (plan)", "Cumulative Available (plan)",
+                "Pipeline Demand Starting", "Matched Starting", "Cumulative Matched",
+                "Surplus Resources After Matching", "Unfilled Pipeline (cumulative)"]
+    forecast = forecast.astype({c: int for c in int_cols})
+
+    rows = []
+    for label, stop in (("Next 6 months", six), ("Next 12 months", end)):
+        part = t[t["Month"] < stop]
+        agg = part.groupby("Standardized Position").agg(
+            new_conf=("New Available - confirmed end", "sum"), new_fy=("New Available - FY-end (plan)", "sum"),
+            demand=("Pipeline Demand Starting", "sum"), matched=("Matched Starting", "sum"),
+            matched_supply=("_matched_supply", "sum"))
+        agg.loc["ALL ROLES"] = agg.sum()
+        agg = agg.reindex(["ALL ROLES"] + [r for r in agg.index if r != "ALL ROLES"])
+        agg["Cumulative Available (plan)"] = agg["new_conf"] + agg["new_fy"]
+        agg["Cumulative Available (risk-adjusted)"] = (agg["new_conf"] + agg["new_fy"] * (1 - renewal_rate)).round(2)
+        agg["Surplus Resources After Matching"] = agg["Cumulative Available (plan)"] - agg["matched_supply"]
+        agg["Unfilled Pipeline (cumulative)"] = agg["demand"] - agg["matched"]
+        agg.insert(0, "Window", label)
+        rows.append(agg.drop(columns="matched_supply").rename_axis("Standardized Position").reset_index())
+    summary = pd.concat(rows, ignore_index=True)
+    summary = summary.astype({c: int for c in ("new_conf", "new_fy", "demand", "matched",
+                                                "Cumulative Available (plan)",
+                                                "Surplus Resources After Matching",
+                                                "Unfilled Pipeline (cumulative)")})
+    return {"availability_forecast": forecast, "forecast_6_12m_summary": summary}
+
+
 def plain(value):
     """JSON-safe copies of numpy / pandas values."""
     if isinstance(value, dict):
