@@ -72,6 +72,18 @@ class FormulaTests(unittest.TestCase):
         self.assertAlmostEqual(v["gross-margin-pct"]["FY'26"], (16_000_000 - 10300) / 16_000_000)
 
 
+class HiringGapTests(unittest.TestCase):
+    def test_joiners_default_to_the_hiring_gap(self):
+        i = inputs()
+        i["hiringNeeds"] = {"runId": "r1", "byMonth": {"2026-05": {"b9": {"heads": 2, "roles": {"Architect": 2}}}}}
+        v = cp.build(i, {})
+        self.assertEqual(v["joiners:b9"]["May'26"], 2)
+        self.assertEqual(v["ending-hc:b9"]["May'26"], 4)
+        self.assertEqual(v["joiners"]["May'26"], 2, "the total row adds them up")
+        self.assertEqual(cp.build(i, {"joiners:b9|May'26": 0})["joiners:b9"]["May'26"], 0, "a typed 0 overrides")
+        self.assertEqual(cp.build(i, {"joiners:b9|May'26": 1})["ending-hc:b9"]["May'26"], 3)
+
+
 class EditRuleTests(unittest.TestCase):
     def test_input_cells_only(self):
         i = inputs()

@@ -1111,6 +1111,22 @@ body {
   position: relative;
 }
 
+/* A joiners cell filled from the latest review's hiring gap: a teal corner on the left. */
+.plan-table td.plan-from-hires {
+  position: relative;
+}
+
+.plan-table td.plan-from-hires::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  border-style: solid;
+  border-width: 7px 7px 0 0;
+  border-color: var(--chart-3) transparent transparent transparent;
+  pointer-events: none;
+}
+
 .plan-table td.plan-edited::after {
   content: "";
   position: absolute;

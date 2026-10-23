@@ -12,6 +12,8 @@ The layout mirrors the web app's src/analysis/capacityPlanLayout.ts and Capacity
 
 Formulas per band and month (all money in USD):
   Current HC        first month: the staff list (editable); later months: the previous month's Ending HC
+  Joiners           the latest review's hiring gap for that month and band (inputs "hiringNeeds"), else 0;
+                    editable. Leavers: 0 until typed in.
   Ending HC         Current HC + Joiners - Leavers
   Billable UR       actual months: the UR report; forecast months: the fiscal year's target (editable)
   Billable HC       Ending HC x Billable UR;  Non-Billable HC = Ending HC - Billable HC
@@ -119,6 +121,7 @@ def build(inputs: dict, edits: dict[str, float]) -> dict[str, dict[str, float | 
     previous_end = {b: float(start.get(b, 0)) for b in BANDS}
     ur_actual = inputs.get("billableUr") or {}
     days_actual = inputs.get("workingDays") or {}
+    hires = (inputs.get("hiringNeeds") or {}).get("byMonth") or {}
 
     for index, m in enumerate(months):
         month, fy = m["month"], m["fiscalYear"]
@@ -135,7 +138,9 @@ def build(inputs: dict, edits: dict[str, float]) -> dict[str, dict[str, float | 
             cur = previous_end[b]
             if index == 0 and edited(f"current-hc:{b}", col) is not None:
                 cur = edited(f"current-hc:{b}", col)
-            join = edited(f"joiners:{b}", col) or 0.0
+            join = edited(f"joiners:{b}", col)
+            if join is None:
+                join = float(((hires.get(month) or {}).get(b) or {}).get("heads", 0))
             leave = edited(f"leavers:{b}", col) or 0.0
             end = cur + join - leave
             ur = edited(f"billable-ur:{b}", col)

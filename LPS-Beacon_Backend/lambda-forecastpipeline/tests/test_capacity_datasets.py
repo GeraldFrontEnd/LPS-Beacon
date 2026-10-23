@@ -160,6 +160,31 @@ class CapacityInputsTests(Base):
         self.assertTrue(any("FY27 has no settings" in n for n in inputs["notes"]))
         self.assertEqual(inputs["sources"]["bu_ur"]["file"], "abc-BU_UR.xlsx")
 
+    def test_joiners_come_from_the_latest_reviews_hiring_gap(self):
+        import lambda_function
+        self.store.write_json("results/latest.json", {"runId": "r1", "prefix": "results/r1/",
+                                                      "publishedAt": "2026-10-22T09:00:00+00:00"})
+        self.store.write_json("results/r1/summary/hiring_gap.json", [
+            {"month": "2026-04", "band": 6, "role": "Server Engineer", "heads": 1},     # actual month: moved
+            {"month": "2026-07", "band": 7, "role": "Cloud Engineer L2", "heads": 2},
+            {"month": "2026-07", "band": 7, "role": "DCOps", "heads": 1},
+            {"month": "2026-08", "band": 0, "role": "UNMAPPED - FOR REVIEW", "heads": 1},  # no band: left out
+            {"month": "2031-01", "band": 5, "role": "Tester/QA", "heads": 1},             # after the plan
+        ])
+        for name, data in (("BU_UR.xlsx", ur_xlsx()), ("MSPO SG Staff List.xlsx", staff_xlsx())):
+            lambda_function.lambda_handler(s3_event(self.put(name, data)))
+        hires = self.store.read_json(capacity.KEY)["hiringNeeds"]
+        self.assertEqual(hires["runId"], "r1")
+        self.assertEqual(hires["byMonth"]["2026-06"], {"b6": {"heads": 1, "roles": {"Server Engineer": 1}}},
+                         "needed in an actual month (Apr): counted in the first forecast month (Jun)")
+        self.assertEqual(hires["byMonth"]["2026-07"]["b7"],
+                         {"heads": 3, "roles": {"Cloud Engineer L2": 2, "DCOps": 1}})
+        self.assertNotIn("2026-08", hires["byMonth"], "no band, so not a joiner")
+        notes = " ".join(self.store.read_json(capacity.KEY)["notes"])
+        self.assertIn("default to the 4 people", notes)
+        self.assertIn("1 hires have no band", notes)
+        self.assertIn("1 hires fall after the plan", notes)
+
     def test_on_demand_with_nothing_uploaded(self):
         import lambda_function
         result = lambda_function.lambda_handler({"mode": "capacity_inputs"})
