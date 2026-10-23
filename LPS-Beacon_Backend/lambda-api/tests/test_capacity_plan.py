@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.dont_write_bytecode = True
 
 import capacity_plan as cp  # noqa: E402
+from test_activity import FakeTable  # noqa: E402
 
 RATES = {"b9": 100.0, "b8": 10.0, "b7": 10.0, "b6": 10.0, "b5": 10.0, "b4": 10.0, "b3": 10.0}
 TARGETS = {"all": 0.8, **{b: 0.8 for b in cp.BANDS}}
@@ -121,6 +122,7 @@ class RouteTests(unittest.TestCase):
         self.L._read_s3 = lambda key: (self.objects[key], None) if key in self.objects else None
         self.L.s3 = mock.Mock()
         self.L.s3.put_object.side_effect = lambda **kw: self.objects.__setitem__(kw["Key"], kw["Body"])
+        self.L.table = FakeTable()   # the activity log (test_activity.py)
 
     def call(self, route, body=None, user="u1", email="u1@lps.com"):
         event = {"routeKey": route, "body": json.dumps(body) if body is not None else None,
