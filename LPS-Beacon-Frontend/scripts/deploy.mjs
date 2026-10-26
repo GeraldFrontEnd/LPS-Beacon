@@ -2,7 +2,8 @@
 // Builds the web app, uploads it to S3, then clears the CloudFront cache.
 //
 // The bucket and distribution are read from environment variables, or from a git-ignored
-// ".env.deploy" file in the web folder (see ".env.deploy.example"), so nothing about your
+// ".env.deploy" file in the web folder (KEY=VALUE lines: FRONTEND_BUCKET, CLOUDFRONT_DISTRIBUTION_ID,
+// optionally AWS_REGION; see the web folder's README.md), so nothing about your
 // AWS account is stored in the repository.
 //
 //   node scripts/deploy.mjs             run for real  (this is what "npm run deploy" does)

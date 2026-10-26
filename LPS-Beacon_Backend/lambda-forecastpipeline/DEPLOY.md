@@ -8,8 +8,10 @@ except building the image (Step 4), which needs Docker Desktop on your PC.
 | Started by | Event | What runs |
 |---|---|---|
 | **End-user upload** under `raw/` | S3 event notification | validate → clean each file; after the **last file of the upload**: match → forecast → publish |
-| **"Run forecast"** button (API Lambda) | `{"mode": "full", "requestedBy": "<email>"}` | match → forecast → publish on the latest cleaned files |
-| Monthly / quarterly schedule | `{"mode": "full", "requestedBy": "schedule"}` | match → forecast → publish |
+| On demand (console test only; see the warning below) | `{"mode": "full", "requestedBy": "<email>"}` | match → forecast → publish on the latest cleaned files, **without the review** |
+| Monthly schedule `lps-beacon-monthly-forecast` (Step 10) | `{"mode": "dashboard_data"}` | rebuilds `results/capacity/inputs.json` and the Dashboard insights only |
+| Review decision (API Lambda) | `{"mode": "review", "batchId": "...", "step": "...", "decisions": {...}}` | the next review step |
+| Review of the stored data (API Lambda, `POST /pipeline/reviews`) | `{"mode": "review_start", "batchId": "..."}` | the same review on the latest `clean/` data |
 | Partial re-run (console/API) | `{"mode": "full", "stages": ["forecast", "publish"]}` | only those stages; the planning date of the reused matching run is kept |
 | Re-clean files | `{"mode": "file", "keys": ["raw/..."], "autoRun": true}` | validate → clean, then the run |
 | Deployment check | `{"mode": "selfcheck"}` | checks only, no data changed |
@@ -18,17 +20,24 @@ Optional on any run: `"asOf": "2026-09-01"` (planning date). Without it: `AS_OF_
 1st of the current month. A partial run keeps the reused stage's planning date, and refuses
 an `asOf` that differs from it (include `"match"` to rerun for a new date).
 
+> **Never schedule `{"mode": "full"}`, and don't run it against the live bucket.** It publishes without the review,
+> overwrites `results/latest.json` and resets the capacity plan's joiners to 0 (a run without a review has no
+> hiring gap).
+
 ### How an upload becomes a review page
 
-1. The upload page PUTs all files of one upload into one folder (pre-signed URLs):
-   `raw/<user email>/<yyyy-mm-dd>/<batchId>/<original file name>`
-   (`batchId` = any id the page generates per upload, e.g. a UUID).
-   Optional: also PUT `raw/.../<batchId>/_batch.json` with `{"expectedFiles": 3}`.
+1. The upload page PUTs all files of one upload into one folder, using pre-signed URLs from the API
+   Lambda's `POST /upload-url`:
+   `raw/<user id (Cognito sub)>/<yyyy-mm-dd>/<batchId>/<original file name>`
+   (`batchId` = a UUID the page generates per upload). For an "upload without review" the API
+   Lambda also writes `raw/.../<batchId>/_batch.json` with `{"review": false}`. The pipeline also
+   accepts `{"expectedFiles": n}` there.
 2. Each file starts one invocation (one S3 event each). Every invocation cleans its file and
    updates `results/uploads/<user>/<date>/<batchId>/status.json`.
 3. The invocation that finds no unprocessed file left in the folder (after
-   `UPLOAD_SETTLE_SECONDS` without new files, or `expectedFiles` reached) runs
-   match → forecast → publish. Exactly one run per upload.
+   `UPLOAD_SETTLE_SECONDS` without new files, or `expectedFiles` reached) starts
+   the review (`REVIEW_ON_UPLOAD=true`) or, without it, runs match → forecast → publish. Exactly
+   one run per upload.
 4. The page polls the status file until `run.state` is `published`, then reads
    `run.resultsPrefix` (`summary/`, `detail/`, `manifest.json`) for the review page.
    `run.kpis` and `run.warnings` are in the status file too, for the summary panel.
@@ -36,14 +45,16 @@ an `asOf` that differs from it (include `"match"` to rerun for a new date).
 `run.state` values: `waiting_for_files`, `waiting_for_inputs` (no resource plan or quote line
 cleaned yet), `not_run` (every file rejected; `files[].reason` says why), `disabled`
 (`AUTO_RUN_ON_UPLOAD=false`), `running`, `published`, `failed` (`message` has the error;
-"Run forecast" retries).
+fix the cause and upload again).
 
 Uploads with the older key layout `raw/<user>/<date>/<id>-<n>.csv` still work, but every
-upload by that user on that day is then one batch. Change the upload Lambda to the folder
+upload by that user on that day is then one batch. The API Lambda already uses the folder
 layout above.
 
-Upload only the **inputs**: Project Resource Plan, Quote Line, Position Name Mapping and,
-optionally, a rates file (`Grade`, `Daily Rate`, `Daily Cost`). `matching_result_new.xlsx` is
+Upload only the **inputs**: Project Resource Plan, Quote Line and Position Name Mapping for the
+matching; SFDC pipeline, ABCD and SL x RP for the opportunity forecast; the BU UR report and the
+staff list for the capacity plan and Dashboard; optionally a rates file (`Grade`, `Daily Rate`,
+`Daily Cost`). `matching_result_new.xlsx` is
 an output; uploading it is rejected to `quarantine/` (the rest of the upload still runs).
 
 ### Folders written in `lps-beacon-data`
@@ -58,13 +69,22 @@ results/<run_id>/summary/            aggregates, no person names (dashboard + ch
 results/<run_id>/detail/             matching sheets (contain names) - unrestricted roles only
 results/<run_id>/finance/            revenue, cost, P&L - finance group only
 results/<run_id>/manifest.json       trigger, batch, planning date, parameters, warnings, data gaps
-results/uploads/<batchId>/status.json   per-upload progress for the upload page
+results/uploads/<user>/<date>/<batchId>/status.json   per-upload progress for the upload page
 results/latest.json                  pointer to the newest run (written last)
+results/capacity/inputs.json         capacity plan inputs (Analysis page, Dashboard)
+results/dashboard/                   Dashboard insights
+plan/edits.json                      shared capacity plan edits (written by the API Lambda)
 ```
+
+**Do not empty this bucket.** `clean/`, `curated/`, `results/` and `plan/` are live state. `results/latest/`
+is an old CSV fallback: always resolve `results/latest.json` instead.
 
 ---
 
-## Step 1: SNS topic for emails
+## Step 1: SNS topic for emails (optional, not set up)
+
+The current deployment has no topic and no `ALERT_TOPIC_ARN`, so no emails are sent. Do this step
+only if you want published / failed emails.
 
 1. SNS → Topics → **Create topic** → Standard → Name `lps-beacon-pipeline-alerts` → Create.
 2. **Create subscription** → Protocol **Email** → your address → Create, then confirm it from the email.
@@ -169,7 +189,7 @@ Later updates: Lambda → function → **Image** → **Deploy new image** → ch
 |---|---|
 | `DATA_BUCKET` | `lps-beacon-data` (the name, never the ARN) |
 | `BUCKET_REGION` | `ap-southeast-1` |
-| `ALERT_TOPIC_ARN` | topic ARN from Step 1 |
+| `ALERT_TOPIC_ARN` | topic ARN from Step 1 (not set in the current deployment, so no emails) |
 | `MATCHING_SCRIPT` | `matching_script.py` |
 | `AUTO_RUN_ON_UPLOAD` | `true` (run match → forecast → publish after each upload) |
 | `UPLOAD_SETTLE_SECONDS` | `15` (how long the folder must be quiet before the run starts) |
@@ -213,11 +233,15 @@ browser upload libraries use for larger files; "Put" alone silently misses those
 Never add a trigger on `clean/`, `curated/`, `results/` or `quarantine/`: the function writes
 there and would start itself in a loop.
 
-## Step 10: schedule (optional, monthly or quarterly)
+## Step 10: monthly schedule
 
-EventBridge → **Scheduler** → **Create schedule**: Recurring, cron `0 9 1 * ? *` (or
-`0 9 1 1,4,7,10 ? *` quarterly), time zone Asia/Singapore, flexible window off, target Lambda
-`lambda-forecastpipeline`, payload `{"mode": "full", "requestedBy": "schedule"}`.
+EventBridge → **Scheduler** → **Create schedule**: name `lps-beacon-monthly-forecast`, Recurring,
+cron `0 9 1 * ? *`, time zone Asia/Singapore, flexible window off, target Lambda
+`lambda-forecastpipeline`, payload `{"mode": "dashboard_data"}`. This only rebuilds
+`results/capacity/inputs.json` and the Dashboard insights.
+
+**Never schedule `{"mode": "full"}`.** It publishes without the review, overwrites
+`results/latest.json` and resets the capacity plan's joiners to 0. There is no quarterly schedule.
 
 ## Step 11: self-check
 
@@ -237,14 +261,14 @@ Lambda → **Test** → event `{"mode": "selfcheck"}`. Every check should show `
 In API Gateway `9dpaon3lz7`, add these routes with the existing JWT authorizer, integrated
 with `lps-beacon-apilambda`:
 
-**Upload (change to the existing pre-sign route):** generate keys as
-`raw/<email>/<yyyy-mm-dd>/<batchId>/<file name>` with one `batchId` per upload, and return
+**Upload (built):** `POST /upload-url` generates keys as
+`raw/<user id>/<yyyy-mm-dd>/<batchId>/<file name>` with one `batchId` per upload, and returns
 the `batchId` and the date to the page.
 
-**`GET /pipeline/uploads/{date}/{batchId}`** - the upload's progress:
+**`GET /pipeline/uploads/{date}/{batchId}`** - the upload's progress (built; the sketch below shows the idea):
 
 ```python
-key = f"results/uploads/{email}/{date}/{batch_id}/status.json"   # only the caller's own uploads
+key = f"results/uploads/{user_id}/{date}/{batch_id}/status.json"   # only the caller's own uploads
 try:
     body = s3.get_object(Bucket="lps-beacon-data", Key=key)["Body"].read()
     return {"statusCode": 200, "body": body.decode()}
@@ -254,7 +278,8 @@ except s3.exceptions.NoSuchKey:
 
 (`NoSuchKey` needs `s3:ListBucket` on `results/*` for the API role; without it S3 answers 403.)
 
-**`POST /pipeline/run`** - the "Run forecast" button (hr or finance only). The browser must
+**`POST /pipeline/run`** - **not built.** A "Run forecast" button was planned; the API Lambda's
+`POST /runs/runForecast` answers 501. If it is built, remember that `full` mode skips the review. The browser must
 not wait for the run (API Gateway stops after 30 s), so invoke asynchronously:
 
 ```python
@@ -266,7 +291,8 @@ return {"statusCode": 202, "body": json.dumps({"status": "started"})}
 
 Then poll `results/latest.json` (via a GET route) until `runId` changes.
 
-**`GET /pipeline/results/{runId}/{part}/{table}`** - serve `summary/` to hr and finance,
+**`GET /pipeline/results/{runId}/{part}/{table}`** - **not built.** The chat tools, `/analysis` and
+`/dashboard` read `results/` inside the API Lambda instead. The idea was to serve `summary/` to hr and finance,
 `detail/` to unrestricted roles only, `finance/` to the finance group only.
 
 The API Lambda's role needs `s3:GetObject` on `arn:aws:s3:::lps-beacon-data/results/*`,
@@ -280,6 +306,7 @@ The API Lambda already has these; add them in API Gateway with the JWT authorize
 * `GET /pipeline/uploads/{date}/{batchId}/review/{step}` - what the review page shows for a step
 * `POST /pipeline/uploads/{date}/{batchId}/review/{step}` - the user's decisions; the API Lambda invokes this
   function asynchronously with `{"mode": "review", ...}`
+* `POST /pipeline/reviews` - review the data already uploaded, without new files (`{"mode": "review_start", ...}`)
 
 API Lambda: environment variable `PIPELINE_FUNCTION` = this function's name, and `lambda:InvokeFunction` on it.
 
@@ -293,15 +320,16 @@ API Lambda: environment variable `PIPELINE_FUNCTION` = this function's name, and
 3. Open `results/latest.json` → `results/<runId>/manifest.json` (warnings, data gaps) and
    `summary/kpis.json`. With the sample files and `asOf` 2026-09-01, `matching_python_script.py`
    gives **70 matched, 1180 unmatched resources, 18 unmatched projects**.
-4. Console tests: `{"mode": "full", "asOf": "2026-09-01"}`, then
+4. Console tests, **on a test bucket only** (on `lps-beacon-data` they publish without the review
+   and reset the joiners): `{"mode": "full", "asOf": "2026-09-01"}`, then
    `{"mode": "full", "stages": ["forecast", "publish"]}` (keeps 2026-09-01).
 
 ## Step 14: alarms (recommended)
 
 CloudWatch → Alarms: Lambda `lambda-forecastpipeline` **Errors** Sum ≥ 1 over 5 minutes, and
-**Duration** ≥ 240000 ms, both notifying `lps-beacon-pipeline-alerts`. Upload-triggered runs
+**Duration** ≥ 240000 ms, both notifying `lps-beacon-pipeline-alerts` (needs the Step 1 topic). Upload-triggered runs
 that fail do not count as Lambda errors (so S3 does not retry and re-clean every file); they
-send the FAILED email and set the status file to `failed` instead.
+send the FAILED email (when Step 1 is set up) and set the status file to `failed` instead.
 
 ---
 

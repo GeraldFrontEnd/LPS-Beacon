@@ -7,13 +7,15 @@ How it is started, and what runs
       -> FILE mode: validate -> clean that file, then, when it is the last file of its
          upload batch, match -> forecast -> publish (AUTO_RUN_ON_UPLOAD, default true).
          The upload page polls results/uploads/<batchId>/status.json (see pipeline/batch.py).
-  On demand ("Run forecast" button via the API Lambda, or a console test)
+  On demand (console test only; the API Lambda's "Run forecast" route is not built and answers 501).
+  The "full" runs publish WITHOUT the review: never run them on the live bucket or on a schedule.
       {"mode": "full"}                                 match -> forecast -> publish
       {"mode": "full", "stages": ["forecast", "publish"]}   only those stages; skipped
           stages are read from curated/<stage>/latest/ and their planning date is reused
       {"mode": "full", "batchId": "..."}               also updates that upload's status file
       {"mode": "file", "keys": ["raw/..."], "autoRun": true}   re-clean files (and run)
-  Schedule (EventBridge, monthly or quarterly)       {"mode": "full", "requestedBy": "schedule"}
+  Schedule (EventBridge lps-beacon-monthly-forecast, 9am SGT on the 1st)   {"mode": "dashboard_data"}
+      never {"mode": "full"}: it overwrites results/latest.json and resets the capacity plan's joiners to 0
   Deployment check                                   {"mode": "selfcheck"}
   Capacity plan inputs and Dashboard insights   {"mode": "capacity_inputs"} (or "dashboard_data")
       rebuilds results/capacity/inputs.json and results/dashboard/insights.json; both are also rebuilt

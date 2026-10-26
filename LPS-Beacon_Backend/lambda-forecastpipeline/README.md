@@ -1,7 +1,7 @@
 # lambda-forecastpipeline
 
 One Lambda that runs the LPS-Beacon data pipeline. It now runs end to end **when an
-end-user uploads files**, as well as on demand ("Run forecast") and on a schedule:
+end-user uploads files**, as well as on demand (a console test) and on a monthly schedule:
 
 ```
 upload (S3 event per file)   validate -> clean, and after the LAST file of the upload:
@@ -9,7 +9,8 @@ upload (S3 event per file)   validate -> clean, and after the LAST file of the u
                                conflicts -> opportunity forecast -> matching (with accepted pipeline demand)
                                -> hiring gap -> forecast -> publish
                              REVIEW_ON_UPLOAD=false: match -> forecast -> publish straight away
-on demand / schedule         match -> forecast -> publish   (or only the stages asked for)
+on demand (console)          match -> forecast -> publish   (or only the stages asked for), WITHOUT the review
+schedule (monthly)           {"mode": "dashboard_data"}: capacity plan inputs + Dashboard insights only
 review decision (API Lambda) {"mode": "review", "batchId", "step", "decisions"} -> the next review step
 ```
 
@@ -27,7 +28,7 @@ Two different forecasts:
 | `pipeline/s3io.py` | - | S3 read/write (or a local folder for testing); encryption follows the bucket default unless `S3_SSE` is set |
 | `pipeline/fiscal.py` | - | April-March fiscal year, quarters, halves |
 | `pipeline/validate.py` | 1 | Extension, real size, real content, zip-bomb and macro checks; quarantine |
-| `pipeline/clean.py` | 2 | Recognises resource plan / quote line / position mapping / rates / SL x RP / SFDC pipeline / ABCD; records missing month columns |
+| `pipeline/clean.py` | 2 | Recognises resource plan / quote line / position mapping / rates / SL x RP / SFDC pipeline / ABCD / BU UR / staff list; records missing month columns |
 | `pipeline/crossval.py` | review 1 | Conflicts: the same quote line or project role with a different grade in two files; applies the user's choice |
 | `pipeline/opportunities.py` | review 2 | Opportunity forecast (see above), duplicates flagged |
 | `pipeline/review.py` | review | Review payloads, pipeline demand as extra quote lines, the reviewed matching, hiring gap |
@@ -35,12 +36,18 @@ Two different forecasts:
 | `matching_script.py` | 3 | Adapter: calls `matching_python_script.py` like its `main()` does, adds the position and availability-forecast sheets |
 | `matching_python_script.py` | 3 | **Your matching logic, unchanged** |
 | `pipeline/forecast.py` | 4 | Supply vs demand by role and month, renewals, project variance, fiscal roll-ups, optional P&L; months missing from a source are "no data", not zero |
-| `pipeline/publish.py` | 5 | `results/` JSON (summary / detail / finance), Excel download, `results/latest.json`, SNS email |
+| `pipeline/capacity.py` | publish | The capacity plan's inputs, `results/capacity/inputs.json` (joiners for forecast months come from the review's hiring gap) |
+| `pipeline/insights.py` | publish | The Dashboard's insights from all uploaded files, `results/dashboard/` |
+| `pipeline/plan_settings.py` | - | Capacity plan settings per fiscal year (band day rates, UR targets) and the SGD-to-USD rate; run `{"mode": "dashboard_data"}` after changing it |
+| `pipeline/publish.py` | 5 | `results/` JSON (summary / detail / finance), Excel download, `results/latest.json`, SNS email (only when `ALERT_TOPIC_ARN` is set; it is not in the current deployment) |
 | `pipeline/selfcheck.py` | - | `{"mode": "selfcheck"}`: packages, permissions, encryption, S3 trigger |
 | `Dockerfile`, `requirements.txt`, `build.ps1` | - | Container image (scipy + scikit-learn do not fit in layers) |
 | `run_local.py` | - | The whole flow on your PC, with a local folder instead of S3 |
-| `tests/test_pipeline.py` | - | `python -m unittest discover -s tests -v` |
+| `tests/` | - | `python -m unittest discover -s tests -v` |
 | `DEPLOY.md` | - | AWS setup, step by step |
+
+**Never schedule `{"mode": "full"}`, and don't run it against the live bucket.** It publishes without the review,
+overwrites `results/latest.json` and resets the capacity plan's joiners to 0 (a run without a review has no hiring gap).
 
 Quick start on Windows:
 

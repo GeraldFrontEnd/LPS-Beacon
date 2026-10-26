@@ -40,38 +40,44 @@ views and monthly forecast reports, all through a natural-language chat interfac
 
 ## Project status
 
-This repository currently contains the **web app** and the **design documents**. The AWS backend described below is
-designed but not yet in this repository.
+This repository holds the whole MVP: the web app, the API Lambda and the forecast pipeline Lambda. All of it is
+deployed on AWS (`ap-southeast-1`). The AWS resources were set up by hand in the console; there is no
+infrastructure-as-code.
 
 | Area | Status | Where |
 |---|---|---|
-| Sign-in with Amazon Cognito, plus practice accounts for offline work | Implemented | `frontend/` |
-| Chat screen (suggested questions, new chat, session ID) | Implemented, answers are mocked until the backend exists | `frontend/` |
-| Upload screen (CSV/Excel up to 20 MB, pre-signed S3 upload, per-file status) | Implemented, mocked until the backend exists | `frontend/` |
-| Dashboard (charts built from the capacity plan) | Implemented; shows sample data only when `VITE_USE_SAMPLE_PLAN=true` | `frontend/` |
-| Analysis screen (capacity plan with editable input cells, grouped by quarter and financial year, CSV download) | Layout implemented, fields empty until the backend generates the plan | `frontend/` |
-| Backend contract the web app expects | Documented | [`frontend/API_CONTRACT.md`](frontend/API_CONTRACT.md) |
-| API Lambda, Pipeline Lambda, chat agent (Bedrock Converse with tool use), schedules, notifications, infrastructure | Designed | [Architecture](#architecture) |
-| Chat history sidebar, charts in chat, what-if scenarios, report downloads | Designed | [Capabilities](#capabilities-and-features) |
-| Authenticator-app (TOTP) MFA setup inside the sign-in form | Not supported yet | [Known limitations](#known-limitations) |
+| Sign-in with Amazon Cognito, plus practice accounts for offline work | Built | `src/auth/` |
+| Upload (CSV/Excel up to 20 MB each, pre-signed S3 upload, per-file status, optional "upload without review") | Built | `src/pages/UploadPage.tsx`, `POST /upload-url` |
+| Review after an upload: Conflicts → Forecast → Matching → publish | Built | `src/review/`, `pipeline/review.py` |
+| Chat with the forecast agent (Bedrock Converse with tool use and a guardrail), chat history sidebar with folders | Built | `src/pages/ChatPage.tsx`, `src/components/Sidebar.tsx`, `POST /chat`, `/sessions`, `/folders` |
+| Analysis page: capacity plan with shared editable cells, quarter and FY columns, CSV download | Built | `src/pages/AnalysisPage.tsx`, `lambda-api/capacity_plan.py` |
+| Dashboard: headcount boxes, capacity plan charts, insights from the uploaded files | Built | `src/dashboard/`, `GET /dashboard`, `GET /dashboard/insights` |
+| Activity bell: who uploaded, went through a review step or changed the capacity plan | Built | `src/components/ActivityBell.tsx`, `lambda-api/activity.py` |
+| Monthly refresh of the capacity plan inputs and Dashboard insights | Built (EventBridge) | [Triggers](#triggers) |
+| Chats deleted 90 days after their last message (DynamoDB TTL) | Built | [Chat history model](#chat-history-model) |
+| Leavers, and joiners for past months, from Workday | Waiting on the Workday reports; typed in by hand for now | [Known limitations](#known-limitations) |
+| "Run forecast" on demand (`POST /runs/runForecast`, `GET /runs/{id}`) | Not built (the routes answer 501) | `lambda-api/lambda_function.py` |
+| Charts inside chat answers, what-if scenarios, email notifications, daily chat limit | Not built | [Roadmap](#roadmap) |
+| Authenticator-app (TOTP) MFA setup in the sign-in form | Not supported | [Known limitations](#known-limitations) |
+
+`src/` is inside `LPS-Beacon-Frontend/`, `lambda-api/` is inside `LPS-Beacon_Backend/`, and `pipeline/` is inside
+`LPS-Beacon_Backend/lambda-forecastpipeline/`.
 
 ---
 
 ## Collaborating
 
-The GitHub repository is the single source of truth. Nobody needs to zip and send files: change the code, push, and
-everyone else pulls the update.
+The GitHub repository (`GeraldFrontEnd/LPS-Beacon`) is the single source of truth. Nobody needs to zip and send
+files: change the code, push, and everyone else pulls the update.
 
 | I want to… | Do this |
 |---|---|
-| **Edit code in the browser and see it run, with nothing to install** | Open the repository, choose **Code → Codespaces → Create codespace**. The app starts automatically in mock mode with a live preview that updates as you type. |
+| **Work on my own computer** | Clone the repository, then run `npm ci` and `npm run dev` in `LPS-Beacon-Frontend/`. Save a file and the browser updates instantly. |
 | **Make a quick edit to a file** | Open the file on GitHub and press the pencil icon, or press `.` for the browser editor. Commit to a new branch and open a pull request. (This edits files; it does not run the app.) |
-| **Work on my own computer** | Clone the repository, run `npm ci` and `npm run dev` in `frontend/`. Save a file and the browser updates instantly. |
-| **See the latest version without installing anything** | Turn on the optional live preview (see [CONTRIBUTING.md](CONTRIBUTING.md#optional-live-preview-for-everyone)), then open the preview link. |
 | **Get the latest changes someone else made** | `git pull` (or **Fetch / Pull** in GitHub Desktop). |
 
-Every push and pull request is checked automatically (lint, type-check, build). Full instructions are in
-[CONTRIBUTING.md](CONTRIBUTING.md).
+There is no automatic check (CI) on pushes or pull requests, so run `npm run lint` and `npm run build`, and the
+backend tests if you changed the backend, before you push. Full instructions are in [Contributing.md](Contributing.md).
 
 ---
 
@@ -80,21 +86,22 @@ Every push and pull request is checked automatically (lint, type-check, build). 
 LPS-Beacon is the single front door for resource planning work. Instead of manually reconciling spreadsheets, a
 planner opens the web app, signs in, drops in their files and talks to the assistant.
 
-Behind the chat window, serverless AWS services will:
+Behind the chat window, serverless AWS services:
 
-1. **Receive** the uploaded files (typically 10–12 CSV/XLSX files per batch).
-2. **Clean and standardise** them: duplicates, shifted headers, inconsistent names, Excel date serials and wide
-   month columns are handled automatically.
-3. **Match** demand (quote lines, resource plans, project pipeline) against supply (staff lists, HR headcount,
-   utilisation) by grade, month and location.
-4. **Forecast** demand, headcount and capacity with statistical models.
-5. **Explain** the results with a large language model (Amazon Bedrock) in plain language, including the
-   assumptions behind the numbers.
-6. **Return** charts, tables, a data-quality report and downloadable reports to the chat, and email a summary when
-   scheduled runs finish.
+1. **Receive** the uploaded files (one upload of several CSV/XLSX files).
+2. **Validate and clean** them: shifted headers, inconsistent names, Excel date serials and wide month columns are
+   handled automatically, and rejected files go to quarantine with a reason.
+3. **Pause for review** three times: conflicts between files, the resource forecast for each sales-pipeline
+   opportunity, and the proposed matches.
+4. **Match** demand (quote lines, resource plans and the accepted pipeline demand) against available staff, and turn
+   the unmatched demand into a hiring gap.
+5. **Forecast** availability and build the capacity plan: headcount, utilisation, revenue, cost and margin by band
+   and month, in USD.
+6. **Explain** the results in chat with a large language model (Claude on Amazon Bedrock), which reads the published
+   run through a fixed set of tools.
 
 The assistant is the **Resource Planning Forecast Agent**: a Bedrock-hosted Claude model that decides which tool to
-call (run a forecast, fetch results, run a what-if) while the numerical work is done by deterministic Python code.
+call (for example the matching summary, the availability forecast, or available resources and unfilled demand) while the numerical work is done by deterministic Python code.
 This keeps forecasts repeatable and auditable; the model explains and reasons over the numbers rather than
 computing them.
 
@@ -236,42 +243,39 @@ flowchart TB
   user(["Registered user"]) --> web["Chatbot web app (React SPA)"]
   web -- "1 open app" --> cf["CloudFront + AWS WAF"]
   cf --> s3web[("S3 web bucket (private)")]
-  web -- "2 sign in + MFA" --> cog["Amazon Cognito"]
-  cf -- "3 /api/*" --> apigw["API Gateway (JWT authorizer)"]
+  web -- "2 sign in" --> cog["Amazon Cognito"]
+  web -- "3 API calls with JWT" --> apigw["API Gateway (JWT authorizer)"]
   apigw --> lapi["API Lambda"]
   web -- "4 upload via pre-signed URL" --> s3data[("S3 data bucket")]
-  s3data -- "T1 manifest.json event" --> lpipe["Pipeline Lambda (container)"]
-  sch["EventBridge Scheduler"] -- "T2/T3 monthly, quarterly" --> lpipe
-  lapi -- "T4 what-if" --> lpipe
+  s3data -- "T1 upload event (raw/)" --> lpipe["Pipeline Lambda (container)"]
+  sch["EventBridge Scheduler"] -- "T2 monthly refresh" --> lpipe
+  lapi -- "T3 review decisions" --> lpipe
   lpipe -- "R1 write results" --> s3data
-  lapi -- "R2 read results" --> s3data
-  lapi <-- "R3 chat prompt / answer" --> br["Amazon Bedrock (Claude)"]
-  lpipe <--> br
-  lapi <-- "H save / load chats" --> ddb[("DynamoDB chat history")]
-  lpipe -- "notify" --> sns["SNS email"]
-  sns -- "R5 email summary" --> user
+  lapi -- "R2 read results, save plan edits" --> s3data
+  lapi <-- "R3 chat prompt / answer" --> br["Amazon Bedrock (Claude + guardrail)"]
+  lapi <-- "H save / load chats, activity" --> ddb[("DynamoDB chat table")]
   lapi -- "R4 JSON response" --> apigw
 ```
 
-The full diagram with every service, the nine pipeline steps and cost tags is in
-[`docs/architecture.svg`](docs/architecture.svg). The editable version is
-[`docs/architecture.drawio`](docs/architecture.drawio) (open it in [draw.io](https://app.diagrams.net)).
+The diagram above is the current system. [`docs/architecture.svg`](docs/architecture.svg) and the editable
+[`docs/architecture.drawio`](docs/architecture.drawio) show the original design, which also had SNS emails, Bedrock
+narratives in the pipeline and API calls through CloudFront; none of those are in use.
 
 ### Components
 
 | Component | Role |
 |---|---|
-| **Chatbot web app** | React single-page app: chat, history sidebar, file upload, dashboard, Analysis (capacity plan). Hosted in a private S3 bucket. |
-| **Amazon CloudFront + AWS WAF** | HTTPS entry point for both the app and `/api/*`. WAF filters bad IPs, common exploits and request floods. |
-| **Amazon Cognito** | Sign-up, sign-in and required MFA; issues the JWT used on every API call. |
-| **API Gateway (HTTP API)** | Routes API calls; the JWT authorizer rejects unauthenticated calls. |
-| **API Lambda** | Fast request handler: pre-signed URLs, run status, chat answers, chat history. Takes the user ID only from the verified token. |
-| **Pipeline Lambda** | Container-image function (pandas, openpyxl, statsmodels): cleaning, matching, forecasting, report generation. 3 GB, up to 15 minutes, concurrency 1, idempotent by batch ID. |
-| **Amazon S3 (data)** | `raw/`, `clean/`, `curated/`, `results/`, `reports/`, `quarantine/` prefixes. Block Public Access on. |
-| **Amazon Bedrock** | Claude Haiku 5.5 for chat, Claude Sonnet 5.5 for run narratives, called through cross-Region inference profiles. Receives aggregates and summaries, not raw rows. |
-| **Amazon DynamoDB** | Chat sessions and messages, run records, what-if scenarios, audit log; on-demand with TTL. |
-| **EventBridge Scheduler** | Monthly and quarterly forecast triggers. |
-| **Amazon SNS** | Email notifications for completed runs, alerts and failures. |
+| **Chatbot web app** | React single-page app: chat with a history sidebar, upload with the review drawer, Dashboard, Analysis (capacity plan) and the activity bell. Hosted in a private S3 bucket behind CloudFront. |
+| **Amazon CloudFront + AWS WAF** | HTTPS entry point for the web app. WAF filters bad IPs, common exploits and request floods. |
+| **Amazon Cognito** | User pool `lps-beacon`: email and password sign-in; issues the JWT used on every API call. Two groups, `finance_hr` and `restricted`. |
+| **API Gateway (HTTP API)** | `9dpaon3lz7`. Routes API calls; the JWT authorizer rejects unauthenticated calls. The web app calls its `execute-api` URL directly, not through CloudFront. |
+| **API Lambda** | `lps-beacon-apilambda`, Python 3.12, standard library and boto3 only: pre-signed upload links, upload status and review steps, the chat agent and history, the capacity plan, the Dashboard and the activity bell. Takes the user ID only from the verified token. |
+| **Pipeline Lambda** | `lambda-forecastpipeline`, container image (pandas, openpyxl, scipy, scikit-learn): validation, cleaning, the review steps, matching, the availability forecast, capacity plan inputs, Dashboard insights and publishing. 3008 MB, 5-minute timeout, reserved concurrency 1. |
+| **Amazon S3 (data)** | Bucket `lps-beacon-data`: `raw/`, `quarantine/`, `clean/`, `curated/`, `results/` and `plan/` prefixes (see [Data storage layout](#data-storage-layout)). |
+| **Amazon Bedrock** | Claude Haiku 5.5 for chat, called through an inference profile (`CHAT_MODEL_ID`), with a Bedrock Guardrail on every question and answer. Receives tool results (aggregates), not raw rows. |
+| **Amazon DynamoDB** | Table `lps-beacon-chat`: chat sessions, messages and folders, and the activity bell. On demand, with TTL on `expiresAt`. |
+| **EventBridge Scheduler** | `lps-beacon-monthly-forecast`: 09:00 SGT on the 1st, refreshes the capacity plan inputs and Dashboard insights. |
+| **Amazon SNS** | Supported by the pipeline code (published and failed emails), but no topic is configured, so no emails are sent. |
 | **IAM, CloudWatch, CloudTrail, ECR** | Least-privilege roles, logs and alarms, audit trail, container image storage. |
 
 ---
@@ -285,46 +289,54 @@ Numbers on the architecture diagram map to these steps.
 | Step | What happens |
 |---|---|
 | 1 | The user opens the app through CloudFront; WAF filters the traffic. |
-| 2 | The user signs in with email, password and an authenticator-app code; Cognito returns a JWT. |
-| 3 | The app calls `/api/*` with the JWT; API Gateway validates it. |
-| 4 | The browser uploads files to `raw/{user_sub}/{batch_id}/` using pre-signed URLs, writing `manifest.json` last. |
+| 2 | The user signs in with email and password; Cognito returns a JWT. |
+| 3 | The app calls API Gateway with the JWT; the authorizer validates it, and the API Lambda checks the user's group. |
+| 4 | `POST /upload-url` returns a pre-signed URL per file, under `raw/{user_sub}/{yyyy-mm-dd}/{batch_id}/`. The browser PUTs each file straight to S3. |
+
+**Review**
+
+| Step | What happens |
+|---|---|
+| **T1** | Each file starts the Pipeline Lambda, which validates and cleans it and updates `results/uploads/.../status.json`. |
+| **V1** | After the last file of the upload, the pipeline pauses at each review step (conflicts, opportunity forecast, matching). The upload page polls the status file. |
+| **T3** | Each decision goes to the API Lambda, which starts the pipeline again with `{"mode": "review", ...}`. After the matching step, the run is published. |
 
 **Results back to the user**
 
 | Step | What happens |
 |---|---|
-| **R1** | The Pipeline Lambda writes `results/{run_id}.json` (forecast table, supply-versus-demand gaps, chart specs, narrative), curated Parquet, reports and the data-quality report to S3. |
-| **R2** | The API Lambda reads the latest results for run status, charts and chat context. |
-| **R3** | The API Lambda sends the question plus a results summary to Bedrock, which returns the answer. |
-| **R4** | The JSON response returns API Lambda → API Gateway → CloudFront → web app, which renders the reply, charts and tables. |
-| **R5** | Scheduled runs and alerts email a summary and link through SNS. |
+| **R1** | The Pipeline Lambda writes `results/{run_id}/` (summary, detail, finance, `manifest.json`, an Excel download), then `results/latest.json`, which points at the newest run. It also rebuilds `results/capacity/inputs.json` and the Dashboard insights. |
+| **R2** | The API Lambda reads the latest results for the chat tools, the capacity plan and the Dashboard. Capacity plan edits are saved to `plan/edits.json`. |
+| **R3** | The API Lambda sends the question, the recent chat history and the allowed tools to Bedrock, runs the tools the model asks for, and returns the answer. |
+| **R4** | The JSON response returns API Lambda → API Gateway → web app, which renders the reply. |
 
 **Chat history**
 
 | Step | What happens |
 |---|---|
 | **H1** | On page load, `GET /sessions` lists the user's chats from DynamoDB for the sidebar. |
-| **H2** | Each `/chat` call saves the question and answer, with any run IDs. |
-| **H3** | Opening a past chat reloads its messages and re-renders its charts from `results/`. |
+| **H2** | Each `/chat` call saves the question and answer, and moves the chat's expiry to 90 days from now. |
+| **H3** | Opening a past chat reloads its messages. |
 
 ---
 
 ## Data pipeline: cleaning and standardisation
 
-The Pipeline Lambda runs these steps in order. For typical batches (a few MB across several files) the whole run
-takes seconds to a minute.
+The Pipeline Lambda runs these stages. A typical upload takes about 20 to 40 seconds of processing, plus the pauses
+for the user's review.
 
-| # | Step | What it does |
-|---|---|---|
-| 1 | **Fingerprint** | SHA-256 per file; identical duplicates are skipped. |
-| 2 | **Detect** | Finds the right sheet and header row by column signature. |
-| 3 | **Standardise** | Trims text, strips hidden characters, converts headers to snake_case, applies a synonym map. |
-| 4 | **Fix types** | Excel serials to dates, grade to integer, "Generic 4" to grade 4. |
-| 5 | **Reshape** | Unpivots month columns plus fiscal year into one row per month. |
-| 6 | **De-duplicate** | Removes exact duplicates and business-key duplicates; the latest modified date wins. |
-| 7 | **Validate** | Leavers, unknown IT codes and missing grades go to `quarantine/` with the reason, and into the data-quality report. |
-| 8 | **Match and forecast** | Supply versus demand by grade and month; demand, headcount, capacity and P&L forecasts. |
-| 9 | **Publish** | Bedrock summary, curated Parquet, results JSON, Excel/CSV report, then an SNS notification. |
+| # | Stage | What it does | Code |
+|---|---|---|---|
+| 1 | **Validate** | Extension, real size and content, zip-bomb and macro checks. Rejected files go to `quarantine/` with a reason. | `pipeline/validate.py` |
+| 2 | **Clean** | Recognises each dataset by its headers, standardises it and writes `clean/<dataset>/`. Months missing from a source are "no data", not zero. | `pipeline/clean.py` |
+| 3 | **Review: conflicts** | The same quote line or project role with a different grade in two files; the user picks one. | `pipeline/crossval.py` |
+| 4 | **Review: opportunity forecast** | The roles, bands and months each SFDC opportunity needs: from its own SL x RP plan (CRM ID), else a similar past ABCD project, else entered by hand. | `pipeline/opportunities.py` |
+| 5 | **Review: matching** | `matching_python_script.py` proposes people for the demand lines; the user accepts, swaps or rejects. Unmatched demand becomes the hiring gap (`summary/hiring_gap.json`). | `pipeline/matching.py`, `pipeline/review.py` |
+| 6 | **Forecast** | Availability forecast: who becomes free and what demand starts, by role and month, with renewals and fiscal roll-ups. | `pipeline/forecast.py` |
+| 7 | **Publish** | `results/<run_id>/` and `results/latest.json`, then the capacity plan inputs and the Dashboard insights. | `pipeline/publish.py`, `pipeline/capacity.py`, `pipeline/insights.py` |
+
+With `REVIEW_ON_UPLOAD=false`, or an "upload without review", the review stages are skipped. Each file's role is
+described in [`LPS-Beacon_Backend/lambda-forecastpipeline/README.md`](LPS-Beacon_Backend/lambda-forecastpipeline/README.md).
 
 **Why Python in Lambda instead of AWS Glue or Athena?** The data is small, pandas reads `.xlsx` directly, Lambda
 starts instantly and costs fractions of a cent per run, and there are no jobs, crawlers or catalog tables to
@@ -332,31 +344,36 @@ maintain. Revisit Glue/Athena only if a batch reaches hundreds of megabytes or m
 
 ### Planning inputs
 
-The workflow joins four kinds of input:
+| Input | Used for |
+|---|---|
+| **Project resource plan** | Supply and demand for matching and the availability forecast |
+| **Quote line** | Demand for matching |
+| **Position Name Mapping** | Maps position names to roles for matching (names missing from it show as UNMAPPED) |
+| **SFDC pipeline** | The opportunity forecast (review step 2) and the Dashboard's sales pipeline |
+| **ABCD report** | Similar past projects for the opportunity forecast |
+| **SL × RP report** | An opportunity's own resource plan, found by CRM ID |
+| **BU UR report** | Actual utilisation for the capacity plan and the Dashboard |
+| **Staff list** | Headcount today and upcoming leavers on the Dashboard |
+| **Rates** (optional) | Daily rate and cost per grade |
 
-| Input | Typical content | Join key |
-|---|---|---|
-| **SFDC pipeline** | Opportunities, won/lost status, with or without a quote | Opportunity name |
-| **ABCD report** | Project ID, TCV and revenue, start/end dates, opportunity name | Project ID |
-| **SL × RP report** | Staff list × resource plan (cost by staff, grade, month), produced from the MSPO quote → quote-line flow | IT code |
-| **HC by HR** | HR headcount: active staff, grade, join and leave dates | IT code |
+`HC by HR` and the HeadCount MBR file are accepted but not used yet.
 
 ---
 
 ## Forecasting approach
 
-- **The model does not do the maths.** Statistical methods (for example Holt-Winters or trend plus seasonality per
-  grade) run in Python and produce the same numbers every time.
-- **The agent explains and reasons.** Claude receives summaries: data-quality results, historical aggregates,
-  forecast values and confidence ranges. It explains drivers, flags anomalies, compares scenarios and answers "why"
-  questions.
-- **Tool use, not free-form queries.** The agent can only call a fixed set of tools (run forecast, get results, run
-  what-if). It never writes arbitrary queries against the data.
-- **Tools depend on the role.** `restricted` users' requests never include the cost, rate or margin tools, and the
-  Lambda refuses to run any tool the caller's group may not use, even if the model asks for it.
+- **The model does not do the maths.** Matching, the availability forecast and the capacity plan are deterministic
+  Python rules and formulas, so the same inputs always give the same numbers.
+- **The agent explains and reasons.** Claude receives tool results from the latest published run and explains
+  drivers, flags gaps and answers "why" questions.
+- **Tool use, not free-form queries.** The agent can only call a fixed set of tools (`get_matching_summary`,
+  `get_availability_forecast`, `find_available_resources`, `count_resources`, `count_unfilled_demand`,
+  `find_unfilled_demand`). It never writes arbitrary queries against the data.
+- **Tools depend on the role.** `restricted` users get a system prompt that withholds cost, rate, revenue, margin and
+  salary information, and the Lambda only runs the tools the caller's group may use, even if the model asks for others.
 - **Guardrail on both sides.** The Lambda checks the question and the answer with a Bedrock Guardrail
   (`ApplyGuardrail`) for prompt attacks, harmful content and personal data.
-- **Honest about limits.** Short history and missing data are reported with the forecast.
+- **Honest about limits.** Months missing from a source are reported as "no data", not zero.
 
 ---
 
@@ -364,14 +381,15 @@ The workflow joins four kinds of input:
 
 | ID | Trigger | Runs |
 |---|---|---|
-| **T1** | `manifest.json` lands in `raw/` after an upload batch | Clean, match, forecast on the new batch |
-| **T2** | Monthly schedule (3rd of each month, 09:00 SGT) | Forecast on the latest curated data; reminds the team if data is stale |
-| **T3** | Quarterly schedule (after fiscal-quarter close) | Quarter-horizon forecast and headcount matching report |
-| **T4** | User asks in chat to re-run or try a what-if | Scenario forecast against the baseline |
+| **T1** | Files land under `raw/` (one S3 event per file) | Validate and clean each file; after the last file of the upload, the review |
+| **T2** | Monthly schedule `lps-beacon-monthly-forecast`, 09:00 SGT on the 1st, payload `{"mode": "dashboard_data"}` | Rebuilds `results/capacity/inputs.json` and the Dashboard insights only |
+| **T3** | A review decision, or a review of the stored data (`POST /pipeline/reviews`), sent by the API Lambda | The next review step |
 
-Reserved concurrency of 1 prevents overlapping runs, and idempotency by batch ID makes duplicate S3 events harmless.
-A failed run emails an administrator instead of failing silently. The quarterly schedule assumes an April–March
-fiscal year; confirm this before building the schedule.
+Reserved concurrency of 1 means two runs never write `results/` at the same time. There is no quarterly schedule.
+The fiscal year runs April to March (`pipeline/fiscal.py`).
+
+**Never schedule `{"mode": "full"}`.** It publishes without the review, overwrites `results/latest.json` and resets
+the capacity plan's joiners to 0, because a run without a review has no hiring gap.
 
 ---
 
@@ -379,73 +397,83 @@ fiscal year; confirm this before building the schedule.
 
 | Layer | Control |
 |---|---|
-| **Identity** | Cognito user pool, email + password, **required authenticator-app (TOTP) MFA**; self sign-up can be disabled for invite-only use. |
-| **API** | JWT authorizer on every route; issuer and audience pinned to this user pool and app client. |
+| **Identity** | Cognito user pool `lps-beacon`, email + password; every user is in the `finance_hr` or `restricted` group. The sign-in form can't complete authenticator-app (TOTP) MFA yet, so MFA can't be required (see [Known limitations](#known-limitations)). |
+| **API** | JWT authorizer on every route; issuer and audience pinned to this user pool and app client. The API Lambda checks the group on every route. |
 | **Edge** | AWS WAF on CloudFront: managed core rule set, IP reputation list and a per-IP rate limit; Shield Standard DDoS protection included. |
-| **Uploads** | Pre-signed URLs expire in about 5 minutes, scoped to `raw/{user_sub}/`; file type and size validated before issuing. |
+| **Uploads** | Pre-signed URLs expire after 5 minutes, are scoped to `raw/{user_sub}/` and are only issued to `finance_hr`. The pipeline then checks the real file type and size, zip bombs and macros. |
 | **Data** | Private buckets, Block Public Access, TLS-only bucket policy, default encryption; raw uploads auto-expire after 30 days. |
 | **Isolation** | The API Lambda derives the user ID from the verified JWT only, never from the request body. |
 | **Least privilege** | One IAM role per function; only the API Lambda touches the chat table. |
-| **AI safety** | Fixed tool set, server-side system prompt, aggregates instead of raw rows sent to the model. |
+| **AI safety** | Fixed tool set per role, server-side system prompt, Bedrock Guardrail on the question and the answer, and tool results (aggregates) instead of raw rows sent to the model. |
 | **Input safety** | Cells are read as values (never evaluated as formulas); leading `=`, `+`, `-`, `@` are neutralised in any export. |
-| **Audit** | CloudTrail for API and S3 data events; accept/edit/reject actions logged with user and time. |
-| **Cost guardrails** | Per-user daily chat cap and an AWS Budgets alert. |
+| **Audit** | The activity bell records who uploaded, went through a review step or changed the capacity plan, and when (kept 90 days). CloudTrail for API and S3 data events. |
+| **Cost guardrails** | Not built yet: a per-user daily chat cap and an AWS Budgets alert are planned. |
 
-**CORS:** uploads go cross-origin from the app's CloudFront domain to S3, so the data bucket needs a CORS rule that
-allows `PUT`/`GET`/`HEAD` from your exact app origin. The API itself is same-origin when served through CloudFront.
+**CORS:** the web app calls API Gateway on its own domain and uploads to S3 on another, so both need CORS. API
+Gateway's CORS settings allow the app's origin, and the data bucket has a CORS rule that allows `PUT` from the app's
+exact origin.
 
 ---
 
 ## Data storage layout
 
 ```
-s3://<data-bucket>/
-├── raw/{user_sub}/{batch_id}/        # original uploads + manifest.json (expires after 30 days)
-├── clean/                            # standardised table per source (Parquet)
-├── curated/                          # joined supply-vs-demand tables (Parquet)
-├── results/{run_id}.json             # forecast table, gaps, chart specs, narrative, DQ summary
-├── reports/{run_id}/                 # monthly forecast report (Excel / CSV)
-└── quarantine/{batch_id}/            # rejected rows with reasons
+s3://lps-beacon-data/
+├── raw/{user_sub}/{yyyy-mm-dd}/{batch_id}/   # original uploads, never changed
+├── quarantine/                               # rejected files + <file>.reason.json
+├── clean/{dataset}/                          # latest cleaned table per dataset, quality report, history
+├── curated/matching|forecast|finance/        # stage outputs per run, plus latest/
+├── results/{run_id}/                         # summary/, detail/, finance/, manifest.json, Excel download
+├── results/latest.json                       # pointer to the newest published run (written last)
+├── results/uploads/{user}/{date}/{batch_id}/status.json   # upload and review progress
+├── results/capacity/inputs.json              # capacity plan inputs
+├── results/dashboard/                        # Dashboard insights
+└── plan/edits.json                           # shared capacity plan edits (last write wins)
 ```
+
+**Do not empty this bucket.** `clean/`, `curated/`, `results/` and `plan/` are live state. `results/latest/` is an
+old CSV fallback: always resolve `results/latest.json` instead. The full list is in
+[`DEPLOY.md`](LPS-Beacon_Backend/lambda-forecastpipeline/DEPLOY.md#folders-written-in-lps-beacon-data).
 
 ---
 
 ## API reference
 
-All routes require a valid Cognito JWT (`Authorization` header).
+All routes require a valid Cognito JWT (`Authorization` header). The web app lists them in `API_ROUTES` in
+`LPS-Beacon-Frontend/src/api/client.ts`; they are handled in `LPS-Beacon_Backend/lambda-api/lambda_function.py`.
+Request and response shapes are in [`LPS-Beacon-Frontend/API_CONTRACT.md`](LPS-Beacon-Frontend/API_CONTRACT.md).
 
-### Used by the web app today
+| Method | Path | Who | Purpose |
+|---|---|---|---|
+| `POST` | `/upload-url` | `finance_hr` | Pre-signed upload link for one file; all files of one upload share a `batchId` |
+| `GET` | `/pipeline/uploads/{date}/{batchId}` | `finance_hr` | Progress of one upload (the pipeline's status file) |
+| `GET` | `/pipeline/uploads/{date}/{batchId}/review/{step}` | `finance_hr` | What the review shows for `conflicts`, `forecast` or `matching` |
+| `POST` | `/pipeline/uploads/{date}/{batchId}/review/{step}` | `finance_hr` | The user's decisions; starts the next step |
+| `POST` | `/pipeline/reviews` | `finance_hr` | Review the data already uploaded, without new files |
+| `POST` | `/chat` | signed in | Agent answer, saved to the chat history |
+| `GET` | `/sessions` | signed in | The caller's chats, newest first |
+| `GET` | `/sessions/{id}/messages` | signed in | One chat's messages |
+| `PATCH` / `DELETE` | `/sessions/{id}` | signed in | Rename or move a chat to a folder, or delete it with its messages |
+| `GET` / `POST` | `/folders` | signed in | List folders (the first call creates the default ones), or create one: `{ id, name }` |
+| `PATCH` / `DELETE` | `/folders/{id}` | signed in | Rename a folder, or delete it (its chats move back to the main list) |
+| `GET` | `/analysis` | `finance_hr` | The capacity plan |
+| `PATCH` | `/analysis` | `finance_hr` | Edit one input cell and get the whole plan back (`null` removes the edit) |
+| `DELETE` | `/analysis/edits` | `finance_hr` | "Clear my edits": removes only the caller's edits |
+| `GET` | `/dashboard` | `finance_hr` | Headcount breakdown for the Dashboard boxes (204 before a staff list is uploaded) |
+| `GET` | `/dashboard/insights` | `finance_hr` | Dashboard charts from all the uploaded files (204 before the first build) |
+| `GET` | `/activity` | `finance_hr` | The activity bell: latest events, and how many the caller hasn't seen |
+| `POST` | `/activity/seen` | `finance_hr` | The caller opened the bell; clears their red dot |
+| `POST` | `/runs/runForecast` | `finance_hr` | Not built: answers 501 |
+| `GET` | `/runs/{id}` | `finance_hr` | Not built: answers 501 |
 
-Defined in [`frontend/API_CONTRACT.md`](frontend/API_CONTRACT.md) and implemented in `frontend/src/api/client.ts`.
-
-| Method | Path | Purpose |
-|---|---|---|
-| `POST` | `/chat` | Send `{ sessionId, message }`; returns `{ reply }` |
-| `POST` | `/upload-url` | Send `{ fileName, contentType }`; returns a pre-signed `{ uploadUrl, key }` |
-| `GET` | `/analysis` | Generated capacity plan values (Analysis tab and Dashboard charts). Planned: the web app does not call it yet |
-| `PATCH` | `/analysis` | Edit one input cell; returns the recalculated plan. Planned: the web app does not call it yet |
-| `GET` | `/dashboard` | Today's headcount breakdown for the Dashboard boxes. Planned: the web app does not call it yet |
-| `GET` | `/sessions` | List the signed-in user's chats for the sidebar |
-| `GET` | `/sessions/{id}/messages` | Load a chat's messages when it is opened |
-| `PATCH` / `DELETE` | `/sessions/{id}` | Move a chat to a folder (or rename it), or delete it with its messages |
-| `GET` | `/folders` | List the user's sidebar folders (the first call creates the default folders) |
-| `POST` | `/folders` | Create a folder: `{ id, name }` |
-| `PATCH` / `DELETE` | `/folders/{id}` | Rename a folder, or delete it (its chats move back to the main list) |
-
-### Planned additions
-
-| Method | Path | Purpose |
-|---|---|---|
-| `POST` | `/upload-urls` | Batch version: validate a file list and return URLs for the whole batch |
-| `POST` | `/runs/runForecast` | Start a run (re-run or what-if) and return a run ID |
-| `GET` | `/runs/{id}` | Run status and results |
+A new route has to be added in API Gateway (`9dpaon3lz7`, with the JWT authorizer) as well as in the code.
 
 ---
 
 ## Chat history model
 
 A single on-demand DynamoDB table, `lps-beacon-chat`, with generic keys `PK` and `SK` (both strings), so sessions,
-messages, folders and runs share one table. TTL is on the attribute `expiresAt`.
+messages, folders and the activity bell share one table. TTL is on, using the attribute `expiresAt`.
 
 | Record | `PK` | `SK` | Holds |
 |---|---|---|---|
@@ -453,9 +481,9 @@ messages, folders and runs share one table. TTL is on the attribute `expiresAt`.
 | Message | `USER#{sub}#SESSION#{id}` | `MSG#{timestamp}#{random}` | Role (`user` / `assistant`), text, referenced run or chart IDs, `expiresAt` |
 | Folder | `USER#{sub}` | `FOLDER#{id}` | Folder name, `createdAt` |
 | Folder marker | `USER#{sub}` | `META#folders` | Records that the default folders were created, so deleting them all does not bring them back |
-| Run | `USER#{sub}` | `RUN#{id}` | Trigger, status, results path |
-| Scenario | `USER#{sub}` | `SCEN#{id}` | Baseline run, parameters, result run |
-| Audit event | `RUN#{id}` | `AUDIT#{timestamp}` | Accept / edit / reject, by whom, when |
+| Activity event | `ACTIVITY` | `EVT#...` | Who uploaded, went through a review step or changed the capacity plan, and when (kept 90 days) |
+| Activity grouping | `ACTIVITY` | `OPEN#...` | Groups capacity plan edits less than 15 minutes apart, and all files of one upload, into one entry |
+| Activity seen | `USER#{sub}` | `META#activity-seen` | When the user last opened the bell |
 
 `{sub}` is the user's Cognito ID, taken only from the verified token, never from the request. `{id}` for a session is
 the chat ID the web app creates; there is no `POST /sessions`, so the first `POST /chat` with a new ID creates the
@@ -473,28 +501,20 @@ Why the keys look like this:
   ever reaches thousands, add a secondary index on `updatedAt`.
 - **Messages come back in order.** Querying `PK = USER#{sub}#SESSION#{id}` returns them sorted by timestamp; the
   random suffix keeps two messages in the same millisecond from overwriting each other.
-- **Deleting a chat** deletes the session record and its messages. TTL removes old chats automatically after the
-  retention period.
+- **Deleting a chat** deletes the session record and its messages. **Expiry:** every new message moves the whole chat
+  (the session and all its messages) to 90 days from now (`CHAT_RETENTION_DAYS`, default 90), and TTL deletes it
+  after that.
 
 Large data stays in S3; DynamoDB holds small records and pointers. Only the API Lambda may read or write this table,
 and its IAM permission is scoped to this table's ARN.
-
----|---|---|---|
-| Session | `USER#{sub}` | `SESSION#{createdAt}#{id}` | Title, timestamps, linked run |
-| Message | `SESSION#{id}` | `MSG#{timestamp}` | Role, text, referenced run or chart IDs |
-| Run | `USER#{sub}` | `RUN#{id}` | Trigger, status, results path |
-| Scenario | `USER#{sub}` | `SCEN#{id}` | Baseline run, parameters, result run |
-| Audit event | `RUN#{id}` | `AUDIT#{timestamp}` | Accept / edit / reject, by whom, when |
-
-Putting the timestamp in the session key returns chats newest-first with one query, which is exactly the sidebar
-order. Large data stays in S3; DynamoDB holds small records and pointers. Messages carry a TTL for retention.
 
 ---
 
 ## Estimated cost
 
 Region: `ap-southeast-1` (Singapore). Public list prices; excludes tax, support plan, SMS MFA and a custom domain.
-These are estimates for the designed backend; the web app itself costs only a few cents a month to host.
+These are design-time estimates, not measured spend. The Sonnet 5.5 narrative line no longer applies, because the
+pipeline does not call Bedrock. Check AWS Cost Explorer for real costs.
 
 | Service | Usage basis (pilot / growth) | Pilot | Growth |
 |---|---|---|---|
@@ -531,110 +551,121 @@ How this design relates to the original draft architecture:
 
 | Original draft | Current design | Why |
 |---|---|---|
-| SQS notification queue | S3 event on `manifest.json` | One run per batch of 10–12 files, no queue to manage |
+| SQS notification queue | S3 event per uploaded file; the last file of an upload starts the run | One run per upload, no queue to manage |
 | Upload processing Lambda | API Lambda (pre-signed URLs) + Pipeline Lambda | Browser uploads straight to S3; validation happens before the URL is issued |
 | AWS Glue ETL (Lambda) | Pipeline Lambda (pandas) | Data is small; Glue adds startup time, minimum billing and setup |
 | Processed S3 buckets | One data bucket with prefixes | Fewer buckets, same stage separation |
-| Athena query engine | Parquet read directly in the pipeline | No catalog or query service needed at this scale |
-| Forecast Agent Lambda / Bedrock | Forecast module in the Pipeline Lambda + Bedrock narrative | Deterministic maths, LLM explanation |
-| Report Generation Lambda | Step 9 of the pipeline (`reports/`) | One fewer function and trigger |
-| SNS notification | SNS email | Kept as designed |
-| "Chatbot returns user prompt queries" | R1–R5 return path + chat history in DynamoDB | Results, charts and history come back through the same API |
+| Athena query engine | Cleaned tables (compressed JSON in S3) read directly in the pipeline | No catalog or query service needed at this scale |
+| Forecast Agent Lambda / Bedrock | Forecast module in the Pipeline Lambda; Bedrock explains the results in chat | Deterministic maths, LLM explanation |
+| Report Generation Lambda | The publish stage writes an Excel download into `results/{run_id}/` | One fewer function and trigger |
+| SNS notification | SNS email | Supported in the pipeline code, but no topic is configured yet |
+| "Chatbot returns user prompt queries" | R1–R4 return path + chat history in DynamoDB | Results, charts and history come back through the same API |
 
 ---
 
 ## Getting started
 
-### Run the web app locally (works today, no AWS account needed)
+### Run the web app locally (mock mode, no AWS account needed)
 
-Requires Node.js 20.19+ or 22.12+ (an `.nvmrc` for Node 22 is included).
+Requires Node.js 22, 24 or 26 on a patched release: at least 22.23.4, 24.22.1 or 26.12.1 (CSA alert AL-2026-154). Vite itself
+accepts 20.19+ or 22.12+, but Node 20 no longer gets security fixes. Check with `node -v`.
 
 ```bash
-cd frontend
-npm install
-cp .env.example .env      # Windows (Command Prompt): copy .env.example .env
-npm run dev
+cd LPS-Beacon-Frontend
+npm ci
 ```
 
-Sign in with a practice account: `finance@demo.com` (Finance/HR) or `restricted@demo.com` (restricted), password `demo123`. Details, configuration and deployment are in
-[`frontend/README.md`](frontend/README.md). To edit code and share changes with others, see [CONTRIBUTING.md](CONTRIBUTING.md).
+Create `LPS-Beacon-Frontend/.env` containing the line `VITE_USE_MOCK=true`, then run `npm run dev`. There is no
+template file; every setting is listed in [`LPS-Beacon-Frontend/README.md`](LPS-Beacon-Frontend/README.md#configuration).
 
-### Connect the web app to real AWS services
+Sign in with a practice account: `finance@demo.com` (Finance/HR) or `restricted@demo.com` (restricted), password
+`demo123`. To edit code and share changes with others, see [Contributing.md](Contributing.md).
 
-1. Create a Cognito user pool with a public app client (no secret).
-2. In `frontend/.env`, set `VITE_USE_MOCK_AUTH=false` and the two Cognito values to try real sign-in first.
-3. Once the API exists, set `VITE_USE_MOCK=false` and `VITE_API_URL`. The contract is in
-   [`frontend/API_CONTRACT.md`](frontend/API_CONTRACT.md).
+### Connect the web app to AWS
 
-### Build the backend (planned)
+1. In `LPS-Beacon-Frontend/.env`, set `VITE_USE_MOCK=false` and `VITE_USE_MOCK_AUTH=false`, plus `VITE_API_URL` (the
+   API Gateway `execute-api` URL), `VITE_COGNITO_USER_POOL_ID` and `VITE_COGNITO_CLIENT_ID`. The Cognito app client
+   must be public, with no secret.
+2. Build and publish: see [Deploying the web app](LPS-Beacon-Frontend/README.md#deploying-the-web-app).
 
-The backend is not in this repository yet. The intended steps are:
+### Deploy the backend
 
-1. Build and push the pipeline container image to ECR.
-2. Deploy the stack with your chosen infrastructure-as-code tool (AWS CDK or AWS SAM): Cognito, S3 buckets with CORS
-   and Block Public Access, DynamoDB, both Lambdas, API Gateway, EventBridge schedules, SNS, CloudFront and WAF.
-3. In the Bedrock console (Singapore), check that Claude Haiku 5.5 and Claude Sonnet 5.5 are available and note their
-   cross-Region inference profile IDs (prefer `apac.` over `global.`). The Lambdas call these profile IDs, not the
-   plain model IDs.
-4. Confirm the SNS email subscription.
+Everything was set up by hand in the AWS console (Singapore, `ap-southeast-1`).
 
-Planned backend settings (template only; keep real values out of Git):
+- **Pipeline Lambda:** build the container image and follow
+  [`DEPLOY.md`](LPS-Beacon_Backend/lambda-forecastpipeline/DEPLOY.md). Pushing a new tag to ECR does not update the
+  function: deploy the new image in the Lambda console, and if in doubt compare the function's image digest with ECR.
+- **API Lambda** (`lps-beacon-apilambda`, Python 3.12): paste `lambda_function.py`, `capacity_plan.py` and
+  `activity.py` from `LPS-Beacon_Backend/lambda-api/` into the console and click **Deploy**. It uses only the
+  standard library and boto3.
+- **New API routes** also have to be added in API Gateway (`9dpaon3lz7`) with the JWT authorizer.
+
+API Lambda settings (Lambda → Configuration → Environment variables). The full list, with the IAM permissions, is at
+the top of `lambda-api/lambda_function.py`:
 
 ```
-AWS_REGION=ap-southeast-1
-DATA_BUCKET=<data-bucket-name>
-WEB_BUCKET=<web-bucket-name>
-APP_ORIGIN=https://<your-cloudfront-domain>
-CHAT_MODEL_ID=<claude-haiku-5-5-inference-profile-id>
-NARRATIVE_MODEL_ID=<claude-sonnet-5-5-inference-profile-id>
-DAILY_CHAT_LIMIT=100
+DATA_BUCKET=lps-beacon-data
+BUCKET_REGION=ap-southeast-1
+CHAT_TABLE=lps-beacon-chat
+CHAT_MODEL_ID=<Bedrock inference profile ID for Claude Haiku 5.5>
+GUARDRAIL_ID=<Bedrock Guardrail ID>
+GUARDRAIL_VERSION=<guardrail version>
+PIPELINE_FUNCTION=lambda-forecastpipeline
+CHAT_RETENTION_DAYS=90   # optional; 90 is the default
 ```
+
+The pipeline's settings are in `DEPLOY.md`, Step 7.
+
+### Run the backend tests
+
+```bash
+cd LPS-Beacon_Backend/lambda-forecastpipeline
+pip install -r requirements-dev.txt
+python -m unittest discover -s tests -v
+```
+
+The API Lambda has its own tests in `LPS-Beacon_Backend/lambda-api/tests/`.
 
 ---
 
 ## Repository layout
 
 ```
-lps-beacon/
+LPS-Beacon/
 ├── README.md
-├── CONTRIBUTING.md           # how to edit, share and review changes (start here to collaborate)
-├── .gitignore                # secrets, planning data, Node, Python, CDK/SAM, editors
-├── .gitattributes
-├── .editorconfig
-├── .devcontainer/            # one-click editing and live preview in GitHub Codespaces
-├── .github/
-│   ├── workflows/ci.yml              # lint + type-check + build on every push and pull request
-│   ├── workflows/preview-pages.yml   # optional live mock-mode preview (off by default)
-│   └── pull_request_template.md
-├── .vscode/extensions.json   # recommended editor extensions
+├── Contributing.md               # how to edit, share and review changes
+├── .gitignore                    # secrets, planning data (Excel, CSV), Node, Python, editors
 ├── docs/
-│   ├── architecture.svg      # full architecture diagram
-│   ├── architecture.drawio   # editable diagram
-│   └── vite-template-notes.md  # the original template README from the project zip
-└── frontend/                 # the complete web app (everything from the original project zip)
-    ├── src/
-    │   ├── api/              # all backend calls (mock + real) and data types
-    │   ├── auth/             # Cognito / practice sign-in, session
-    │   ├── components/       # NavBar, RequireAuth, MessageList, MessageInput, FileList
-    │   ├── pages/            # Chat, Dashboard, Upload, Analysis, Login
-    │   ├── uploads/          # upload queue shared across pages
-    │   ├── App.tsx
-    │   ├── main.tsx
-    │   └── index.css
-    ├── public/
-    ├── scripts/deploy.mjs
-    ├── API_CONTRACT.md       # what the app expects from the backend
-    ├── .env.example          # settings template (copy to .env)
-    ├── .env.deploy.example   # deploy settings template (copy to .env.deploy)
-    ├── .nvmrc
-    ├── package.json, package-lock.json, vite.config.ts, tsconfig*.json, eslint.config.js, index.html
-    └── README.md
-
-Planned (not in this repository yet):
-├── backend/lambdas/          # api/ (zip) and pipeline/ (container image: clean, forecast, publish)
-├── backend/infra/            # CDK or SAM stacks
-└── sample-data/anonymised/   # anonymised test files only
+│   ├── architecture.svg          # original design diagram
+│   ├── architecture.drawio       # editable version
+│   ├── vite-template-notes.md    # the original Vite template README
+│   └── Project_2_POC_UserStories_UseCases_v0.7.docx
+├── LPS-Beacon-Frontend/          # the web app (React 19, TypeScript, Vite)
+│   ├── src/
+│   │   ├── analysis/             # capacity plan layout, number formatting, CSV export
+│   │   ├── api/                  # client.ts (every backend call, mock + real), types.ts, sample plan
+│   │   ├── auth/                 # Cognito / practice sign-in, roles (permissions.ts)
+│   │   ├── charts/               # bar, line and heatmap charts
+│   │   ├── chats/                # chat history and export
+│   │   ├── components/           # NavBar, Sidebar, ActivityBell, MessageList, MessageInput, FileList, dialogs
+│   │   ├── dashboard/            # Dashboard sections, KPI boxes, insights
+│   │   ├── pages/                # Chat, Dashboard, Upload, Analysis, Login
+│   │   ├── review/               # the upload review: Conflicts, Forecast, Matching
+│   │   ├── theme/
+│   │   ├── uploads/              # upload queue shared across pages
+│   │   └── App.tsx, main.tsx, index.css
+│   ├── public/
+│   ├── scripts/deploy.mjs        # build + publish to S3 and CloudFront
+│   ├── API_CONTRACT.md           # what the app expects from the backend
+│   ├── package.json, package-lock.json, vite.config.ts, tsconfig*.json, eslint.config.js, index.html
+│   └── README.md
+└── LPS-Beacon_Backend/
+    ├── lambda-api/               # API Lambda: lambda_function.py (router), capacity_plan.py, activity.py, tests/
+    └── lambda-forecastpipeline/  # Pipeline Lambda (container image): pipeline/, matching scripts, tests/,
+                                  # Dockerfile, build.ps1, run_local.py, README.md, DEPLOY.md
 ```
+
+Not in Git: `.env` and `.env.deploy` (your settings), `node_modules/`, `dist/` and any planning data.
 
 ---
 
@@ -642,12 +673,13 @@ Planned (not in this repository yet):
 
 This project processes HR headcount, staff cost and project revenue data.
 
-- **Never commit real planning files.** `.gitignore` blocks `*.xlsx`, `*.xls`, `*.csv` and `*.parquet` everywhere
-  except `sample-data/anonymised/`.
-- Anonymise before adding a sample: replace names, IT codes, project names and amounts.
-- **Never commit `.env` files.** Only `.env.example` and `.env.deploy.example` are tracked.
-- Bucket names and CloudFront distribution IDs are read from `frontend/.env.deploy` at deploy time, not stored in the
-  repository.
+- **Never commit real planning files.** `.gitignore` blocks Excel files (`*.xlsx`, `*.xls`, `*.xlsm` and the other
+  Excel types) and `*.csv` everywhere. There is no sample-data folder in the repository.
+- Anonymise before sharing a sample: replace names, IT codes, project names and amounts.
+- **Never commit `.env` or `.env.deploy`.** `.gitignore` blocks both. There are no template files; the variable names
+  are in `LPS-Beacon-Frontend/README.md`.
+- The frontend bucket and CloudFront distribution ID used by `npm run deploy` are read from
+  `LPS-Beacon-Frontend/.env.deploy`, not stored in the repository.
 - If a secret or real data file is committed by mistake, treat it as exposed: rotate the credential and remove the
   file from the whole Git history, not just the latest commit.
 
@@ -655,26 +687,35 @@ This project processes HR headcount, staff cost and project revenue data.
 
 ## Known limitations
 
+- **Leavers are 0 in the capacity plan unless typed in by hand**, and so are joiners for past months. Both need the
+  Workday joiner and leaver reports, which haven't arrived. Joiners for forecast months come from the hiring gap of
+  the last review; a run that skipped the review has no hiring gap, so its joiners are 0.
 - **MFA setup is not supported in the web app's sign-in form.** If the Cognito user pool requires MFA and the user
   has not enrolled an authenticator app, sign-in stops with "An extra sign-in step is required
   (CONTINUE_SIGN_IN_WITH_TOTP_SETUP)". Use Amplify's `<Authenticator>` component or handle the step with
-  `confirmSignIn()` before relying on required MFA. See `frontend/src/auth/authService.ts`.
+  `confirmSignIn()` before relying on required MFA. See `LPS-Beacon-Frontend/src/auth/authService.ts`.
 - Users who must change their temporary password are told to ask an administrator to set a permanent one.
-- Chat and upload use mock data until the backend exists. The Dashboard and Analysis tabs show no data until the backend generates the capacity plan; set `VITE_USE_SAMPLE_PLAN=true` to preview made-up sample data.
+- **The activity bell logs what was asked for**, not whether the pipeline finished it. Logging the outcome needs the
+  pipeline Lambda to get DynamoDB access.
+- **"Run forecast" on demand is not built:** `POST /runs/runForecast` and `GET /runs/{id}` answer 501.
+- **No email notifications:** no SNS topic is configured.
+- **No daily chat limit or Bedrock budget alert** yet.
+- **No mobile layout.**
+- **No automatic checks (CI)** on pushes or pull requests.
 - Practice accounts (`DEMO_ACCOUNTS`) should be removed before a production release.
-- The backend, infrastructure code and tests are not in this repository yet.
 
 ---
 
 ## Roadmap
 
+- Workday joiner and leaver reports feeding the capacity plan (typed-in edits still override).
+- Daily chat limit and a Bedrock budget alert.
+- Pipeline outcomes (published / failed) in the activity bell.
 - Handle MFA setup and code entry in the sign-in flow.
-- Build the API Lambda, Pipeline Lambda and infrastructure code.
-- Chat history sidebar, charts in chat and what-if scenarios.
-- PDF version of the monthly forecast report.
-- Shortfall alerts with configurable thresholds per grade.
-- Side-by-side scenario comparison view.
-- Regional web ACL on the Cognito user pool for open public sign-up.
+- "Run forecast" on demand.
+- Charts in chat answers and what-if scenarios.
+- Email notifications (an SNS topic and `ALERT_TOPIC_ARN`).
+- An automatic check (CI) that runs lint, type-check, build and the backend tests on every pull request.
 - Glue/Athena (or another warehouse) if batches grow beyond what Lambda handles comfortably.
 - A Bedrock Knowledge Base if the assistant needs to cite policy documents and rate cards.
 - Moving the agent to Bedrock AgentCore if the client later needs managed agent hosting.

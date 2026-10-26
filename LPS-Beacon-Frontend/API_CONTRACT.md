@@ -5,8 +5,9 @@ Give this file to whoever builds the backend. The exact request and response sha
 `Authorization: <Cognito ID token>`. Decide together whether the API Gateway authorizer expects the raw token
 or `Bearer <token>`; the web app sends the token as-is.
 
-This is the contract the web app **uses today**. The full target design (pipeline runs, scenarios, chat history)
-is in the [root README](../README.md#api-reference), under "Planned additions".
+This is the contract the web app **uses today**. Every route is built in `LPS-Beacon_Backend/lambda-api/` except
+`/runs/runForecast` and `/runs/{id}`, which answer 501. The full route list, with who may call each one, is in the
+[root README](../README.md#api-reference).
 
 ## Endpoints
 
@@ -17,11 +18,16 @@ is in the [root README](../README.md#api-reference), under "Planned additions".
 | `GET /pipeline/uploads/{date}/{batchId}/review/{step}` | none | what the review panel shows for `step` = `conflicts` (`{ conflicts }`), `forecast` (`{ opportunities, notes }`) or `matching` (`{ lines, people, assignment, notes }`); shapes in `src/review/types.ts` |
 | `POST /pipeline/uploads/{date}/{batchId}/review/{step}` | `{ decisions }` (conflicts: `{ choices }`; forecast: `{ opportunities, edits, removed }` or `{ rejectedAll: true }`; matching: `{ assignment, decisions }` or `{ rejectedAll: true }`) | 202 `{ status: "started" }`; 409 when the upload is not waiting for that step |
 | `GET /pipeline/uploads/{date}/{batchId}` | none | the forecast pipeline's status file for that upload: `{ batchId, files: [{ name, status, dataset, warnings, reason }], run: { state, message, runId, resultsPrefix, warnings, kpis } }`. The caller's own uploads only. Polled by the review panel |
-| `GET /analysis` | none | `CapacityPlan` (see below). **Planned:** the web app does not call it yet |
-| `PATCH /analysis` | `{ rowId, columnKey, value }` | the whole recalculated `CapacityPlan`. **Planned:** the web app does not call it yet |
-| `GET /dashboard` | none | `HeadcountBreakdown` (see below). **Planned:** the web app does not call it yet |
-| `POST /runs/runForecast` | to be agreed | `{ runId }`. **Planned** |
-| `GET /runs/{id}` | none | run status and results. **Planned** |
+| `POST /pipeline/reviews` | none | `{ batchId, date }`: a review of the data already uploaded, without new files. Follow it with `GET /pipeline/uploads/{date}/{batchId}` like an upload |
+| `GET /analysis` | none | `CapacityPlan` (see below). |
+| `PATCH /analysis` | `{ rowId, columnKey, value }` | the whole recalculated `CapacityPlan`. |
+| `GET /dashboard` | none | `HeadcountBreakdown` (see below); 204 before a staff list is uploaded |
+| `DELETE /analysis/edits` | none | "Clear my edits": removes only the caller's edits and returns the whole `CapacityPlan` |
+| `GET /dashboard/insights` | none | `DashboardInsights` (`src/dashboard/insightTypes.ts`): charts from all uploaded files; 204 before the first build |
+| `GET /activity` | none | `ActivityFeed` (`src/api/types.ts`): the bell's latest events, newest first, and how many the caller hasn't seen |
+| `POST /activity/seen` | none | the caller opened the bell; clears their red dot |
+| `POST /runs/runForecast` | to be agreed | **Not built** (answers 501) |
+| `GET /runs/{id}` | none | **Not built** (answers 501) |
 | `GET /sessions` | none | `{ sessions: SessionSummary[] }`, newest first |
 | `GET /sessions/{id}/messages` | none | `{ session, messages: ChatMessage[] }`, oldest first |
 | `PATCH /sessions/{id}` | `{ title }` and/or `{ projectId }` (a folder id, or `null` for the main list) | the updated `SessionSummary` |
@@ -63,7 +69,7 @@ and shows the plan that comes back. The backend must validate the value, recalcu
 revenue, cost, margin, quarter and year totals) and return the whole plan. Quarter and year totals are not editable.
 
 **Headcount today (`/dashboard`; the Dashboard boxes):** `HeadcountBreakdown` is `{ asOf, permanent: { regular, supplementalOther, supplementalRetiree }, secondment }`,
-defined in `src/api/types.ts`. These are counts of active staff on the `asOf` date (from the HC by HR file), split by employment type:
+defined in `src/api/types.ts`. These are counts of active staff on the `asOf` date (from the staff list), split by employment type:
 Regular Employee, Supplemental - Other and Supplemental - Retiree make up permanent staff; Secondment is separate. The web app adds up
 the permanent and overall totals itself.
 
@@ -71,9 +77,9 @@ the permanent and overall totals itself.
 
 - Every user must be in one of two Cognito groups: `restricted` (sees only the Chat page) or `finance_hr` (sees every page).
   The web app reads the group from `cognito:groups` in the ID token; a user in neither group cannot sign in.
-- The backend must check the same groups: only `finance_hr` may call `/upload-url`, `/analysis`, `/dashboard` and `/runs/runForecast`.
+- The backend must check the same groups: only `finance_hr` may call `/upload-url`, `/pipeline/...`, `/analysis`, `/dashboard`, `/activity` and `/runs/...`.
   For `restricted` users, `/chat` should call Bedrock with a guardrail that limits what they can ask.
-- The web app needs the User Pool ID, App Client ID and region (set in `.env`; see `.env.example`).
+- The web app needs the User Pool ID, App Client ID and region (set in `.env`; the variables are listed in [README.md](README.md#configuration)).
 - The App Client must be a **public client with no client secret** (it runs in the browser).
 - If the user pool requires MFA, note the limitation under "Known limitations" in the [root README](../README.md#known-limitations).
 
@@ -88,7 +94,7 @@ the permanent and overall totals itself.
 | Rule | Where it is set |
 |---|---|
 | Upload files: CSV or Excel (`.csv`, `.xlsx`, `.xls`), up to 20 MB each | `src/pages/UploadPage.tsx` |
-| Capacity plan money is labelled "$ in M", but the template's Band Rates sheet says SGD | `src/analysis/capacityPlanLayout.ts` |
+| Capacity plan money is in USD ("$ in M"); SGD band rates are converted at Finance's 1.28 SGD per USD (agreed) | `LPS-Beacon_Backend/lambda-forecastpipeline/pipeline/plan_settings.py` |
 
 The web app hides pages by role, but that is only a convenience: the backend must restrict the data itself.
 
