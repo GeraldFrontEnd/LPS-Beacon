@@ -10,6 +10,7 @@ import { ANALYSIS_ROLES, DASHBOARD_ROLES, UPLOAD_ROLES } from "./auth/permission
 import NavBar from "./components/NavBar";
 import RequireAuth from "./components/RequireAuth";
 import AnalysisPage from "./pages/AnalysisPage";
+import CapacityPlanPage from "./pages/CapacityPlanPage";
 import ChatPage from "./pages/ChatPage";
 import DashboardPage from "./pages/DashboardPage";
 import LoginPage from "./pages/LoginPage";
@@ -60,12 +61,21 @@ export default function App() {
                     </RequireAuth>
                   }
                 />
-                {/* The Analysis page (the capacity plan) is limited to the roles in ANALYSIS_ROLES (Finance/HR). */}
+                {/* The Analysis page (productivity) is limited to the roles in ANALYSIS_ROLES (Finance/HR). */}
                 <Route
                   path="/analysis"
                   element={
                     <RequireAuth allowedRoles={ANALYSIS_ROLES}>
                       <AnalysisPage />
+                    </RequireAuth>
+                  }
+                />
+                {/* The Capacity plan tab (split from Analysis on 3 Nov 2026): the same Finance/HR roles. */}
+                <Route
+                  path="/capacity-plan"
+                  element={
+                    <RequireAuth allowedRoles={ANALYSIS_ROLES}>
+                      <CapacityPlanPage />
                     </RequireAuth>
                   }
                 />

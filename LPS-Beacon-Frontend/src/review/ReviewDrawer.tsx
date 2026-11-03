@@ -68,12 +68,18 @@ export default function ReviewDrawer({ anchorRef }: ReviewDrawerProps) {
   );
   const navigate = useNavigate();
 
-  // Where the panel's top edge goes: just below the page title. Measured on open and when the window resizes.
+  // Where the panel's top edge goes, measured on open and whenever the window resizes. On a tall screen: just below
+  // the page title. On a laptop-sized screen (or a zoomed-in one) the title would leave the panel too little room, so it
+  // goes up to just under the navigation bar instead, and never lower than an eighth of the screen.
   const [top, setTop] = useState(120);
   useLayoutEffect(() => {
     function measure() {
       const el = anchorRef.current;
-      if (el) setTop(Math.round(el.getBoundingClientRect().bottom + 8));
+      const nav = document.querySelector(".nav");
+      const underNav = nav ? Math.round(nav.getBoundingClientRect().bottom + 6) : 56;
+      const underTitle = el ? Math.round(el.getBoundingClientRect().bottom + 8) : underNav;
+      const roomy = window.innerHeight - underTitle >= 760;
+      setTop(Math.min(roomy ? underTitle : underNav, Math.round(window.innerHeight / 8)));
     }
     measure();
     window.addEventListener("resize", measure);

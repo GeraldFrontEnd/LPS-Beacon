@@ -464,24 +464,30 @@ def _workday_month(title: pd.DataFrame, body: pd.DataFrame) -> str | None:
 
 
 def clean_workday(body: pd.DataFrame, title: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
-    """One row per joiner or leaver of the report's month: Month, Kind, nameKey, Date. Names are dropped.
+    """One row per joiner or leaver of the report's month: Month, Kind, nameKey, Date, Band. Names are dropped.
 
     Leaver: a Termination Date in the month. Joiner: an Original Hire Date in the month (someone hired and gone in
-    the same month is both)."""
+    the same month is both). Band: the file's own "Grade" column when it has one (the synthetic sandbox files do; the
+    real Workday report does not), else empty, and the capacity plan finds it by name on the UR report or staff list."""
     warnings = ["worker names were replaced by a one-way key (used only to find their band)"]
     month = _workday_month(title, body)
     if month is None:
         raise CleanError("the Workday report has no 'Effective as of Date' and no dates to tell its month from")
     hired, left = _dates(body["Original Hire Date"]), _dates(body["Termination Date"])
     key = name_key(body["Worker"]).fillna(name_key(body["Employee ID"]))
+    band = _band(body["Grade"]) if "Grade" in body.columns else pd.Series([pd.NA] * len(body), dtype="Int64")
+    if "Grade" in body.columns:
+        warnings.append("the file has a Grade column: its grades are used instead of looking people up by name")
     in_month = lambda d: d.dt.strftime("%Y-%m") == month  # noqa: E731
     rows = []
-    for k, h, t in zip(key, hired, left):
+    for k, h, t, b in zip(key, hired, left, band):
+        b = None if pd.isna(b) else int(b)
         if pd.notna(t) and in_month(pd.Series([t])).iloc[0]:
-            rows.append({"Month": month, "Kind": "leaver", "nameKey": k, "Date": t})
+            rows.append({"Month": month, "Kind": "leaver", "nameKey": k, "Date": t, "Band": b})
         if pd.notna(h) and in_month(pd.Series([h])).iloc[0]:
-            rows.append({"Month": month, "Kind": "joiner", "nameKey": k, "Date": h})
-    out = pd.DataFrame(rows, columns=["Month", "Kind", "nameKey", "Date"])
+            rows.append({"Month": month, "Kind": "joiner", "nameKey": k, "Date": h, "Band": b})
+    out = pd.DataFrame(rows, columns=["Month", "Kind", "nameKey", "Date", "Band"])
+    out["Band"] = out["Band"].astype("Int64")
     other = int(len(body) - (left.notna() | in_month(hired).fillna(False)).sum())
     if other:
         warnings.append(f"{other} rows are neither hired nor leaving in {month} and were left out")

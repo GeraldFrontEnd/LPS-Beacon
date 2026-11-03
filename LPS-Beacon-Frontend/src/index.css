@@ -2397,7 +2397,7 @@ body {
   z-index: 55;
   display: flex;
   flex-direction: column;
-  width: min(1180px, 100vw);
+  width: min(1440px, calc(100vw - 24px)); /* grows with the screen, with a small margin on each side */
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line);
@@ -3251,14 +3251,10 @@ select.cell-input {
 }
 
 /* ---- Analysis page: productivity (baseline, agencies and projects, FTE required) ---- */
-/* The page scrolls as a whole; the capacity plan keeps its own scroll box for the sticky header. */
-.analysis-page {
+/* The Analysis tab scrolls as a whole (one scroll bar). The Capacity plan tab does not: its table box fills the page
+   and scrolls inside, so its header row and metric column stay in view. */
+.productivity-page {
   overflow-y: auto;
-}
-
-.analysis-page .plan-scroll {
-  flex: none;
-  max-height: 75vh;
 }
 
 .productivity {

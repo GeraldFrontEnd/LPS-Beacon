@@ -1099,7 +1099,8 @@ def _plan_reply(inputs, doc, caller, **extra):
                            productivity=inputs.get("productivity"),
                            revenueByMonth=inputs.get("revenue"),
                            demandByMonth=inputs.get("demand"),
-                           workdayMonths=sorted((inputs.get("actualFlows") or {}).keys()),
+                           workdayMonths=sorted(set((inputs.get("actualFlows") or {}).keys())
+                                                & {m["month"] for m in inputs["months"]}),
                            startingHeadcountSource=(inputs.get("startingHeadcount") or {}).get("source"),
                            notes=inputs.get("notes") or [], generatedAt=inputs.get("generatedAt"), **extra))
 

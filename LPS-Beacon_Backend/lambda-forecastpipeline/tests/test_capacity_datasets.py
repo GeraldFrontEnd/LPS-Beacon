@@ -69,13 +69,13 @@ def staff_xlsx() -> bytes:
     return buffer.getvalue()
 
 
-def workday_xlsx(month_end: dt.datetime, rows: list[tuple]) -> bytes:
-    """Like the Workday new hire / leaver report: two title rows, then the header."""
+def workday_xlsx(month_end: dt.datetime, rows: list[tuple], grade: bool = False) -> bytes:
+    """Like the Workday new hire / leaver report: two title rows, then the header (plus the synthetic files' Grade)."""
     wb = Workbook()
     ws = wb.active
     ws.append(["Termination Date is greater than or equal to", month_end.replace(day=1)])
     ws.append(["Effective as of Date", month_end])
-    ws.append(["Employee ID", "Worker", "Original Hire Date", "Termination Date"])
+    ws.append(["Employee ID", "Worker", "Original Hire Date", "Termination Date"] + (["Grade"] if grade else []))
     for row in rows:
         ws.append(list(row))
     buffer = io.BytesIO()
@@ -101,6 +101,17 @@ class WorkdayTests(Base):
         self.assertEqual(set(table["Month"]), {"2026-05"})
         self.assertNotIn("Worker", table.columns)
         self.assertFalse(table.astype(str).apply(lambda c: c.str.contains("Person")).any().any())
+
+    def test_a_grade_column_is_used_instead_of_the_name_lookup(self):
+        import lambda_function
+        for name, data in (("BU_UR.xlsx", ur_xlsx()),
+                           ("Hire_Leaver_May.xlsx", workday_xlsx(self.MAY, [
+                               ("ID 1", "Person A", dt.datetime(2021, 3, 1), dt.datetime(2026, 5, 20), 8),  # UR says 3
+                               ("ID 9", "New Person", dt.datetime(2026, 5, 4), None, 5)], grade=True))):
+            lambda_function.lambda_handler(s3_event(self.put(name, data)))
+        flows = self.store.read_json(capacity.KEY)["actualFlows"]["2026-05"]
+        self.assertEqual((flows["leavers"], flows["joiners"]), ({"b8": 1}, {"b5": 1}))
+        self.assertEqual(flows["unbanded"], {"joiners": 0, "leavers": 0})
 
     def test_months_add_up_and_bands_come_from_the_ur_report(self):
         import lambda_function

@@ -18,7 +18,8 @@ What it holds (all money in USD):
   startingHeadcount    headcount per band in the plan's first month: staff with a grade on the UR report's first
                        month (else the staff list as uploaded)
   actualFlows          joiners and leavers per month and band from the Workday new hire / leaver reports (the
-                       band found by name on the UR report or staff list; people not found are spread over the
+                       file's Grade column when it has one, else the band found by name on the UR report or staff
+                       list; people not found are spread over the
                        bands like that month's headcount). Used for the plan's months that have a report.
   revenue              revenue and cost per month for Singapore delivery (ABCD report): actuals where the ABCD
                        report has them, its forecast after. The Revenue row's default.
@@ -163,8 +164,10 @@ def _actual_flows(store: Store, mix: dict[str, float]) -> tuple[dict | None, lis
     for (month, kind), group in events.groupby(["Month", "Kind"]):
         found: dict[str, int] = {}
         missing = 0
-        for k in group["nameKey"].astype(str):
-            band = bands.get(k)
+        own = group["Band"] if "Band" in group.columns else pd.Series([pd.NA] * len(group), index=group.index)
+        for k, given in zip(group["nameKey"].astype(str), own):
+            # The file's own grade when it has one, else the person's band found by name.
+            band = int(given) if pd.notna(given) else bands.get(k)
             if band in range(3, 10):
                 found[f"b{band}"] = found.get(f"b{band}", 0) + 1
             else:

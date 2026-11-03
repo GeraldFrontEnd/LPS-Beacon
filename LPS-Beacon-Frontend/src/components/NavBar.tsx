@@ -40,6 +40,11 @@ export default function NavBar() {
           Analysis
         </NavLink>
       )}
+      {canSeeAnalysis && (
+        <NavLink to="/capacity-plan" className={linkClass}>
+          Capacity plan
+        </NavLink>
+      )}
       {canUpload && (
         <NavLink to="/upload" className={linkClass}>
           Upload files
