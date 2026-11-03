@@ -1,14 +1,19 @@
 // src/review/MatchingStep.tsx
-// Step 3 of the review: each demand line and the person the system matched to it.
-//  - Candidates are ranked by availability, then by how close their band is.
+// The matching step of the review: each demand line on won and ongoing work, and the person (on the bench or rolling
+// off) the system matched to it.
+//  - Candidates have the same standardised position and are free in time. They are ranked by availability; the band
+//    is a secondary check: someone outside the band tolerance is still offered, last, and flagged.
+//  - The customer (agency) is shown for each line and person. It is display only, never part of the match.
 //  - The user can swap in another candidate, or pick "No match" (the line then counts towards hiring).
 //  - Each line is accepted or rejected; a rejected match leaves the line unfilled.
-// "Reject matching list" ends the review: nothing from this run is used.
+//  - "Publish" sends it on. The panel then stays here: edit and publish again whenever needed.
+// "Reject matching list" (before the first publish only) ends the review: nothing from this run is used.
 
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import Dialog from "../components/Dialog";
 import type { DialogOptions } from "../components/Dialog";
+import { FORECAST_STEP } from "./flags";
 import { formatMonth } from "./reviewLogic";
 import type { Decision } from "./types";
 import { useReview } from "./useReview";
@@ -17,7 +22,7 @@ type Filter = "all" | "pending" | "unfilled";
 
 export default function MatchingStep() {
   const review = useReview();
-  const { data, matchLines, assignment, lineDecisions, forecastRejected } = review;
+  const { data, matchLines, assignment, lineDecisions, forecastRejected, published, publishedAt } = review;
   const [filter, setFilter] = useState<Filter>("all");
   const [dialog, setDialog] = useState<DialogOptions | null>(null);
   if (!data) return null;
@@ -53,11 +58,24 @@ export default function MatchingStep() {
   return (
     <section className="review-step" aria-labelledby="matching-title">
       <div className="review-step-intro">
-        <h3 id="matching-title">Matching list</h3>
+        <h3 id="matching-title">Redeployment matching</h3>
+        {published && (
+          <p className="review-published" role="status">
+            Published{publishedAt ? ` ${new Date(publishedAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}.
+            The Analysis and Dashboard pages use this matching. Change anything below and click Publish again.
+          </p>
+        )}
         <p>
-          {matchLines.length} demand lines: {matchLines.length - fromPipeline} from current projects
-          {forecastRejected ? " (the forecast was rejected, so no pipeline demand)" : `, ${fromPipeline} from accepted pipeline opportunities`}.
-          Candidates are ranked by availability, then by band. Swap a person if needed, then accept or reject each match.
+          {FORECAST_STEP ? (
+            <>
+              {matchLines.length} demand lines: {matchLines.length - fromPipeline} from current projects
+              {forecastRejected ? " (the forecast was rejected, so no pipeline demand)" : `, ${fromPipeline} from accepted pipeline opportunities`}.
+            </>
+          ) : (
+            <>{matchLines.length} roles on won and ongoing projects, matched to people on the bench or rolling off.</>
+          )}{" "}
+          Matched by position and availability; the band is a secondary check. Swap a person if needed, then accept or
+          reject each match.
         </p>
         <div className="review-bulk">
           <div className="segmented" role="group" aria-label="Show">
@@ -112,6 +130,7 @@ export default function MatchingStep() {
                     {line.source === "current" ? "Current project" : "Pipeline"}
                   </span>
                   <div className="match-title">{line.title}</div>
+                  {line.customer && <div className="match-customer">{line.customer}</div>}
                   <div className="note">{line.reference}</div>
                 </td>
                 <td>
@@ -132,9 +151,11 @@ export default function MatchingStep() {
                       const c = data.people[cid];
                       if (!c) return null;
                       const elsewhere = takenBy.get(cid);
+                      const outsideBand = line.bandOk?.[cid] === false;
                       return (
                         <option key={cid} value={cid} disabled={elsewhere !== undefined && elsewhere !== line.id}>
                           {rank + 1}. {c.label} · Band {c.grade}
+                          {outsideBand ? " (outside band)" : ""}
                           {elsewhere && elsewhere !== line.id ? " (matched to another line)" : ""}
                         </option>
                       );
@@ -143,9 +164,13 @@ export default function MatchingStep() {
                   {person ? (
                     <div className="note">
                       {person.position} · now on {person.currentProject}
+                      {person.currentCustomer ? ` (${person.currentCustomer})` : ""}
+                      {pid && line.bandOk?.[pid] === false && (
+                        <span className="band-flag"> · Band {person.grade} vs {line.grade} needed: check</span>
+                      )}
                     </div>
                   ) : (
-                    <div className="note">{line.candidates.length === 0 ? "Nobody available with this role and band" : "Left unfilled"}</div>
+                    <div className="note">{line.candidates.length === 0 ? "Nobody on the bench or rolling off with this position" : "Left unfilled"}</div>
                   )}
                 </td>
                 <td>
@@ -190,19 +215,23 @@ export default function MatchingStep() {
           {decided} of {matchLines.length} decided
         </p>
         <div className="review-foot-actions">
-          <button type="button" className="secondary-button danger" onClick={askRejectAll}>
-            Reject matching list
-          </button>
-          <button type="button" className="secondary-button" onClick={() => review.goToStep("forecast")}>
-            Change forecast
-          </button>
+          {!published && (
+            <button type="button" className="secondary-button danger" onClick={askRejectAll}>
+              Reject matching list
+            </button>
+          )}
+          {FORECAST_STEP && !published && (
+            <button type="button" className="secondary-button" onClick={() => review.goToStep("forecast")}>
+              Change forecast
+            </button>
+          )}
           <button
             type="button"
             className="primary-button"
             disabled={decided < matchLines.length}
             onClick={review.confirmMatching}
           >
-            Confirm matching
+            {published ? "Publish again" : "Publish"}
           </button>
         </div>
       </footer>

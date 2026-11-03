@@ -142,7 +142,61 @@ def resources(store: Store, today: dt.date) -> dict | None:
                              "rollingOff6m": int(r.get("Rolling off 0-6m", 0)), "total": int(r["total"])}
                             for role, r in pivot.iterrows()]
         out["benchRiskTotal"] = int(soon["unmatched"].sum())
+    out["redeployments"] = _redeployments(store, pointer["prefix"], today)
     return out
+
+
+REDEPLOY_MONTHS = 6
+
+
+def _redeployments(store: Store, prefix: str, today: dt.date) -> list[dict]:
+    """People on the bench or rolling off in the next 6 months, and the won / ongoing project (quote line) the
+    published matching put them on. Unmatched people are in benchRisk."""
+    key = prefix + "detail/matching.json"
+    if not store.exists(key):
+        return []
+    m = pd.DataFrame(store.read_json(key))
+    if m.empty or "Match Status" not in m.columns:
+        return []
+    m = m[m["Match Status"] == "MATCHED"].copy()
+    if m.empty:
+        return []
+    m["from"] = pd.to_datetime(m.get("PRP | Available From"), errors="coerce")
+    end = pd.Timestamp(today.replace(day=1)) + pd.DateOffset(months=REDEPLOY_MONTHS)
+    m = m[m["from"].notna() & (m["from"] < end)].sort_values("from")
+
+    def txt(r, col):
+        v = r.get(col)
+        return None if v is None or (not isinstance(v, str) and pd.isna(v)) else str(v)
+
+    customers = {}
+    try:      # the quote line / resource plan customer per project (the matching table may not carry it)
+        from . import review
+        latest = {}
+        for dataset in ("quoteline", "resource_plan"):
+            key = f"clean/{dataset}/latest_wide.json.gz"
+            if store.exists(key):
+                latest[dataset] = {"wide": store.read_table(key)}
+        customers = review.customer_lookup(latest)
+    except Exception:  # noqa: BLE001 - names are display only
+        customers = {}
+
+    def band(r):
+        try:
+            return str(int(float(r.get("PRP | Grade"))))
+        except (TypeError, ValueError):
+            return None
+
+    rows = []
+    for _, r in m.head(TOP * 2).iterrows():
+        rows.append({"resource": txt(r, "PRP | Resource"), "position": txt(r, "PRP | Standardized Position"),
+                     "band": band(r), "availableFrom": r["from"].strftime("%Y-%m"),
+                     "status": txt(r, "PRP | Availability Status"), "fromProject": txt(r, "PRP | Project Name"),
+                     "toProject": txt(r, "QL | Project Name"), "toProjectId": txt(r, "QL | Project ID"),
+                     "toCustomer": txt(r, "QL | Customer") or txt(r, "QL | End Customer")
+                     or customers.get(str(txt(r, "QL | Project ID") or "").strip()),
+                     "start": _month(r.get("QL | Start Date"))})
+    return rows
 
 
 def utilisation(store: Store) -> dict | None:
@@ -190,11 +244,11 @@ def workforce(store: Store, today: dt.date) -> dict | None:
 
 def build(store: Store, today: dt.date | None = None) -> dict:
     today = today or dt.date.today()
-    parts = {"pipeline": sales_pipeline(store, today), "resources": resources(store, today),
+    # The SFDC sales pipeline is out of scope since the 28 Oct 2026 demo (redeployment onto won and ongoing work
+    # only), so the Dashboard no longer shows it. sales_pipeline() is kept for when it comes back.
+    parts = {"pipeline": None, "resources": resources(store, today),
              "utilisation": utilisation(store), "workforce": workforce(store, today)}
     notes = []
-    if parts["pipeline"] is None:
-        notes.append("no SFDC pipeline uploaded yet")
     if parts["resources"] is None:
         notes.append("no review has been completed yet, so there are no roll-off and bench figures")
     return {"version": 1, "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),

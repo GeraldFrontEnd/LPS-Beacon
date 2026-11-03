@@ -99,6 +99,12 @@ class ReviewFlowTests(Base):
         super().setUp()
         os.environ["REVIEW_ON_UPLOAD"] = "true"
         os.environ["MATCHING_SCRIPT"] = str(ROOT / "matching_script.py")
+        # These tests cover the opportunity forecast step, which is off by default since the 28 Oct demo.
+        os.environ["PIPELINE_FORECAST_STEP"] = "true"
+
+    def tearDown(self):
+        os.environ.pop("PIPELINE_FORECAST_STEP", None)
+        super().tearDown()
 
     def upload_all(self):
         import lambda_function
@@ -310,6 +316,56 @@ class ReviewFlowTests(Base):
         self.assertEqual(result["state"], "ended")
         self.assertEqual(self.status()["run"]["state"], "ended")
         self.assertFalse(self.store.exists("results/latest.json"))
+
+
+@unittest.skipUnless(HAVE_ML, "matching_python_script.py needs scipy and scikit-learn")
+class RedeploymentReviewTests(ReviewFlowTests):
+    """The default flow since the 28 Oct 2026 demo: conflicts -> matching -> publish, no SFDC pipeline demand,
+    customer names shown, and the page stays on the matching list and can publish again."""
+
+    def setUp(self):
+        super().setUp()
+        os.environ.pop("PIPELINE_FORECAST_STEP", None)
+
+    def to_matching(self):
+        self.upload_all()
+        conflicts = self.payload("conflicts")["conflicts"]
+        self.decide("conflicts", {"choices": {conflicts[0]["id"]: "a"}})
+
+    def test_conflicts_go_straight_to_matching(self):
+        self.to_matching()
+        run = self.status()["run"]
+        self.assertEqual((run["state"], run["step"]), ("awaiting_review", "matching"))
+        self.assertFalse(self.store.exists(review.review_key(self.BATCH, "forecast")), "no opportunity forecast")
+        page = self.payload("matching")
+        self.assertEqual({line["source"] for line in page["lines"]}, {"current"}, "no SFDC pipeline demand")
+        self.assertEqual(page["lines"][0]["customer"], "CUST", "the quote line's customer is shown")
+        self.assertTrue(self.decide("forecast", {"redo": True}).get("ignored"), "the forecast step is off")
+
+    def test_publish_then_edit_and_publish_again(self):
+        self.to_matching()
+        page = self.payload("matching")
+        first = self.decide("matching", {"decisions": {l["id"]: "accepted" for l in page["lines"]},
+                                         "assignment": page["assignment"]})
+        self.assertEqual(first["state"], "published")
+        run = self.status()["run"]
+        self.assertEqual((run["state"], run["step"]), ("published", "matching"))
+        self.assertTrue(self.decide("matching", {"decisions": {}}).get("ignored"), "needs redo once published")
+        second = self.decide("matching", {"decisions": {l["id"]: "accepted" for l in page["lines"]},
+                                          "assignment": {l["id"]: None for l in page["lines"]}, "redo": True})
+        self.assertEqual(second["state"], "published")
+        self.assertNotEqual(first["runId"], second["runId"])
+        prefix = self.store.read_json("results/latest.json")["prefix"]
+        gap = self.store.read_json(prefix + "summary/hiring_gap.json")
+        self.assertTrue(gap and not any(row["from_pipeline"] for row in gap))
+
+    # The inherited forecast-step tests do not apply with the step off.
+    test_going_back_to_the_forecast_redoes_the_matching = None
+    test_forecast_finds_crm_similar_and_manual = None
+    test_full_review_publishes_with_hiring_gap = None
+    test_rebuilt_availability_matches_the_script_before_any_change = None
+    test_unfilled_lines_reach_the_published_availability_forecast = None
+    test_rejected_matching_ends_without_publishing = None
 
 
 class PieceTests(unittest.TestCase):

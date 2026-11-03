@@ -18,6 +18,7 @@ import type { PipelineUploadStatus, ReviewStep, UploadBatch } from "../api/types
 import { useAuth } from "../auth/useAuth";
 import { ReviewContext } from "./reviewContext";
 import type { ReviewContextValue } from "./reviewContext";
+import { FORECAST_STEP } from "./flags";
 import { buildMatchLines, editedResource, firstAssignment, resourceProblem } from "./reviewLogic";
 import { SAMPLE_REVIEW } from "./sampleReviewData";
 import type {
@@ -48,10 +49,10 @@ const STEPS_AFTER_UPLOAD = [
   "Cleaning and transforming the files",
   "Mapping position names to the standard list",
 ];
-const STEPS_AFTER_CONFLICTS = [
-  "Excluding the values you did not choose",
-  "Forecasting resource needs for pipeline opportunities",
-];
+const STEPS_AFTER_CONFLICTS = FORECAST_STEP
+  ? ["Excluding the values you did not choose", "Forecasting resource needs for pipeline opportunities"]
+  : ["Excluding the values you did not choose", "Calculating each resource's free capacity",
+     "Matching bench and roll-offs to won and ongoing projects"];
 const STEPS_AFTER_FORECAST = ["Calculating each resource's free capacity", "Matching demand to available resources"];
 const STEPS_AFTER_MATCHING = [
   "Calculating hiring demand from unfilled roles",
@@ -102,6 +103,8 @@ function ReviewState({ children }: ReviewProviderProps) {
   const [stage, setStage] = useState<ReviewStage>("idle");
   const [steps, setSteps] = useState<ProcessingStep[]>([]);
   const [progress, setProgress] = useState(0);
+  const [published, setPublished] = useState(false);
+  const [publishedAt, setPublishedAt] = useState<string | null>(null);
   const [data, setData] = useState<ReviewData | null>(null);
   const [isOpen, setOpen] = useState(false);
   const [notices, setNotices] = useState<string[]>([]);
@@ -127,6 +130,11 @@ function ReviewState({ children }: ReviewProviderProps) {
   const [lineDecisions, setLineDecisions] = useState<Record<string, Decision>>({});
 
   const [events, setEvents] = useState<ReviewEvent[]>([]);
+  // The matching list as last loaded, for the poll (which runs outside React's render).
+  const matchLinesRef = useRef<MatchLine[]>([]);
+  useEffect(() => {
+    matchLinesRef.current = matchLines;
+  }, [matchLines]);
 
   // Pending timers (sample steps and status polls), so a reset or signing out can stop them.
   const timers = useRef<number[]>([]);
@@ -254,9 +262,25 @@ function ReviewState({ children }: ReviewProviderProps) {
         await loadStep(step);
         return;
       }
-      if (state === "published") {
+      if (state === "published" && !stale) {
         setProgress(3);
-        arrive("done");
+        setPublished(true);
+        setPublishedAt(status.run.at ?? new Date().toISOString());
+        // Stay on the matching list, so it can be edited and published again. A review followed from the start
+        // already has the list; one picked up later (e.g. after a reload) loads it.
+        if (step === "matching") {
+          if (matchLinesRef.current.length === 0) {
+            try {
+              await loadStep("matching");
+            } catch {
+              arrive("done");
+            }
+            return;
+          }
+          arrive("matching");
+        } else {
+          arrive("done");
+        }
         return;
       }
       if (state === "ended") {
@@ -307,6 +331,8 @@ function ReviewState({ children }: ReviewProviderProps) {
   // Forgets every decision of the previous run, so a new one starts clean.
   function clearRun() {
     clearTimers();
+    setPublished(false);
+    setPublishedAt(null);
     setReachedMatching(false);
     sentForecast.current = null;
     setSentForecastState(null);
@@ -332,7 +358,7 @@ function ReviewState({ children }: ReviewProviderProps) {
     setData(SAMPLE_REVIEW);
     runSteps(firstSteps, 0, () => {
       if (SAMPLE_REVIEW.conflicts.length > 0) arrive("conflicts");
-      else runSteps(STEPS_AFTER_CONFLICTS, 1, () => arrive("forecast"));
+      else afterSampleConflicts();
     });
   }
 
@@ -398,8 +424,8 @@ function ReviewState({ children }: ReviewProviderProps) {
       })
       .join("; ");
     log("Resolved conflicts", summary);
-    if (SAMPLE_MODE) runSteps(STEPS_AFTER_CONFLICTS, 1, () => arrive("forecast"));
-    else void send("conflicts", { choices: conflictChoices }, 1);
+    if (SAMPLE_MODE) afterSampleConflicts();
+    else void send("conflicts", { choices: conflictChoices }, FORECAST_STEP ? 1 : 2);
   }
 
   // ---- Step 2: forecast ----
@@ -442,6 +468,22 @@ function ReviewState({ children }: ReviewProviderProps) {
     setRemovedMap((prev) => ({ ...prev, [resourceId]: isRemoved }));
   }
 
+  // Sample mode, after the conflicts: the forecast when that step is on, else straight to the matching.
+  function afterSampleConflicts() {
+    if (FORECAST_STEP) {
+      runSteps(STEPS_AFTER_CONFLICTS, 1, () => arrive("forecast"));
+      return;
+    }
+    runSteps(STEPS_AFTER_CONFLICTS, 2, () => {
+      const lines = buildMatchLines(SAMPLE_REVIEW, [], {}, {});
+      setMatchLines(lines);
+      setAssignment(firstAssignment(lines));
+      setLineDecisions({});
+      setReachedMatching(true);
+      arrive("matching");
+    });
+  }
+
   // Sample mode: builds the matching list from what was accepted, then shows it.
   function startSampleMatching(acceptedIds: Set<string>) {
     if (!data) return;
@@ -458,7 +500,7 @@ function ReviewState({ children }: ReviewProviderProps) {
 
   // Back to the forecast from the matching (decisions kept), or back to the matching without changing anything.
   function goToStep(step: "forecast" | "matching") {
-    if (!reachedMatching) return;
+    if (!reachedMatching || !FORECAST_STEP || published) return;
     if (step === "forecast" && stage === "matching") {
       log("Went back to the forecast", "To change it; the matching is redone when it is confirmed again");
       setError(null);
@@ -553,11 +595,22 @@ function ReviewState({ children }: ReviewProviderProps) {
     });
   }
 
+  // Publishes the matching. After the first time the panel stays on the list; publishing again sends "redo".
   function confirmMatching() {
     const matched = matchLines.filter((l) => lineDecisions[l.id] === "accepted" && assignment[l.id]).length;
-    log("Confirmed matching list", `${matched} of ${matchLines.length} demand lines matched to a person`);
-    if (SAMPLE_MODE) runSteps(STEPS_AFTER_MATCHING, 3, () => arrive("done"));
-    else void send("matching", { assignment, decisions: lineDecisions }, 3);
+    const again = published;
+    log(again ? "Published the matching again" : "Published the matching",
+      `${matched} of ${matchLines.length} demand lines matched to a person`);
+    if (SAMPLE_MODE) {
+      runSteps(STEPS_AFTER_MATCHING, 3, () => {
+        setPublished(true);
+        setPublishedAt(new Date().toISOString());
+        arrive("matching");
+      });
+      return;
+    }
+    const decisions = { assignment, decisions: lineDecisions };
+    void send("matching", again ? { ...decisions, redo: true } : decisions, 3);
   }
 
   function rejectMatching() {
@@ -577,6 +630,8 @@ function ReviewState({ children }: ReviewProviderProps) {
     setStage("idle");
     setSteps([]);
     setProgress(0);
+    setPublished(false);
+    setPublishedAt(null);
     setData(null);
     setNotices([]);
     setRejectedFiles([]);
@@ -595,13 +650,17 @@ function ReviewState({ children }: ReviewProviderProps) {
     stage,
     steps,
     progress,
+    published,
+    publishedAt,
     data,
     isOpen,
     setOpen,
     startProcessing,
     startStoredReview: () => void startStoredReview(),
     canStartReview:
-      !starting && (stage === "idle" || stage === "done" || stage === "ended" || stage === "stopped" || stage === "saved"),
+      !starting &&
+      (stage === "idle" || stage === "done" || stage === "ended" || stage === "stopped" || stage === "saved" ||
+        (stage === "matching" && published)),
     reachedMatching,
     revisingForecast: reachedMatching && stage === "forecast",
     goToStep,

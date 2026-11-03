@@ -24,7 +24,7 @@ const WORKING_DAYS = [21, 20, 22, 22, 21, 22, 21, 22, 20, 21, 22, 19, 22, 20, 23
 const AVERAGED = new Set(["billable-hc", "non-billable-hc"]); // capacity over the period: average
 const OPENING = new Set(["current-hc"]); // opening headcount: the first month's value
 const CLOSING = new Set(["ending-hc"]); // closing headcount: the last month's value
-const SUMMED = new Set(["joiners", "leavers", "revenue-per-fte", "revenue", "resource-cost", "gross-margin", "working-days"]);
+const SUMMED = new Set(["joiners", "leavers", "revenue", "resource-cost", "gross-margin", "working-days"]);
 
 // The key under which an edited cell is remembered: "<row id>|<column key>", for example "joiners:b7|Oct'26".
 export function sampleEditKey(rid: string, columnKey: string): string {
@@ -68,14 +68,12 @@ function build(edits: Record<string, number>, revenueDefault: number): CapacityP
       const end = cur + join - leave;
       const ur = edited(rowId("billable-ur", band.id), col.key) ?? (actual ? Math.min(1, UR_ACTUAL[i] + (rUr - 0.5) * 0.06) : UR_FORECAST[i]);
       const billable = end * ur;
-      const capacityRevenue = billable * DAY_RATE[i] * days; // same idea as the template's "Revenue per FTE ($)" rows
       const cost = end * DAY_RATE[i] * days;
 
       set(rowId("current-hc", band.id), col.key, cur);
       set(rowId("joiners", band.id), col.key, join);
       set(rowId("leavers", band.id), col.key, leave);
       set(rowId("ending-hc", band.id), col.key, end);
-      set(rowId("revenue-per-fte", band.id), col.key, Math.round(capacityRevenue));
       set(rowId("resource-cost", band.id), col.key, Math.round(cost));
       set(rowId("billable-ur", band.id), col.key, ur);
       set(rowId("billable-hc", band.id), col.key, billable);
@@ -88,7 +86,6 @@ function build(edits: Record<string, number>, revenueDefault: number): CapacityP
       total.join += join;
       total.leave += leave;
       total.end += end;
-      total.rev += capacityRevenue;
       total.cost += cost;
       total.bill += billable;
     });
@@ -97,7 +94,6 @@ function build(edits: Record<string, number>, revenueDefault: number): CapacityP
     set("joiners", col.key, total.join);
     set("leavers", col.key, total.leave);
     set("ending-hc", col.key, total.end);
-    set("revenue-per-fte", col.key, Math.round(total.rev));
     set("resource-cost", col.key, Math.round(total.cost));
     set("billable-ur", col.key, total.end ? total.bill / total.end : 0);
     set("billable-hc", col.key, total.bill);
@@ -114,6 +110,10 @@ function build(edits: Record<string, number>, revenueDefault: number): CapacityP
     set("revenue", col.key, revenue);
     set("gross-margin", col.key, Math.round(revenue - costs[m]));
     set("gross-margin-pct", col.key, revenue ? (revenue - costs[m]) / revenue : 0);
+    const hc = values["ending-hc"]?.[col.key] ?? 0;
+    set("revenue-per-hc", col.key, hc ? revenue / hc : 0);
+    set("gp-per-hc", col.key, hc ? (revenue - costs[m]) / hc : 0);
+    set("revenue-per-hc-cost", col.key, costs[m] ? revenue / costs[m] : 0);
   });
 
   // Quarter and year columns, worked out from the months of that quarter or year.
@@ -132,6 +132,9 @@ function build(edits: Record<string, number>, revenueDefault: number): CapacityP
         else if (AVERAGED.has(section.id)) v = avg(rid);
         else if (SUMMED.has(section.id)) v = sum(rid);
         else if (section.id === "gross-margin-pct") v = sum("revenue") ? sum("gross-margin") / sum("revenue") : 0;
+        else if (section.id === "revenue-per-hc") v = avg("ending-hc") ? sum("revenue") / avg("ending-hc") : 0;
+        else if (section.id === "gp-per-hc") v = avg("ending-hc") ? sum("gross-margin") / avg("ending-hc") : 0;
+        else if (section.id === "revenue-per-hc-cost") v = sum("resource-cost") ? sum("revenue") / sum("resource-cost") : 0;
         else if (section.id === "billable-ur") v = avg(`ending-hc${suffix}`) ? avg(`billable-hc${suffix}`) / avg(`ending-hc${suffix}`) : 0;
         else {
           const flow = section.id === "joiners-pct" ? "joiners" : "leavers";

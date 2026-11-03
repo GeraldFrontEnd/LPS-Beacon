@@ -30,8 +30,10 @@ How it is started, and what runs
       {"mode": "review", "batchId": "...", "step": "conflicts" | "forecast" | "matching",
        "decisions": {...}}                             continues a paused upload review
 
-With REVIEW_ON_UPLOAD=true (default) an upload does not run straight through: it pauses three
-times for the user (conflicts -> opportunity forecast -> matching), see pipeline/review.py.
+With REVIEW_ON_UPLOAD=true (default) an upload does not run straight through: it pauses for the user
+(conflicts -> matching), see pipeline/review.py. The opportunity forecast step between them (resources for SFDC
+pipeline opportunities) is off unless PIPELINE_FORECAST_STEP=true: since the 28 Oct 2026 demo the matching is
+redeployment only, people on the bench or rolling off onto won and ongoing work (quote lines).
 With REVIEW_ON_UPLOAD=false it runs match -> forecast -> publish at once, as before.
 
 Optional event fields: "asOf": "2026-09-01" (planning date), "requestedBy": "email".
@@ -92,7 +94,7 @@ def clean_one(cfg, store: Store, key: str) -> dict:
         return {"key": key, "status": "quarantined", "reason": str(exc)}
 
 
-DASHBOARD_DATASETS = ("bu_ur", "staff_list", "sfdc_pipeline")
+DASHBOARD_DATASETS = ("bu_ur", "staff_list", "sfdc_pipeline", "workday_hire_leaver", "abcd", "sl_rp")
 
 
 def _refresh_dashboard_data(store: Store) -> None:
@@ -268,7 +270,7 @@ def _prepared_inputs(cfg, store: Store, batch_id: str, with_pipeline: bool = Tru
     work = review.work_prefix(batch_id)
     notes = crossval.apply(inputs, store.read_json_or(work + "conflicts.json", []),
                            (_decisions(store, batch_id, "conflicts").get("choices") or {}))
-    if with_pipeline:
+    if with_pipeline and cfg.pipeline_forecast_step:
         opps = store.read_json_or(work + "opportunities.json", [])
         accepted = review.accepted_resources(opps, _decisions(store, batch_id, "forecast"))
         if accepted:
@@ -284,8 +286,15 @@ def _prepared_inputs(cfg, store: Store, batch_id: str, with_pipeline: bool = Tru
     return inputs, notes
 
 
+def _after_conflicts(cfg, store: Store, batch_id: str) -> dict:
+    """The step after the conflicts: the opportunity forecast when it is switched on, else the matching."""
+    if cfg.pipeline_forecast_step:
+        return forecast_step(cfg, store, batch_id)
+    return matching_step(cfg, store, batch_id)
+
+
 def start_review(cfg, store: Store, batch_id: str) -> dict:
-    """Review step 1: conflicts between the files. Skipped (straight to step 2) when there are none."""
+    """Review step 1: conflicts between the files. Skipped (straight to the next step) when there are none."""
     batch.set_run(store, _status(store, batch_id), "running", "cross-validating the uploaded files")
     inputs = review.load_inputs(store)
     conflicts = crossval.find(inputs)
@@ -294,7 +303,7 @@ def start_review(cfg, store: Store, batch_id: str) -> dict:
         shown = [{k: v for k, v in c.items() if k != "kind"} for c in conflicts]
         return _pause(store, batch_id, "conflicts", {"conflicts": shown},
                       f"{len(conflicts)} conflict(s) between files need a decision")
-    return forecast_step(cfg, store, batch_id)
+    return _after_conflicts(cfg, store, batch_id)
 
 
 def forecast_step(cfg, store: Store, batch_id: str) -> dict:
@@ -314,8 +323,9 @@ def matching_step(cfg, store: Store, batch_id: str) -> dict:
     tables, warnings = matching.run(cfg, inputs, store=None)
     work = review.work_prefix(batch_id)
     store.write_tables(work + "matching/", tables)
-    opps = store.read_json_or(work + "opportunities.json", [])
-    payload = review.matching_review(tables.get("matching"), cfg.grade_tolerance, cfg.max_idle_months, opps)
+    opps = store.read_json_or(work + "opportunities.json", []) if cfg.pipeline_forecast_step else []
+    payload = review.matching_review(tables.get("matching"), cfg.grade_tolerance, cfg.max_idle_months, opps,
+                                     customers=review.customer_lookup(inputs))
     payload["notes"] = notes + warnings
     return _pause(store, batch_id, "matching", payload,
                   f"matching list with {len(payload['lines'])} demand lines ready for review")
@@ -339,14 +349,20 @@ def finish_review(cfg, store: Store, batch_id: str) -> dict:
     status = _status(store, batch_id)
     trigger = "stored_review" if status.get("source") == "stored" else "upload"
     return run_full_mode(cfg, store, {"mode": "full", "stages": ["forecast", "publish"], "trigger": trigger,
-                                      "batchId": batch_id, "requestedBy": status.get("uploadedBy")},
+                                      "batchId": batch_id, "requestedBy": status.get("uploadedBy"),
+                                      "reviewKey": review.review_key(batch_id, "matching")},
                          prepared_inputs=inputs, extra_summary={"hiring_gap": gap})
 
 
 def accepts_decision(run: dict, step: str, decisions: dict) -> bool:
     """Whether the review can take a decision for this step now: the step it is waiting for, or the forecast
     again while it waits for the matching, when the page says so with "redo": true (the user went back to change
-    the forecast; the matching is redone). Without the flag, a late copy of the first forecast message is ignored."""
+    the forecast; the matching is redone). Without the flag, a late copy of the first forecast message is ignored.
+
+    After the matching is published the user stays on the Matching page and can edit and publish again: a
+    matching decision with "redo": true is taken while the upload's run is "published"."""
+    if run.get("state") == "published":
+        return step == "matching" and decisions.get("redo") is True and bool(run.get("reviewKey"))
     if run.get("state") != "awaiting_review":
         return False
     if run.get("step") == step:
@@ -361,7 +377,8 @@ def run_review_mode(cfg, store: Store, event: dict) -> dict:
     if step not in review.STEPS or not batch_id:
         raise ValueError(f"review events need a batchId and a step in {review.STEPS}")
     run = _status(store, batch_id).get("run", {})
-    if not accepts_decision(run, step, event.get("decisions") or {}):
+    switched_off = step == "forecast" and not cfg.pipeline_forecast_step
+    if switched_off or not accepts_decision(run, step, event.get("decisions") or {}):
         _log("review_ignored", batchId=batch_id, step=step, state=run.get("state"), waiting_for=run.get("step"))
         return {"batchId": batch_id, "state": run.get("state"), "ignored": True}
     decisions = event.get("decisions") or {}
@@ -371,7 +388,7 @@ def run_review_mode(cfg, store: Store, event: dict) -> dict:
          redo=run.get("step") != step)
     try:
         if step == "conflicts":
-            return forecast_step(cfg, store, batch_id)
+            return _after_conflicts(cfg, store, batch_id)
         if step == "forecast":
             return matching_step(cfg, store, batch_id)
         if decisions.get("rejectedAll"):
@@ -511,7 +528,9 @@ def run_full_mode(cfg, store: Store, event: dict, prepared_inputs: dict | None =
         state = "published" if "publish" in stages else "computed"
         batch.set_run(store, status, state, f"{len(warnings)} warning(s)", runId=run_id,
                       resultsPrefix=f"results/{run_id}/" if "publish" in stages else None,
-                      warnings=warnings, kpis=kpis)
+                      warnings=warnings, kpis=kpis,
+                      # kept so the review page can stay on the matching list and publish again
+                      reviewKey=event.get("reviewKey"), step="matching" if event.get("reviewKey") else None)
     publish.notify(cfg, f"LPS-Beacon forecast {run_id} finished",
                    {"runId": run_id, "trigger": trigger, "batchId": batch_id, "stages": stages,
                     "kpis": kpis, "warnings": warnings})

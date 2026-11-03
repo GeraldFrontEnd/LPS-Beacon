@@ -12,6 +12,7 @@ import { useNavigate } from "react-router-dom";
 import Dialog from "../components/Dialog";
 import { CheckIcon, ChevronDownIcon } from "../components/icons";
 import ConflictsStep from "./ConflictsStep";
+import { FORECAST_STEP } from "./flags";
 import ForecastStep from "./ForecastStep";
 import MatchingStep from "./MatchingStep";
 import type { ReviewStage } from "./types";
@@ -22,12 +23,22 @@ interface ReviewDrawerProps {
   anchorRef: RefObject<HTMLElement | null>;
 }
 
-// The three review steps, in order, for the stepper at the top of the panel.
+// The review steps, in order, for the stepper at the top of the panel. "done" is the Publish step.
+// The Forecast step only shows when it is switched on (flags.ts).
 const STEPPER: { stage: ReviewStage; label: string }[] = [
   { stage: "conflicts", label: "Conflicts" },
-  { stage: "forecast", label: "Forecast" },
+  ...(FORECAST_STEP ? [{ stage: "forecast" as ReviewStage, label: "Forecast" }] : []),
   { stage: "matching", label: "Matching" },
+  { stage: "done", label: "Publish" },
 ];
+const REVIEW_STEPS = STEPPER.length - 1; // the steps that wait for the user (not Publish)
+
+// The stepper position for the pipeline's progress number (0 conflicts, 1 forecast, 2 matching, 3 published).
+function stepIndex(progress: number): number {
+  const stage: ReviewStage = progress <= 0 ? "conflicts" : progress === 1 ? "forecast" : progress === 2 ? "matching" : "done";
+  const i = STEPPER.findIndex((s) => s.stage === stage);
+  return i >= 0 ? i : STEPPER.findIndex((s) => s.stage === "matching");
+}
 
 
 // An up arrow for the closed bar.
@@ -87,16 +98,17 @@ export default function ReviewDrawer({ anchorRef }: ReviewDrawerProps) {
   }, [isOpen]);
 
   const running = steps.find((s) => s.state === "running");
-  const waiting = stage === "conflicts" || stage === "forecast" || stage === "matching";
+  const waiting = stage === "conflicts" || stage === "forecast" || (stage === "matching" && !review.published);
 
   // The words on the bar.
   let barText: string;
   if (!enabled) barText = "Review is not connected yet. Turn on VITE_USE_SAMPLE_REVIEW to preview it with sample data.";
   else if (stage === "idle") barText = "No review waiting. Upload files, or open this to review the data already uploaded.";
   else if (stage === "processing") barText = `${running?.label ?? "Finishing"}…`;
-  else if (stage === "conflicts") barText = `Step 1 of 3: ${data?.conflicts.length ?? 0} conflicts need your decision`;
-  else if (stage === "forecast") barText = "Step 2 of 3: forecast ready for your review";
-  else if (stage === "matching") barText = "Step 3 of 3: matching list ready for your review";
+  else if (stage === "conflicts") barText = `Step 1 of ${REVIEW_STEPS}: ${data?.conflicts.length ?? 0} conflicts need your decision`;
+  else if (stage === "forecast") barText = `Step 2 of ${REVIEW_STEPS}: forecast ready for your review`;
+  else if (stage === "matching" && review.published) barText = "Matching published. Edit it here and publish again at any time";
+  else if (stage === "matching") barText = `Step ${REVIEW_STEPS} of ${REVIEW_STEPS}: matching list ready for your review`;
   else if (stage === "done") barText = "Review complete";
   else if (stage === "saved") barText = "Files saved without a review";
   else if (stage === "stopped") barText = `Review stopped: ${stopMessage ?? "the pipeline could not continue"}`;
@@ -104,9 +116,18 @@ export default function ReviewDrawer({ anchorRef }: ReviewDrawerProps) {
 
   // The step being looked at. While the forecast is open again after the matching, that is the forecast.
   const viewed = STEPPER.findIndex((s) => s.stage === stage);
-  const current = stage === "idle" || stage === "saved" ? -1 : viewed >= 0 ? viewed : progress;
+  const current =
+    stage === "idle" || stage === "saved"
+      ? -1
+      : review.published || stage === "done"
+        ? STEPPER.length
+        : viewed >= 0
+          ? viewed
+          : stepIndex(progress);
   // Once the matching was reached, the Forecast and Matching steps can be opened from the stepper.
   const canOpen = (s: ReviewStage) =>
+    FORECAST_STEP &&
+    !review.published &&
     review.reachedMatching &&
     ((s === "forecast" && stage === "matching") || (s === "matching" && stage === "forecast"));
 

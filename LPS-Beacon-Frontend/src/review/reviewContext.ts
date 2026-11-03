@@ -25,6 +25,9 @@ export interface ReviewContextValue {
   stage: ReviewStage;
   steps: ProcessingStep[]; // the checklist shown while stage is "processing"
   progress: number; // which review step the run is on: 0 conflicts, 1 forecast, 2 matching, 3 finished
+  // True once the matching was published. The panel stays on the matching list: it can be edited and published again.
+  published: boolean;
+  publishedAt: string | null; // when it was last published (ISO), for the banner
   data: ReviewData | null;
   isOpen: boolean;
   setOpen: (open: boolean) => void;

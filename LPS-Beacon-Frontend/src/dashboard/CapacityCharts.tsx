@@ -14,6 +14,7 @@ import BandPicker from "./BandPicker";
 import DashboardSection from "./DashboardSection";
 import SectionControls from "./SectionControls";
 import KpiBoxes from "./KpiBoxes";
+import TodaySection from "./TodaySection";
 import { isUrFlagged, urTargetsOf } from "./flagRules";
 import { MONTH_LABELS, actualMask, forecastFrom, monthNotes, monthSeries } from "./planSeries";
 
@@ -87,8 +88,9 @@ export default function CapacityCharts() {
     <>
       <KpiBoxes plan={plan} />
       <SectionControls />
+      <TodaySection plan={plan} />
 
-      <DashboardSection id="capacity-plan" title="Capacity plan">
+      <DashboardSection id="capacity-plan" title="Capacity plan: headcount, utilisation and margin">
 
         <div className="chart-grid">
           <ChartCard title="Headcount outlook" subtitle="Ending headcount at the end of each month." legend={[{ name: "Ending headcount", color: BLUE }]}>
@@ -158,7 +160,7 @@ export default function CapacityCharts() {
 
           <ChartCard
             title="Revenue and resource cost"
-            subtitle="Revenue is the figure entered by finance. A warning sign marks months where resource cost is higher than revenue."
+            subtitle="Revenue from the ABCD report (Finance can type over it). Resource cost is the headcount at the rate card (iRate). A warning sign marks months where resource cost is higher than revenue."
             legend={[
               { name: "Revenue", color: BLUE },
               { name: "Resource cost", color: ORANGE },

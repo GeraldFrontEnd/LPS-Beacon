@@ -107,6 +107,58 @@ export interface CapacityPlan {
   settings?: Record<string, PlanFySettings>; // per fiscal year, e.g. settings["FY26"]
   cleared?: number; // after "Clear my edits": how many were removed
   hires?: HiringNeeds | null; // the latest review's hiring gap: the default joiners
+  productivity?: Productivity | null; // by agency and project, this FY to date (ABCD x SL x RP)
+  revenueByMonth?: Record<string, { revenue: number; cost: number; actual: boolean }> | null; // ABCD, Singapore
+  demandByMonth?: Record<string, { fte: number; project: number; quoteWon: number }> | null; // SL x RP, won + ongoing
+  workdayMonths?: string[]; // months whose joiners and leavers come from a Workday report ("2026-09")
+  startingHeadcountSource?: "bu_ur" | "staff_list" | null;
+}
+
+// ---- Productivity (Analysis page and Dashboard) ----
+
+export type Flag = "red" | "amber" | "green";
+
+// Revenue, cost and FTE of one agency or project over the fiscal year to date. Per-FTE figures are annualised.
+export interface ProductivityFigures {
+  revenue: number; // USD, the months covered
+  hcCost: number; // delivery FTE x rate card (iRate) x working days
+  gp: number; // revenue - hcCost
+  fte: number; // average delivery FTE per month (SL x RP man-days / 18)
+  revenuePerFte: number | null;
+  gpPerFte: number | null;
+  revenuePerHcCost: number | null;
+  requiredFte: number | null; // the FTE its revenue needs at the target GP and UR
+  flag: Flag | null; // the worse of the productivity and staffing flags; null = not flagged (too small)
+  productivityFlag: Flag | null;
+  staffingFlag: Flag | null;
+  staffing: "over" | "under" | "on target" | null;
+  flagReason: string;
+}
+
+export interface ProjectProductivity extends ProductivityFigures {
+  projectId: string;
+  projectName: string;
+}
+
+export interface AgencyProductivity extends ProductivityFigures {
+  agency: string;
+  projects: ProjectProductivity[];
+}
+
+export interface FlagRules {
+  draft: boolean;
+  metrics: string[]; // which per-FTE figures can turn an agency red or amber
+  productivity: { redBelowPct: number; amberBelowPct: number };
+  staffing: { redOffPct: number; amberOffPct: number };
+  minFte: number;
+}
+
+export interface Productivity {
+  fiscalYear: string;
+  months: string[]; // "2026-04" .. the latest ABCD actual month
+  companyAverage: { revenuePerFte: number | null; gpPerFte: number | null; revenuePerHcCost: number | null };
+  rules: FlagRules;
+  agencies: AgencyProductivity[]; // red first, then amber, green, not flagged; by revenue within each
 }
 
 // The people the latest published review found must be hired, per month ("2026-11") and band ("b7").
@@ -134,6 +186,9 @@ export interface PlanFySettings {
   sgdPerUsd?: number;
   revenuePerMonthUsd?: number;
   basedOn?: string; // set when this year borrows another year's settings
+  bandDayRatesUsd?: Record<string, number>; // the rate card (iRate): cost per day per band, USD
+  target?: { revenueUsd: number; gpPct: number; billableUr: number }; // the "FTE required" defaults
+  priorYear?: { fiscalYear: string; averageHeadcount: number; staffCostUsd: number; source: string };
 }
 
 // ---- Added for the Dashboard (headcount today, from the HR headcount file) ----

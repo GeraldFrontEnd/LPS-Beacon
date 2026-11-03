@@ -22,6 +22,12 @@ What it recognises (by its columns, not its file name):
   staff_list        MSPO SG Staff List (has "IT Code", "Grade", "Employee Type"; header on row 2, plus a
                     hidden Dynamics sheet). Today's headcount by band and employment type, for the capacity
                     plan's starting headcount and the Dashboard. Staff names are dropped.
+  workday_hire_leaver  Workday "SG Delivery New Hire / Leaver" report, one month per file (has "Employee ID",
+                    "Worker", "Original Hire Date", "Termination Date" under two title rows, the second being
+                    "Effective as of Date"). A row with a Termination Date is a leaver; a row hired in the month
+                    is a joiner. Kept per month, so each month's upload adds to (or replaces) that month only.
+                    Worker names are replaced by a one-way hash, used only to find the person's band on the
+                    UR report or staff list (the Workday report has no grade).
 
 Resource plan and quote line exports that were edited by hand can lose the columns that tell
 them apart ("Project Owner" in the resource plan, "Name" and "Apr" in the quote line). When a
@@ -53,7 +59,7 @@ from .config import Config
 from .s3io import Store
 
 DATASETS = ("resource_plan", "quoteline", "position_mapping", "rates", "sl_rp", "sfdc_pipeline", "abcd",
-            "bu_ur", "staff_list")
+            "bu_ur", "staff_list", "workday_hire_leaver")
 
 PLAN_MINIMUM = {"Project ID", "Quote Line Number", "Resource", "Grade", "Position Name", "Fiscal Year"}
 SL_RP_REQUIRED = {"Demand Type", "ID", "Calendar Date", "MD", "Grade", "Position Name"}
@@ -62,6 +68,7 @@ ABCD_REQUIRED = {"Project_ID", "Project_Name", "TCVBefore_Tax_USD_Currency_Contr
 UR_WORKING_DAYS = "Standard Working days (Current month)"
 BU_UR_REQUIRED = {"Report Month", "Grade", "Billable", UR_WORKING_DAYS}
 STAFF_REQUIRED = {"IT Code", "Grade", "Employee Type"}
+WORKDAY_REQUIRED = {"Employee ID", "Worker", "Original Hire Date", "Termination Date"}
 HEADER_SEARCH_ROWS = 30     # report exports put a title block above the real header
 
 RP_REQUIRED = {"Project ID", "Quote Line Number", "Resource", "Grade", "Position Name",
@@ -163,6 +170,10 @@ def detect(sheets: dict[str, pd.DataFrame], source_name: str = "") -> tuple[str,
         found = _header_lower_down(df, SFDC_REQUIRED)
         if found is not None:
             return "sfdc_pipeline", {"main": found}
+    for name, df in sheets.items():
+        found = df if WORKDAY_REQUIRED <= set(df.columns) else _header_lower_down(df, WORKDAY_REQUIRED)
+        if found is not None:
+            return "workday_hire_leaver", {"main": found, "title": df}
     for df in sheets.values():
         found = df if BU_UR_REQUIRED <= set(df.columns) else _header_lower_down(df, BU_UR_REQUIRED)
         if found is not None:
@@ -193,7 +204,7 @@ def detect(sheets: dict[str, pd.DataFrame], source_name: str = "") -> tuple[str,
     shown = {n: df for n, df in sheets.items() if str(n) != "hiddenSheet"} or sheets
     found = "; ".join(f"{short(n)}: {heading(df)}" for n, df in shown.items())
     raise CleanError("columns not recognised as resource plan, quote line, position mapping, rates, "
-                     f"SL x RP, SFDC pipeline, ABCD, BU UR report or staff list ({found})")
+                     f"SL x RP, SFDC pipeline, ABCD, BU UR report, staff list or Workday new hire / leaver report ({found})")
 
 
 # ---------------------------------------------------------------- cleaning
@@ -330,6 +341,26 @@ def _band(series: pd.Series) -> pd.Series:
     return grade.where(grade.isin(list(BANDS)))
 
 
+def name_key(series: pd.Series) -> pd.Series:
+    """A one-way key for a person's name (case and spacing ignored), so files that only share names (the Workday
+    report has no IT Code or grade) can be joined without storing the names."""
+    text = series.astype("string").str.lower().str.replace(r"\s+", " ", regex=True).str.strip()
+    return text.map(lambda t: None if t is pd.NA or not t else
+                    hashlib.sha256(f"lps-beacon|{t}".encode()).hexdigest()[:20]).astype("string")
+
+
+def _names(df: pd.DataFrame, name_col: str, band: pd.Series, month: pd.Series | None = None) -> pd.DataFrame:
+    """nameKey -> Band (the latest known), for the Workday join. Empty when the file has no name column."""
+    if name_col not in df.columns:
+        return pd.DataFrame(columns=["nameKey", "Band"])
+    t = pd.DataFrame({"nameKey": name_key(df[name_col]).values, "Band": band.values,
+                      "_m": month.values if month is not None else ""})
+    t = t.dropna(subset=["nameKey", "Band"]).sort_values("_m")
+    out = t.drop_duplicates("nameKey", keep="last")[["nameKey", "Band"]].reset_index(drop=True)
+    out["Band"] = out["Band"].astype("Int64")
+    return out
+
+
 UR_KEEP = ["Report Month", "IT Code", "Grade", "Tier", "Billable", "Internal", "Presales", "Admin", "Bench",
            "Training", "Missing Manday", "Leave", "Submitted Manday", UR_WORKING_DAYS, "Staff Region",
            "Working City", "Cost Center", "Team (Finance View)", "Team"]
@@ -356,6 +387,8 @@ def clean_bu_ur(df: pd.DataFrame) -> tuple[dict[str, pd.DataFrame], list[str]]:
             out[col] = _text(out[col])
     out["Band"] = _band(out["Grade"])
     out = out.drop(columns=["Grade"])
+    names = _names(df.reset_index(drop=True), "Staff Name", out["Band"].reset_index(drop=True),
+                   out["Month"].reset_index(drop=True))
     unreadable = int(out["Month"].isna().sum())
     if unreadable:
         warnings.append(f"{unreadable} rows without a readable Report Month dropped")
@@ -379,7 +412,7 @@ def clean_bu_ur(df: pd.DataFrame) -> tuple[dict[str, pd.DataFrame], list[str]]:
     # Working days of the month itself (the same for everyone; the most common value guards against odd rows).
     days = out.groupby("Month")[UR_WORKING_DAYS].agg(lambda s: s.mode().iloc[0] if not s.mode().empty else None)
     calendar = days.rename("standardWorkingDays").reset_index()
-    return {"latest": out, "monthly": monthly, "working_days": calendar}, warnings
+    return {"latest": out, "monthly": monthly, "working_days": calendar, "names": names}, warnings
 
 
 STAFF_KEEP = ["IT Code", "Grade", "Join Date", "Last Employment Date", "Cost Center Code", "Working City",
@@ -401,6 +434,7 @@ def clean_staff_list(df: pd.DataFrame) -> tuple[dict[str, pd.DataFrame], list[st
             out[col] = _dates(out[col])
     out["Band"] = _band(out["Grade"])
     out = out.drop(columns=["Grade"])
+    names = _names(df.reset_index(drop=True), "Name", out["Band"].reset_index(drop=True))
     missing = int(out["IT Code"].isna().sum())
     if missing:
         warnings.append(f"{missing} rows without an IT Code dropped")
@@ -412,7 +446,49 @@ def clean_staff_list(df: pd.DataFrame) -> tuple[dict[str, pd.DataFrame], list[st
     by_band = (out.dropna(subset=["Band"]).groupby("Band").size().rename("headcount").reset_index())
     by_band["Band"] = by_band["Band"].astype("Int64")
     by_type = out.groupby(out["Employee Type"].fillna("(blank)")).size().rename("headcount").reset_index()
-    return {"latest": out, "headcount_by_band": by_band, "headcount_by_type": by_type}, warnings
+    return {"latest": out, "headcount_by_band": by_band, "headcount_by_type": by_type, "names": names}, warnings
+
+
+def _workday_month(title: pd.DataFrame, body: pd.DataFrame) -> str | None:
+    """The report's month ("YYYY-MM"): its "Effective as of Date" title row, else the latest date in it."""
+    grid = pd.concat([pd.DataFrame([list(title.columns)], columns=title.columns), title.head(5)])
+    for row in grid.itertuples(index=False):
+        values = list(row)
+        for i, v in enumerate(values[:-1]):
+            if _norm_header(v).lower() == "effective as of date":
+                when = _dates(pd.Series([values[i + 1]]))
+                if when.notna().all():
+                    return when.iloc[0].strftime("%Y-%m")
+    dates = pd.concat([_dates(body["Termination Date"]), _dates(body["Original Hire Date"])]).dropna()
+    return dates.max().strftime("%Y-%m") if not dates.empty else None
+
+
+def clean_workday(body: pd.DataFrame, title: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """One row per joiner or leaver of the report's month: Month, Kind, nameKey, Date. Names are dropped.
+
+    Leaver: a Termination Date in the month. Joiner: an Original Hire Date in the month (someone hired and gone in
+    the same month is both)."""
+    warnings = ["worker names were replaced by a one-way key (used only to find their band)"]
+    month = _workday_month(title, body)
+    if month is None:
+        raise CleanError("the Workday report has no 'Effective as of Date' and no dates to tell its month from")
+    hired, left = _dates(body["Original Hire Date"]), _dates(body["Termination Date"])
+    key = name_key(body["Worker"]).fillna(name_key(body["Employee ID"]))
+    in_month = lambda d: d.dt.strftime("%Y-%m") == month  # noqa: E731
+    rows = []
+    for k, h, t in zip(key, hired, left):
+        if pd.notna(t) and in_month(pd.Series([t])).iloc[0]:
+            rows.append({"Month": month, "Kind": "leaver", "nameKey": k, "Date": t})
+        if pd.notna(h) and in_month(pd.Series([h])).iloc[0]:
+            rows.append({"Month": month, "Kind": "joiner", "nameKey": k, "Date": h})
+    out = pd.DataFrame(rows, columns=["Month", "Kind", "nameKey", "Date"])
+    other = int(len(body) - (left.notna() | in_month(hired).fillna(False)).sum())
+    if other:
+        warnings.append(f"{other} rows are neither hired nor leaving in {month} and were left out")
+    outside = int((left.notna() & ~in_month(left).fillna(False)).sum())
+    if outside:
+        warnings.append(f"{outside} termination dates fall outside {month} and were left out")
+    return out.reset_index(drop=True), warnings
 
 
 SL_RP_KEEP = ["Demand Type", "ID", "Name", "Customer", "CRM ID", "Planned Start Date", "Planned End Date",
@@ -501,6 +577,50 @@ ABCD_KEEP = {"Project_ID": "Project_ID", "Project_Name": "Project_Name", "SFDC_I
              "Project_Duration_Months": "Duration_Months"}
 
 
+ABCD_MONTH = re.compile(r"^(Actual_)?(Revenue|Cost)-(\d{4})-?(\d{2})$")
+
+
+def abcd_monthly(df: pd.DataFrame) -> pd.DataFrame:
+    """Revenue and cost per project per month (USD), from the ABCD report's monthly columns.
+
+    "Actual_Revenue-202604" / "Actual_Cost-202604" are actuals; "Revenue-202608" / "Cost-2026-08" are the forecast.
+    Fiscal-year totals ("Revenue-FY2026/2027") are skipped. Projects with several rows (contract lines) are added up.
+    Months where both are zero are left out. For the Analysis page's productivity (revenue and GP per HC)."""
+    cols = {c: ABCD_MONTH.match(str(c)) for c in df.columns}
+    cols = {c: m for c, m in cols.items() if m}
+    info = [c for c in ("Project_ID", "Project_Name", "End_Customer", "Customer", "Delivery_Region", "LPS_GTM_Unit",
+                        "Service_Line") if c in df.columns]
+    empty = pd.DataFrame(columns=info + ["Month", "Revenue", "Cost", "Actual"])
+    if not cols or "Project_ID" not in df.columns:
+        return empty
+    base = df[info + list(cols)].copy()
+    for c in info:
+        base[c] = _text(base[c])
+    base = base.dropna(subset=["Project_ID"])
+    long = base.melt(id_vars=info, value_vars=list(cols), var_name="column", value_name="value")
+    groups = {c: m.groups() for c, m in cols.items()}
+    parts = long["column"].map(groups)
+    long["Actual"] = parts.map(lambda g: g[0] is not None)
+    long["what"] = parts.map(lambda g: g[1])
+    long["Month"] = parts.map(lambda g: f"{g[2]}-{g[3]}")
+    long["value"] = pd.to_numeric(long["value"], errors="coerce").fillna(0.0).astype("float64")
+    # A month is actual when its revenue or cost column says so.
+    actual_months = set(long.loc[long["Actual"], "Month"])
+    long["Actual"] = long["Month"].isin(actual_months)
+    wide = (long.groupby(["Project_ID", "Month", "Actual", "what"])["value"].sum()
+            .unstack("what", fill_value=0.0).reset_index())
+    wide.columns.name = None
+    for c in ("Revenue", "Cost"):
+        if c not in wide.columns:
+            wide[c] = 0.0
+    wide = wide[(wide["Revenue"] != 0) | (wide["Cost"] != 0)].copy()
+    # Project details can differ between contract lines: keep the first per project.
+    first = base.drop_duplicates("Project_ID").set_index("Project_ID")
+    for c in info[1:]:
+        wide[c] = wide["Project_ID"].map(first[c])
+    return wide[info + ["Month", "Revenue", "Cost", "Actual"]].sort_values(["Project_ID", "Month"]).reset_index(drop=True)
+
+
 def clean_abcd(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     out = df.reindex(columns=list(ABCD_KEEP)).rename(columns=ABCD_KEEP).copy()
     for col in ("Project_ID", "Project_Name", "SFDC_ID", "End_Customer", "Customer", "Delivery_Region",
@@ -547,7 +667,27 @@ def run_file(cfg: Config, store: Store, key: str, data: bytes, ext: str) -> dict
         tables = {"latest": table}
         if dataset == "sfdc_pipeline":
             tables["monthly_revenue"] = sfdc_monthly_revenue(sheets["main"])
+        if dataset == "abcd":
+            tables["monthly"] = abcd_monthly(sheets["main"])
+            actual = sorted(tables["monthly"].loc[tables["monthly"]["Actual"].astype(bool), "Month"].unique().tolist())
+            quality["actualMonths"] = actual
+            if not len(tables["monthly"]):
+                warnings.append("no monthly Revenue- / Cost- columns: productivity (revenue per HC) can't use this file")
         quality.update(rowsIn=len(sheets["main"]), rowsOut=len(table), warnings=warnings)
+    elif dataset == "workday_hire_leaver":
+        month_rows, warnings = clean_workday(sheets["main"], sheets["title"])
+        month = month_rows["Month"].iloc[0] if len(month_rows) else _workday_month(sheets["title"], sheets["main"])
+        # Each upload is one month: keep the other months already uploaded, replace this one.
+        before = store.read_table(prefix + "all.json.gz") if store.exists(prefix + "all.json.gz") else None
+        if before is not None and len(before):
+            before = before[before["Month"].astype("string") != month]
+            month_rows = pd.concat([before, month_rows], ignore_index=True)
+        month_rows = month_rows.sort_values(["Month", "Kind", "Date"]).reset_index(drop=True)
+        tables = {"all": month_rows}
+        joined = int(((month_rows["Month"] == month) & (month_rows["Kind"] == "joiner")).sum())
+        gone = int(((month_rows["Month"] == month) & (month_rows["Kind"] == "leaver")).sum())
+        quality.update(rowsIn=len(sheets["main"]), month=month, joiners=joined, leavers=gone,
+                       months=sorted(month_rows["Month"].astype(str).unique().tolist()), warnings=warnings)
     elif dataset in ("bu_ur", "staff_list"):
         cleaner = clean_bu_ur if dataset == "bu_ur" else clean_staff_list
         tables, warnings = cleaner(sheets["main"])

@@ -1,10 +1,13 @@
-"""The review flow after an upload: three pauses where a person decides, then the usual run.
+"""The review flow after an upload: pauses where a person decides, then the usual run.
 
     upload -> validate -> clean (each file)
            -> 1 conflicts     (crossval.py)        pause: pick the correct value per conflict
-           -> 2 opportunities (opportunities.py)   pause: accept / edit / reject per opportunity
-           -> 3 matching      (your matching script, with the accepted pipeline demand added)
-                                                   pause: accept / swap / reject per demand line
+           -> 2 opportunities (opportunities.py)   OFF unless PIPELINE_FORECAST_STEP=true (since the 28 Oct
+                                                   2026 demo): accept / edit / reject per SFDC opportunity
+           -> 3 matching      (your matching script: people on the bench or rolling off onto won and
+                               ongoing quote lines; plus accepted pipeline demand when step 2 is on)
+                                                   pause: accept / swap / reject per demand line. After
+                                                   publishing, the page stays here and can publish again.
            -> hiring gap, availability forecast, publish (as before)
 
 What the review page reads (results/uploads/<batchId>/, next to status.json):
@@ -141,14 +144,47 @@ def _grade(value) -> int:
         return 0
 
 
+def customer_lookup(inputs: dict) -> dict[str, str]:
+    """Project ID -> customer (agency) name, for display on the matching list only (never scored).
+
+    Taken from the quote line and resource plan "Customer" column (or "End Customer"), and the ABCD report's
+    End_Customer / Customer for projects the plans leave blank."""
+    out: dict[str, str] = {}
+    for dataset, id_col, names in (("quoteline", "Project ID", ("Customer", "End Customer")),
+                                   ("resource_plan", "Project ID", ("Customer", "End Customer")),
+                                   ("abcd", "Project_ID", ("End_Customer", "Customer"))):
+        entry = inputs.get(dataset) or {}
+        table = entry.get("wide") if "wide" in entry else entry.get("table")
+        if table is None or id_col not in getattr(table, "columns", []):
+            continue
+        for col in names:
+            if col not in table.columns:
+                continue
+            for pid, name in table[[id_col, col]].dropna().astype(str).itertuples(index=False):
+                pid, name = pid.strip(), name.strip()
+                if pid and name and name.lower() not in ("nan", "none", "0") and pid not in out:
+                    out[pid] = name
+    return out
+
+
 def matching_review(match: pd.DataFrame, grade_tolerance: int, max_idle_months: int,
-                    opportunities: list[dict]) -> dict:
+                    opportunities: list[dict], customers: dict[str, str] | None = None) -> dict:
     """The matching list for the review page: every demand line with its ranked candidates.
 
     Your script picks one person per line (or none). The other candidates are the people with the
-    same standardised position, a band within GRADE_TOLERANCE, who are free on or before the
-    line's start (at most MAX_IDLE_MONTHS before it), ranked by availability, then band gap.
+    same standardised position who are free on or before the line's start (at most MAX_IDLE_MONTHS
+    before it), ranked by availability, then band gap. Position and availability decide; the band is a
+    secondary check: a candidate more than GRADE_TOLERANCE bands away is still listed, last, with
+    "bandOk": false so the page can flag it.
+
+    customers: Project ID -> customer (agency) name, shown on each line and person (display only).
     """
+    customers = customers or {}
+
+    def customer(row, prefix: str) -> str:
+        own = _txt(row.get(f"{prefix} | Customer")) or _txt(row.get(f"{prefix} | End Customer"))
+        return own or customers.get(_txt(row.get(f"{prefix} | Project ID")).strip(), "")
+
     if match is None or match.empty or "Match Status" not in match.columns:
         return {"lines": [], "people": {}, "assignment": {}}
     match = match.copy()
@@ -166,6 +202,7 @@ def matching_review(match: pd.DataFrame, grade_tolerance: int, max_idle_months: 
             "position": _txt(r["PRP | Standardized Position"]), "grade": _grade(r["PRP | Grade"]),
             "availableFrom": _ym(r["PRP | Available From"]) or "", "status": _txt(r["PRP | Availability Status"]),
             "currentProject": _txt(r["PRP | Project Name"]),
+            "currentCustomer": customer(r, "PRP"),
         }
     pool = pd.DataFrame(list(people.values()))
     opp_of = {r["id"]: o for o in opportunities for r in o["resources"]}
@@ -177,12 +214,13 @@ def matching_review(match: pd.DataFrame, grade_tolerance: int, max_idle_months: 
         start = _ym(r["QL | Start Date"])
         candidates = []
         if not pool.empty and role and not role.startswith("UNMAPPED") and start:
-            ok = pool[(pool["position"] == role) & ((pool["grade"] - grade).abs() <= grade_tolerance)
-                      & (pool["availableFrom"] <= start)]
+            ok = pool[(pool["position"] == role) & (pool["availableFrom"] <= start)]
             earliest = (pd.Timestamp(start + "-01") - pd.DateOffset(months=max_idle_months)).strftime("%Y-%m")
             ok = ok[ok["availableFrom"] >= earliest]
-            ok = ok.assign(_s=ok["status"].map(STATUS_ORDER).fillna(9), _g=(ok["grade"] - grade).abs())
-            candidates = ok.sort_values(["_s", "availableFrom", "_g"])["id"].head(8).tolist()
+            gap = (ok["grade"] - grade).abs()
+            ok = ok.assign(_far=(gap > grade_tolerance).astype(int), _s=ok["status"].map(STATUS_ORDER).fillna(9),
+                           _g=gap)
+            candidates = ok.sort_values(["_far", "_s", "availableFrom", "_g"])["id"].head(8).tolist()
         chosen = r["_person"] if r["Match Status"] == "MATCHED" else None
         if chosen:
             candidates = [chosen] + [c for c in candidates if c != chosen][:7]
@@ -192,6 +230,8 @@ def matching_review(match: pd.DataFrame, grade_tolerance: int, max_idle_months: 
         lines.append({
             "id": r["_line"], "source": "pipeline" if pipeline else "current",
             "title": opp["name"] if opp else _txt(r["QL | Project Name"]),
+            "customer": (opp.get("customer") or "") if opp else customer(r, "QL"),
+            "projectId": _txt(r.get("QL | Project ID")),
             "reference": opp["crmId"] if opp else quote_line,
             "position": role if role and not role.startswith("UNMAPPED") else _txt(r["QL | Position Name"]),
             "grade": grade, "start": start, "candidates": candidates,
@@ -199,7 +239,11 @@ def matching_review(match: pd.DataFrame, grade_tolerance: int, max_idle_months: 
         assignment[r["_line"]] = chosen
     lines.sort(key=lambda x: (x["source"] != "current", x["start"] or "9999"))
     named = {pid for line in lines for pid in line["candidates"]}          # only people the page can show
-    return {"lines": lines, "people": {k: v for k, v in people.items() if k in named}, "assignment": assignment}
+    for line in lines:
+        line["bandOk"] = {pid: abs(people[pid]["grade"] - line["grade"]) <= grade_tolerance
+                          for pid in line["candidates"] if pid in people}
+    return {"lines": lines, "people": {k: v for k, v in people.items() if k in named}, "assignment": assignment,
+            "gradeTolerance": grade_tolerance}
 
 
 def apply_matching(match: pd.DataFrame, decisions: dict) -> pd.DataFrame:

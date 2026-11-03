@@ -44,6 +44,9 @@ class Config:
                                 # forecast, matching) instead of running straight through
     forecast_stages: tuple      # SFDC stages whose opportunities get a resource forecast, e.g. ("O1", "O2")
     similarity_threshold: float # 0-1; how alike an ABCD project must be to be offered as a "similar project"
+    pipeline_forecast_step: bool  # review step 2 (resources for SFDC pipeline opportunities). Off since the
+                                  # 28 Oct 2026 demo: matching is redeployment onto won / ongoing work only.
+                                  # The code is kept; set PIPELINE_FORECAST_STEP=true to bring the step back.
 
 
 def _int(name: str, default: int) -> int:
@@ -136,6 +139,7 @@ def load(event: dict | None = None) -> Config:
         forecast_stages=tuple(s.strip() for s in os.environ.get("FORECAST_STAGES", "O1,O2,O3,O4,O5").split(",")
                               if s.strip()),
         similarity_threshold=_float("SIMILARITY_THRESHOLD", 0.6),
+        pipeline_forecast_step=_bool("PIPELINE_FORECAST_STEP", False),
     )
     if not 0 <= cfg.renewal_rate <= 1:
         raise ConfigError("RENEWAL_RATE must be between 0 and 1")

@@ -4,7 +4,8 @@
 // The numbers come from the backend (see getCapacityPlan in src/api/client.ts) and are looked up by the ids defined here.
 
 // How a number is shown on screen. "usdM" means dollars shown in millions (1,000,000 is shown as 1.00).
-export type ValueFormat = "int" | "dec1" | "usdM" | "pct0" | "pct1";
+// "usdK" shows dollars in thousands; "ratio" a plain multiple to 2 decimals (1.37 = $1.37 of revenue per $1 of cost).
+export type ValueFormat = "int" | "dec1" | "usdM" | "usdK" | "pct0" | "pct1" | "ratio";
 
 // One column of the plan. "key" is the id the backend uses for this column, for example "Apr'26" or "Q1'26".
 export interface PlanColumn {
@@ -102,11 +103,14 @@ export const PLAN_SECTIONS: PlanSection[] = [
   { id: "joiners", label: "Joiners", format: "int", bands: true },
   { id: "leavers", label: "Leavers", format: "int", bands: true },
   { id: "ending-hc", label: "Ending HC", format: "int", bands: true },
-  { id: "revenue-per-fte", label: "Revenue per FTE (USD in M)", format: "usdM", bands: true },
+  // Revenue is not split by band (it is not sold by band), so there is no revenue row per band. Productivity uses HC.
   { id: "revenue", label: "Revenue (USD in M)", format: "usdM", bands: false },
-  { id: "resource-cost", label: "Resource Cost (USD in M)", format: "usdM", bands: true },
+  { id: "resource-cost", label: "Resource Cost at Rate card (iRate) (USD in M)", format: "usdM", bands: true },
   { id: "gross-margin", label: "Gross Margin (USD in M)", format: "usdM", bands: false },
   { id: "gross-margin-pct", label: "Gross Margin %", format: "pct1", bands: false },
+  { id: "revenue-per-hc", label: "Revenue per HC (USD in K)", format: "usdK", bands: false },
+  { id: "gp-per-hc", label: "GP per HC (USD in K)", format: "usdK", bands: false },
+  { id: "revenue-per-hc-cost", label: "Revenue per $ of HC cost", format: "ratio", bands: false },
   { id: "billable-ur", label: "Billable UR %", format: "pct1", bands: true, bandFormat: "pct0" },
   { id: "billable-hc", label: "Billable HC", format: "dec1", bands: true },
   { id: "non-billable-hc", label: "Non-Billable HC", format: "dec1", bands: true },

@@ -42,6 +42,19 @@ export interface ResourceOutlook {
   rollOffs?: { month: string; available: number; availableIfNotRenewed: number; pipelineDemand: number; matched: number }[];
   benchRisk?: { role: string; availableNow: number; rollingOff6m: number; total: number }[];
   benchRiskTotal?: number;
+  // People on the bench or rolling off in the next 6 months and the won / ongoing project they were matched to.
+  redeployments?: {
+    resource: string | null;
+    position: string | null;
+    band: string | null;
+    availableFrom: string;
+    status: string | null;
+    fromProject: string | null;
+    toProject: string | null;
+    toProjectId: string | null;
+    toCustomer: string | null;
+    start: string | null;
+  }[];
 }
 
 export interface Utilisation {

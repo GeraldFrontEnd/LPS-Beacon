@@ -9,8 +9,11 @@ export default function DashboardPage() {
   return (
     <main className="dashboard-page">
       <header className="page-header">
-        <h1>Organizational DashBoard View </h1>
-        <p>Headcount, utilisation and margin from the capacity plan, plus the sales pipeline, roll-offs and utilisation from the uploaded files. All amounts in USD.</p>
+        <h1>Organisational Dashboard View</h1>
+        <p>
+          How are we doing today? Demand on won and ongoing work against our headcount, the agencies that need attention,
+          who can be redeployed, and the capacity plan. All amounts in USD.
+        </p>
       </header>
 
 

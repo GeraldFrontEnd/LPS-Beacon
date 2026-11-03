@@ -12,6 +12,8 @@ function csvNumber(value: number | null | undefined, format: ValueFormat): strin
   switch (format) {
     case "usdM":
       return String(value / 1_000_000);
+    case "usdK":
+      return String(value / 1_000);
     case "pct0":
     case "pct1":
       return String(value * 100);

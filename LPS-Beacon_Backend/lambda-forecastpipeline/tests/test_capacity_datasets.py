@@ -69,6 +69,61 @@ def staff_xlsx() -> bytes:
     return buffer.getvalue()
 
 
+def workday_xlsx(month_end: dt.datetime, rows: list[tuple]) -> bytes:
+    """Like the Workday new hire / leaver report: two title rows, then the header."""
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Termination Date is greater than or equal to", month_end.replace(day=1)])
+    ws.append(["Effective as of Date", month_end])
+    ws.append(["Employee ID", "Worker", "Original Hire Date", "Termination Date"])
+    for row in rows:
+        ws.append(list(row))
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+class WorkdayTests(Base):
+    MAY = dt.datetime(2026, 5, 31)
+
+    def may(self) -> bytes:
+        return workday_xlsx(self.MAY, [
+            ("ID 1", "Person A", dt.datetime(2021, 3, 1), dt.datetime(2026, 5, 20)),     # leaver, band 3 on the UR report
+            ("ID 9", "New Person", dt.datetime(2026, 5, 4), None),                      # joiner, not on any file yet
+            ("ID 3", "person  c", dt.datetime(2026, 5, 11), None),                      # joiner, Person C (band 7)
+        ])
+
+    def test_detected_and_names_dropped(self):
+        dataset, sheets = clean.detect(clean.read_any(self.may(), ".xlsx"), "SG_Delivery_New_Hire_Leaver.xlsx")
+        self.assertEqual(dataset, "workday_hire_leaver")
+        table, warnings = clean.clean_workday(sheets["main"], sheets["title"])
+        self.assertEqual(list(table["Kind"]), ["leaver", "joiner", "joiner"])
+        self.assertEqual(set(table["Month"]), {"2026-05"})
+        self.assertNotIn("Worker", table.columns)
+        self.assertFalse(table.astype(str).apply(lambda c: c.str.contains("Person")).any().any())
+
+    def test_months_add_up_and_bands_come_from_the_ur_report(self):
+        import lambda_function
+        for name, data in (("BU_UR.xlsx", ur_xlsx()), ("MSPO SG Staff List.xlsx", staff_xlsx()),
+                           ("Hire_Leaver_May.xlsx", self.may()),
+                           ("Hire_Leaver_Apr.xlsx", workday_xlsx(dt.datetime(2026, 4, 30), [
+                               ("ID 2", "Person B", dt.datetime(2026, 4, 6), None)]))):
+            lambda_function.lambda_handler(s3_event(self.put(name, data)))
+        inputs = self.store.read_json(capacity.KEY)
+        flows = inputs["actualFlows"]
+        self.assertEqual(sorted(flows), ["2026-04", "2026-05"], "each upload adds its month")
+        self.assertEqual(flows["2026-04"]["joiners"], {"b3": 1})
+        self.assertEqual(flows["2026-05"]["leavers"], {"b3": 1}, "Person A is band 3 on the UR report")
+        self.assertEqual(sum(flows["2026-05"]["joiners"].values()), 2)
+        self.assertEqual(flows["2026-05"]["joiners"].get("b7", 0) >= 1, True, "Person C found despite the spacing")
+        self.assertEqual(flows["2026-05"]["unbanded"]["joiners"], 1, "New Person is spread over the bands")
+        # Uploading May again replaces May only.
+        import lambda_function as lf
+        lf.lambda_handler(s3_event(self.put("Hire_Leaver_May_v2.xlsx", workday_xlsx(self.MAY, []))))
+        flows = self.store.read_json(capacity.KEY)["actualFlows"]
+        self.assertEqual(sorted(flows), ["2026-04"])
+
+
 class UrReportTests(Base):
     def test_detected_below_the_subtotal_row(self):
         dataset, sheets = clean.detect(clean.read_any(ur_xlsx(), ".xlsx"), "BU_UR.xlsx")
@@ -152,7 +207,9 @@ class CapacityInputsTests(Base):
         self.assertAlmostEqual(inputs["billableUr"]["2026-04"]["b3"], round(39 / 42, 6))
         self.assertAlmostEqual(inputs["billableUr"]["2026-04"]["all"], round(49 / 84, 6))
         self.assertEqual(inputs["workingDays"], {"2026-04": 21.0, "2026-05": 19.0})
-        self.assertEqual(inputs["startingHeadcount"], {"month": "2026-04", "bands": {"b3": 2, "b7": 1}})
+        self.assertEqual(inputs["startingHeadcount"], {"month": "2026-04", "bands": {"b3": 2, "b7": 1},
+                                                       "source": "bu_ur"},
+                         "staff with a grade on the UR report's first month")
         hb = inputs["headcountBreakdown"]
         self.assertEqual((hb["permanent"], hb["secondment"]),
                          ({"regular": 2, "supplementalOther": 1, "supplementalRetiree": 0}, 1))
@@ -205,7 +262,8 @@ class InsightsTests(Base):
                          ["2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03"])
 
         data = insights.build(self.store, dt.date(2026, 10, 15))
-        pipe = data["pipeline"]
+        self.assertIsNone(data["pipeline"], "the SFDC pipeline is out of scope since the 28 Oct demo")
+        pipe = insights.sales_pipeline(self.store, dt.date(2026, 10, 15))      # kept for when it comes back
         self.assertEqual(pipe["kpis"]["openCount"], 3, "O4, O3 and O2; Closed Lost is not open")
         self.assertEqual([s["stage"][:2] for s in pipe["byStage"]], ["O2", "O3", "O4"])
         o4 = next(s for s in pipe["byStage"] if s["stage"].startswith("O4"))

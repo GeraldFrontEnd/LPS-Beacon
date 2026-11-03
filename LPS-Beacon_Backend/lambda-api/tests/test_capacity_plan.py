@@ -44,7 +44,10 @@ class FormulaTests(unittest.TestCase):
         self.assertEqual(v["billable-ur:b9"][apr], 0.5, "actual month: the UR report")
         self.assertEqual(v["billable-hc:b9"][apr], 1)
         self.assertEqual(v["working-days"][apr], 20)
-        self.assertEqual(v["revenue-per-fte:b9"][apr], 2 * 0.5 * 100 * 20)
+        self.assertNotIn("revenue-per-fte:b9", v, "revenue is not split by band")
+        self.assertEqual(v["revenue-per-hc"][apr], (8_000_000) / 2)
+        self.assertEqual(v["gp-per-hc"][apr], (8_000_000 - 4000) / 2)
+        self.assertAlmostEqual(v["revenue-per-hc-cost"][apr], 8_000_000 / 4000)
         self.assertEqual(v["resource-cost:b9"][apr], 2 * 100 * 20)
         self.assertEqual(v["revenue"][apr], 8_000_000, "the placeholder")
         self.assertEqual(v["gross-margin"][apr], 8_000_000 - 4000)
@@ -75,6 +78,23 @@ class FormulaTests(unittest.TestCase):
         self.assertEqual(v["revenue"]["FY'26"], 16_000_000)
         self.assertAlmostEqual(v["billable-ur"]["Q1'26"], (0.6 + 0.8) / 2, msg="total UR: average of the months")
         self.assertAlmostEqual(v["gross-margin-pct"]["FY'26"], (16_000_000 - 10300) / 16_000_000)
+
+
+class WorkdayAndRevenueTests(unittest.TestCase):
+    def test_workday_flows_and_abcd_revenue_are_the_defaults(self):
+        data = inputs()
+        data["actualFlows"] = {"2026-05": {"joiners": {"b9": 3}, "leavers": {"b9": 1}}}
+        data["revenue"] = {"2026-04": {"revenue": 6_500_000, "cost": 4_000_000, "actual": True}}
+        data["hiringNeeds"] = {"byMonth": {"2026-05": {"b9": {"heads": 7}}}}
+        v = cp.build(data, {})
+        self.assertEqual(v["joiners:b9"]["May'26"], 3, "Workday wins over the hiring gap in its months")
+        self.assertEqual(v["leavers:b9"]["May'26"], 1)
+        self.assertEqual(v["ending-hc:b9"]["May'26"], 4)
+        self.assertEqual(v["revenue"]["Apr'26"], 6_500_000, "ABCD revenue")
+        self.assertEqual(v["revenue"]["May'26"], 8_000_000, "no ABCD figure: the placeholder")
+        v = cp.build(data, {"leavers:b9|May'26": 0})
+        self.assertEqual(v["ending-hc:b9"]["May'26"], 5, "a typed value still wins")
+        self.assertAlmostEqual(v["revenue-per-hc"]["Q1'26"], (6_500_000 + 8_000_000) / ((2 + 5) / 2), places=1)
 
 
 class HiringGapTests(unittest.TestCase):

@@ -5,8 +5,10 @@
 //   1. Conflicts: the same record (IT Code, project ID, quote line) has different values in two files.
 //      The user picks which value is the source of truth; the other values are excluded (not deleted).
 //   2. Forecast:  the resources each pipeline opportunity needs. Accept, edit or reject per opportunity.
+//                 Switched off since the 28 Oct 2026 demo (see flags.ts): the flow is Conflicts > Matching > Publish.
 //   3. Matching:  each demand line gets a ranked list of available people. Accept, swap or reject per line.
-//   Then the hiring demand is worked out from unfilled lines (not shown here) and the review is done.
+//   Then the hiring demand is worked out from unfilled lines (not shown here) and the matching is published.
+//   The panel stays on the matching list afterwards, so it can be edited and published again.
 
 // ---- Data the system produces (today from sampleReviewData.ts, later from the backend) ----
 
@@ -128,6 +130,7 @@ export interface Person {
   availableFrom: string; // "YYYY-MM"
   status: string; // "Available now", "Rolling off 0-6m", "Rolling off 7-12m"
   currentProject: string;
+  currentCustomer?: string; // the customer (agency) of the current project, display only
 }
 
 // Everything one processing run produces.
@@ -166,11 +169,16 @@ export interface MatchLine {
   id: string;
   source: "current" | "pipeline";
   title: string; // the project or opportunity name
+  customer?: string; // the customer (agency), display only: never used to score a match
+  projectId?: string;
   reference: string; // quote line number, or CRM ID
   position: string;
   grade: number;
   start: string | null;
   candidates: string[]; // person ids, best first
+  // person id -> whether their band is within the tolerance. Position and availability decide the match; the band is
+  // only a secondary check, so a candidate outside it is still offered, last, and flagged. Missing on older reviews.
+  bandOk?: Record<string, boolean>;
 }
 
 // Something a person did, kept for the activity log.

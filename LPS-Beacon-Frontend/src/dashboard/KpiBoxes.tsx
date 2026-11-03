@@ -1,6 +1,7 @@
 // src/dashboard/KpiBoxes.tsx
 // The number boxes at the top of the Dashboard, all for the current month: headcount (from the HR headcount file),
-// split into permanent staff and secondment, and average billable UR and gross margin (from the capacity plan).
+// split into permanent staff and secondment, and average billable UR and gross margin (from the capacity plan),
+// plus Revenue per HC and GP per HC for the fiscal year to date (annualised; the same figures as the Analysis page).
 
 import { useEffect, useState } from "react";
 import { getHeadcountBreakdown } from "../api/client";
@@ -8,6 +9,7 @@ import type { CapacityPlan, HeadcountBreakdown } from "../api/types";
 import { useAuth } from "../auth/useAuth";
 import { formatChartValue } from "../charts/chartMath";
 import type { ChartFormat } from "../charts/chartMath";
+import { reportingYear, thisYearBaseline } from "../analysis/baseline";
 import { CURRENT_MONTH, MONTH_LABELS, monthSeries } from "./planSeries";
 
 const show = (v: number | null | undefined, f: ChartFormat) => (v === null || v === undefined ? "–" : formatChartValue(v, f));
@@ -47,6 +49,13 @@ export default function KpiBoxes({ plan }: { plan: CapacityPlan | null }) {
     { value: show(atNow("billable-ur"), "pct1"), label: "Billable UR" },
     { value: show(atNow("gross-margin-pct"), "pct1"), label: "Gross margin" },
   ];
+  const fy = plan ? reportingYear(plan) : null;
+  const ytd = plan && fy ? thisYearBaseline(plan, fy) : null;
+  const k = (v: number | null | undefined) => (v === null || v === undefined ? "–" : `$${(v / 1000).toFixed(1)}K`);
+  if (ytd) {
+    figures.push({ value: k(ytd.revenuePerHc), label: `Revenue per HC (${fy} YTD, a year)` });
+    figures.push({ value: k(ytd.gpPerHc), label: `GP per HC (${fy} YTD, a year)` });
+  }
 
   return (
     <section className="kpi-summary" aria-labelledby="kpi-summary-title">

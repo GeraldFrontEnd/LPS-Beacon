@@ -7,8 +7,18 @@ the same numbers.
 Per fiscal year (April to March, see fiscal.py):
   sgdPerUsd           Finance's rate: 1 USD = this many SGD. USD = SGD / sgdPerUsd.
   urTargets           Billable UR targets, used in the plan's forecast months ("all" is the total row).
-  bandDayRates        day rate per band, in bandDayRatesCurrency. Used for revenue per FTE and resource cost.
-  revenuePerMonthUsd  placeholder for the Revenue row, which Finance types in each month.
+  bandDayRates        the rate card (iRate): internal cost rate per band per day, in bandDayRatesCurrency. Used for
+                      the resource cost and the weighted average cost per FTE (never to split revenue by band:
+                      revenue is not sold by band).
+  revenuePerMonthUsd  fallback for the Revenue row when no ABCD report gives the month's revenue.
+  target              the "FTE required" panel's defaults: annual revenue target, GP % and billable UR targets
+                      (Ethan, 28 Oct 2026 demo: US$90M, 27% GP, 87% UR). Editable on the page.
+  priorYear           last fiscal year's organisation baseline, for "this FY vs last FY", when the system has no
+                      files for that year: average headcount and staff cost from the MBR headcount file.
+
+PRODUCTIVITY (one set, not per fiscal year): who counts, and the flag thresholds for agencies.
+  The thresholds are a DRAFT: the percentages are placeholders until Ethan sets them (open point 1 of the
+  28 Oct change record). Change them here and run {"mode": "capacity_inputs"}.
 
 A fiscal year without settings uses the latest earlier one, and the plan says so (see resolve()).
 Change the numbers here and redeploy; there is no settings screen yet.
@@ -27,6 +37,34 @@ FISCAL_YEARS: dict[str, dict] = {
         "bandDayRatesCurrency": "SGD",
         "bandDayRates": {"b9": 1145, "b8": 715, "b7": 562, "b6": 412, "b5": 347, "b4": 274, "b3": 219},
         "revenuePerMonthUsd": 8_000_000,
+        "target": {"revenueUsd": 90_000_000, "gpPct": 0.27, "billableUr": 0.87},
+        # FY25 (Apr 2025 - Mar 2026), from HeadCount_File-MBR File.xlsx "FY25/26 HC phasing": FY average headcount
+        # and gross staff cost (billable + non-billable, USD).
+        "priorYear": {"fiscalYear": "FY25", "averageHeadcount": 561, "staffCostUsd": 45_690_000,
+                      "source": "MBR headcount file (FY25/26 HC phasing)"},
+    },
+}
+
+PRODUCTIVITY = {
+    # Which ABCD rows are LPS Singapore delivery (the capacity plan's headcount delivers these).
+    "abcdScope": {"Delivery_Region": ["Singapore"]},
+    # Agency = the project's End Customer in the ABCD report (else its Customer, else the SL x RP Customer).
+    "agencyColumns": ["End_Customer", "Customer"],
+    # Headcount base for Revenue / GP per HC (open point 2): "delivery" = the capacity plan's headcount (staff on
+    # the UR report). The alternative, all staff on the staff list, is not built.
+    "headcountBase": "delivery",
+    # DRAFT thresholds (placeholders until Ethan confirms). Productivity: how far below the company average
+    # (Revenue per FTE or GP per FTE, the worse of the two) an agency may be. Staffing: how far its actual FTE may
+    # sit from the FTE its revenue needs at the target rates.
+    "flags": {
+        "draft": True,
+        # GP per FTE is shown for every agency but not in the rule yet: it is a small difference of two big numbers,
+        # so a % threshold on it turns most agencies red (24 of 37 on the sandbox data at 20 %). Add "gpPerFte"
+        # here if Ethan wants it to trigger flags too.
+        "metrics": ["revenuePerFte"],
+        "productivity": {"redBelowPct": 0.20, "amberBelowPct": 0.05},
+        "staffing": {"redOffPct": 0.30, "amberOffPct": 0.15},
+        "minFte": 1.0,          # agencies with less delivery FTE than this are listed but not flagged
     },
 }
 

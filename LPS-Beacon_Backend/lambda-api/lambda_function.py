@@ -1094,6 +1094,13 @@ def _plan_reply(inputs, doc, caller, **extra):
     return reply(200, dict(values=values, months=months, edited=edited, currency=inputs.get("currency", "USD"),
                            settings=inputs.get("settings"), sources=inputs.get("sources"),
                            hires=inputs.get("hiringNeeds"),
+                           # Productivity by agency and project (ABCD x SL x RP), flagged with the draft thresholds,
+                           # and which months' joiners/leavers came from Workday.
+                           productivity=inputs.get("productivity"),
+                           revenueByMonth=inputs.get("revenue"),
+                           demandByMonth=inputs.get("demand"),
+                           workdayMonths=sorted((inputs.get("actualFlows") or {}).keys()),
+                           startingHeadcountSource=(inputs.get("startingHeadcount") or {}).get("source"),
                            notes=inputs.get("notes") or [], generatedAt=inputs.get("generatedAt"), **extra))
 
 
@@ -1227,8 +1234,12 @@ def post_review(event, caller):
     # The step it waits for, or the forecast again while it waits for the matching, sent with "redo": true (the
     # user went back to change the forecast; the pipeline then redoes the matching). Same rule as accepts_decision
     # in the pipeline.
+    # Once the matching is published, the page stays on it and can publish again: a matching decision sent with
+    # "redo": true is taken while the run is "published" (and kept its matching review).
     redo_forecast = step == "forecast" and run.get("step") == "matching" and decisions.get("redo") is True
-    if run.get("state") != "awaiting_review" or (run.get("step") != step and not redo_forecast):
+    republish = (step == "matching" and run.get("state") == "published" and run.get("step") == "matching"
+                 and decisions.get("redo") is True and not decisions.get("rejectedAll"))
+    if not republish and (run.get("state") != "awaiting_review" or (run.get("step") != step and not redo_forecast)):
         raise HttpError(409, "This upload is not waiting for the %s review" % step)
     payload = json.dumps({"mode": "review", "batchId": batch, "step": step, "decisions": decisions,
                           "requestedBy": caller.user_id}).encode("utf-8")

@@ -1,7 +1,7 @@
 // src/dashboard/InsightsSection.tsx
 // The Dashboard's charts and tables from all the uploaded files, below the capacity plan charts:
-//   Sales pipeline   (SFDC)          open pipeline by stage, revenue outlook, largest open opportunities
-//   Resources        (latest review) people becoming available against pipeline demand, bench risk by role
+//   Redeployment     (latest review) who rolls off in the next months, by position, and the won or ongoing project
+//                                    the matching put them on; who has no work matched yet (bench risk)
 //   Utilisation      (UR report)     where non-billable time goes, Billable UR by team and tier
 //   Workforce        (staff list)    leavers already recorded
 // The numbers are prepared by the pipeline (GET /dashboard/insights); this file only lays them out.
@@ -16,7 +16,7 @@ import LineChart from "../charts/LineChart";
 import { formatChartValue } from "../charts/chartMath";
 import DashboardSection from "./DashboardSection";
 import type { ChartFormat } from "../charts/chartMath";
-import type { DashboardInsights, SalesPipeline, ResourceOutlook, Utilisation, Workforce } from "./insightTypes";
+import type { DashboardInsights, ResourceOutlook, Utilisation, Workforce } from "./insightTypes";
 
 const BLUE = "var(--chart-1)";
 const ORANGE = "var(--chart-2)";
@@ -63,113 +63,18 @@ export default function InsightsSection() {
   if (data === null)
     return (
       <p className="note dashboard-banner">
-        Charts from the uploaded files (sales pipeline, roll-offs, utilisation) appear once a UR report, staff list or
-        SFDC pipeline has been uploaded.
+        Charts from the uploaded files (redeployment, utilisation, leavers) appear once a UR report or staff list has been
+        uploaded and a matching has been published.
       </p>
     );
 
   return (
     <>
-      {data.pipeline && <PipelineSection pipeline={data.pipeline} />}
       {data.resources && <ResourceSection resources={data.resources} />}
       {data.utilisation && <UtilisationSection utilisation={data.utilisation} />}
       {data.workforce && <WorkforceSection workforce={data.workforce} />}
       {data.notes.length > 0 && <p className="note dashboard-banner">Not shown yet: {data.notes.join("; ")}.</p>}
     </>
-  );
-}
-
-function PipelineSection({ pipeline }: { pipeline: SalesPipeline }) {
-  const k = pipeline.kpis;
-  const stages = pipeline.byStage;
-  const revenue = pipeline.revenueByMonth;
-  return (
-    <DashboardSection id="sales-pipeline" title="Sales pipeline (SFDC)">
-      <div className="stats">
-        <Stat value={show(k.openCount, "int")} label="Open opportunities" />
-        <Stat value={show(k.openTcv, "usdCompact")} label="Open pipeline TCV" />
-        <Stat value={show(k.openWeightedTcv, "usdCompact")} label="Weighted by probability" />
-        <Stat value={show(k.winRate, "pct0")} label={`Win rate, last 12 months (${k.closedLast12m} closed)`} />
-        <Stat value={show(k.wonTcvLast12m, "usdCompact")} label="Won TCV, last 12 months" />
-      </div>
-      <div className="chart-grid">
-        <ChartCard
-          title="Open pipeline by stage"
-          subtitle="Total contract value per stage; the dark part is what the stage's win probability makes likely."
-          legend={[
-            { name: "Weighted (TCV × probability)", color: BLUE },
-            { name: "Rest of TCV", color: GREY },
-          ]}
-        >
-          <BarChart
-            categories={stages.map((s) => `${s.stage.slice(0, 2)} (${s.count})`)}
-            notes={stages.map((s) => s.stage)}
-            format="usdCompact"
-            ariaLabel="Stacked bar chart of open pipeline value by stage, weighted part and rest"
-            series={[
-              { name: "Weighted", values: stages.map((s) => s.weightedTcv), color: BLUE },
-              { name: "Rest of TCV", values: stages.map((s) => Math.max(0, s.tcv - s.weightedTcv)), color: GREY },
-            ]}
-          />
-        </ChartCard>
-
-        <ChartCard
-          title="Revenue outlook"
-          subtitle="Forecast revenue per month in SFDC: signed (Closed Won) plus open opportunities weighted by probability. Compare with the capacity plan's revenue."
-          legend={[
-            { name: "Signed (Closed Won)", color: BLUE },
-            { name: "Open, weighted", color: TEAL },
-          ]}
-        >
-          <BarChart
-            categories={revenue.map((r) => monthLabel(r.month))}
-            notes={revenue.map((r) => `Open pipeline unweighted: ${formatChartValue(r.open, "usdCompact")}`)}
-            format="usdCompact"
-            ariaLabel="Stacked bar chart of signed and probability-weighted open revenue by month"
-            series={[
-              { name: "Signed", values: revenue.map((r) => r.booked), color: BLUE },
-              { name: "Open, weighted", values: revenue.map((r) => r.openWeighted), color: TEAL },
-            ]}
-          />
-        </ChartCard>
-
-        <ChartCard wide title="Largest open opportunities" subtitle="By probability-weighted contract value.">
-          <div className="insight-table-wrap">
-            <table className="review-table insight-table">
-              <thead>
-                <tr>
-                  <th scope="col">Opportunity</th>
-                  <th scope="col">Customer</th>
-                  <th scope="col">Stage</th>
-                  <th scope="col" className="num">Probability</th>
-                  <th scope="col" className="num">TCV</th>
-                  <th scope="col" className="num">Weighted</th>
-                  <th scope="col">Expected close</th>
-                  <th scope="col">Offering</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pipeline.topOpen.map((o) => (
-                  <tr key={o.crmId}>
-                    <td>
-                      {o.name}
-                      <span className="insight-sub">{o.crmId}</span>
-                    </td>
-                    <td>{o.customer ?? "–"}</td>
-                    <td>{o.stage}</td>
-                    <td className="num">{show(o.probability, "pct0")}</td>
-                    <td className="num">{show(o.tcv, "usdCompact")}</td>
-                    <td className="num">{show(o.weightedTcv, "usdCompact")}</td>
-                    <td>{monthLabel(o.expectedClose)}</td>
-                    <td>{o.offering ?? "–"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </ChartCard>
-      </div>
-    </DashboardSection>
   );
 }
 
@@ -179,7 +84,7 @@ function ResourceSection({ resources }: { resources: ResourceOutlook }) {
   return (
     <DashboardSection
       id="resources"
-      title="Resource supply and demand"
+      title="Redeployment: who rolls off, and where they can go"
       aside={
         resources.run.asOf && (
           <span className="kpi-asof"> · from the review planned as of {monthLabel(resources.run.asOf.slice(0, 7))}</span>
@@ -189,33 +94,31 @@ function ResourceSection({ resources }: { resources: ResourceOutlook }) {
       <div className="chart-grid">
         {rolls.length > 0 && (
           <ChartCard
-            title="People becoming available vs pipeline demand"
-            subtitle="Per month: people whose project ends (and who would also be free if fiscal-year-end plans are not renewed), against new demand from accepted pipeline opportunities and how much of it was matched."
+            title="People rolling off vs redeployed"
+            subtitle="Per month: people whose project ends (and who would also be free if fiscal-year-end plans are not renewed), and how many the published matching put on won or ongoing work."
             legend={[
               { name: "Project ends", color: BLUE },
               { name: "If not renewed at FY end", color: GREY },
-              { name: "Pipeline demand", color: ORANGE },
-              { name: "Matched", color: TEAL },
+              { name: "Redeployed (matched)", color: TEAL },
             ]}
           >
             <LineChart
               categories={rolls.map((r) => monthLabel(r.month))}
               format="int"
               zeroBaseline
-              ariaLabel="Line chart of people becoming available and pipeline demand by month"
+              ariaLabel="Line chart of people rolling off and people redeployed by month"
               series={[
                 { name: "Project ends", values: rolls.map((r) => r.available), color: BLUE },
                 { name: "If not renewed at FY end", values: rolls.map((r) => r.availableIfNotRenewed), color: GREY, dashed: true },
-                { name: "Pipeline demand", values: rolls.map((r) => r.pipelineDemand), color: ORANGE },
-                { name: "Matched", values: rolls.map((r) => r.matched), color: TEAL },
+                { name: "Redeployed (matched)", values: rolls.map((r) => r.matched), color: TEAL },
               ]}
             />
           </ChartCard>
         )}
         {bench.length > 0 && (
           <ChartCard
-            title="Bench risk by role"
-            subtitle={`People free now or within 6 months that no demand is matched to: ${resources.benchRiskTotal ?? 0} in total. The ${bench.length} largest roles.`}
+            title="No work matched yet, by position"
+            subtitle={`People on the bench now or rolling off within 6 months with no won or ongoing work matched: ${resources.benchRiskTotal ?? 0} in total. The ${bench.length} largest positions.`}
           >
             <div className="insight-table-wrap">
               <table className="review-table insight-table">
@@ -236,6 +139,45 @@ function ResourceSection({ resources }: { resources: ResourceOutlook }) {
                       <td className="num">
                         <strong>{r.total}</strong>
                       </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </ChartCard>
+        )}
+        {(resources.redeployments ?? []).length > 0 && (
+          <ChartCard
+            wide
+            title="Redeployments in the next 6 months"
+            subtitle="People on the bench or rolling off, and the won or ongoing project the published matching put them on. Edit the matching on the Upload page."
+          >
+            <div className="insight-table-wrap">
+              <table className="review-table insight-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Free from</th>
+                    <th scope="col">Person</th>
+                    <th scope="col">Position</th>
+                    <th scope="col">Now on</th>
+                    <th scope="col">Goes to</th>
+                    <th scope="col">Agency</th>
+                    <th scope="col">Starts</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(resources.redeployments ?? []).map((r, i) => (
+                    <tr key={`${r.resource}-${r.toProjectId}-${i}`}>
+                      <td>{monthLabel(r.availableFrom)}</td>
+                      <td>{r.resource ?? "–"}</td>
+                      <td>
+                        {r.position ?? "–"}
+                        {r.band ? <span className="note"> · Band {r.band}</span> : null}
+                      </td>
+                      <td>{r.fromProject ?? "–"}</td>
+                      <td>{r.toProject ?? r.toProjectId ?? "–"}</td>
+                      <td>{r.toCustomer ?? "–"}</td>
+                      <td>{monthLabel(r.start)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -365,14 +307,5 @@ function WorkforceSection({ workforce }: { workforce: Workforce }) {
         </ChartCard>
       </div>
     </DashboardSection>
-  );
-}
-
-function Stat({ value, label }: { value: string; label: string }) {
-  return (
-    <div className="stat">
-      <div className="stat-value">{value}</div>
-      <div className="stat-label">{label}</div>
-    </div>
   );
 }

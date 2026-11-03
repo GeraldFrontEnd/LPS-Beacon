@@ -1418,7 +1418,8 @@ body {
 
 .kpi-row {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  row-gap: 12px;
   margin: 0;
 }
 
@@ -3121,6 +3122,26 @@ select.cell-input {
   font-weight: 500;
 }
 
+/* The customer (agency) under the project name on the matching list. Display only. */
+.match-customer {
+  font-size: 0.85rem;
+  color: var(--brand-ink);
+}
+
+/* A matched person whose band is outside the tolerance: band is a secondary check, so flag it, don't block it. */
+.band-flag {
+  color: var(--error);
+}
+
+/* "Published ..." above the matching list once it was published. */
+.review-published {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
 .match-table tr.decision-accepted td:first-child {
   box-shadow: inset 4px 0 0 var(--success);
 }
@@ -3227,4 +3248,239 @@ select.cell-input {
 
 .review-banner {
   margin: 12px 20px 0;
+}
+
+/* ---- Analysis page: productivity (organisation baseline, FTE required, agencies needing attention) ---- */
+/* The page now scrolls as a whole; the capacity plan keeps its own scroll box for the sticky header. */
+.analysis-page {
+  overflow-y: auto;
+}
+
+.analysis-page .plan-scroll {
+  flex: none;
+  max-height: 75vh;
+}
+
+.productivity {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 20px;
+}
+
+.prod-title {
+  margin: 16px 20px 0;
+  font-size: 1.05rem;
+}
+
+.productivity .prod-title {
+  margin: 12px 0 0;
+}
+
+.prod-card {
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.prod-card h3 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+
+.prod-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.prod-tile {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--plan-section-bg);
+}
+
+.prod-tile-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.prod-tile-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.prod-tile-was {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.prod-tile-was .down {
+  color: var(--error);
+}
+
+.prod-tile-was .up {
+  color: var(--success);
+}
+
+.prod-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 6px 0 10px;
+}
+
+.prod-inputs label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.prod-inputs input {
+  width: 120px;
+  padding: 5px 8px;
+  border: 1px solid var(--plan-input-line);
+  border-radius: 4px;
+  background: var(--plan-input-bg);
+  color: var(--ink);
+  font: inherit;
+}
+
+.prod-calc {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 6px 16px;
+  margin: 0 0 10px;
+}
+
+.prod-calc div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.prod-calc dt {
+  color: var(--muted);
+}
+
+.prod-calc dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.prod-result {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin-bottom: 6px;
+}
+
+.prod-big {
+  font-size: 1.6rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.prod-gap.short .prod-big {
+  color: var(--error);
+}
+
+.prod-agency-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.prod-draft {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--brand-ink);
+  background: var(--brand-soft);
+  font-size: 0.8rem;
+}
+
+.prod-scroll {
+  overflow-x: auto;
+}
+
+.prod-table th[scope="row"] {
+  min-width: 240px;
+  font-weight: 500;
+  color: var(--ink);
+  background: transparent;
+}
+
+/* Agency names: the arrow, the name and the project count on one wrapping line. */
+.prod-table .plan-toggle {
+  display: inline;
+  text-align: left;
+  white-space: normal;
+}
+
+.prod-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.prod-table .prod-project th[scope="row"] {
+  padding-left: 32px;
+  font-weight: 400;
+}
+
+.prod-table .prod-project td,
+.prod-table .prod-project th {
+  background: var(--plan-section-bg);
+}
+
+.prod-why {
+  min-width: 220px;
+  color: var(--muted);
+}
+
+.flag-pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.flag-pill.red {
+  color: #ffffff;
+  background: #b42318;
+}
+
+.flag-pill.amber {
+  color: #1c2733;
+  background: #f5b83d;
+}
+
+.flag-pill.green {
+  color: #ffffff;
+  background: #1f6b3a;
+}
+
+.flag-pill.none {
+  color: var(--muted);
+  background: var(--hover);
+}
+
+/* ---- Dashboard: "How are we doing today?" ---- */
+.dashboard-subtitle {
+  margin: 16px 0 6px;
+  font-size: 0.95rem;
+}
+
+.stat-value.stat-bad {
+  color: var(--error);
 }

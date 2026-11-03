@@ -22,6 +22,10 @@ export function formatPlanValue(value: number | null | undefined, format: ValueF
       return dec1Fmt.format(value);
     case "usdM":
       return millionsFmt.format(value / 1_000_000);
+    case "usdK":
+      return dec1Fmt.format(value / 1_000);
+    case "ratio":
+      return millionsFmt.format(value);
     case "pct0":
       return `${intFmt.format(value * 100)}%`;
     case "pct1":
@@ -35,6 +39,8 @@ export function toInputText(value: number | null | undefined, format: ValueForma
   switch (format) {
     case "usdM":
       return String(Number((value / 1_000_000).toFixed(6)));
+    case "usdK":
+      return String(Number((value / 1_000).toFixed(4)));
     case "pct0":
     case "pct1":
       return String(Number((value * 100).toFixed(4)));
@@ -58,6 +64,10 @@ export function parseInputText(text: string, format: ValueFormat, max?: number):
       return n;
     case "usdM":
       return Math.round(n * 1_000_000);
+    case "usdK":
+      return Math.round(n * 1_000);
+    case "ratio":
+      return n;
     case "pct0":
     case "pct1":
       return n > 100 ? null : n / 100;

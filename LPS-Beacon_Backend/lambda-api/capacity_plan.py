@@ -11,20 +11,24 @@ The layout mirrors the web app's src/analysis/capacityPlanLayout.ts and Capacity
   column keys  months "Apr'26", quarters "Q1'26" (Apr-Jun), fiscal years "FY'26"
 
 Formulas per band and month (all money in USD):
-  Current HC        first month: the staff list (editable); later months: the previous month's Ending HC
-  Joiners           the latest review's hiring gap for that month and band (inputs "hiringNeeds"), else 0;
-                    editable. Leavers: 0 until typed in.
+  Current HC        first month: the UR report's first month (or the staff list), editable; later months: the
+                    previous month's Ending HC
+  Joiners, Leavers  months with a Workday new hire / leaver report: its counts (inputs "actualFlows"); other
+                    months: joiners from the latest review's hiring gap (inputs "hiringNeeds"), leavers 0. Editable.
   Ending HC         Current HC + Joiners - Leavers
   Billable UR       actual months: the UR report; forecast months: the fiscal year's target (editable)
   Billable HC       Ending HC x Billable UR;  Non-Billable HC = Ending HC - Billable HC
-  Revenue per FTE   Ending HC x day rate x Billable UR x working days
-  Resource Cost     Ending HC x day rate x working days
+  Resource Cost     Ending HC x rate card (iRate, internal cost per day) x working days
   Joiners %         Joiners / Ending HC;  Leavers % = Leavers / Current HC   (as in the template)
-Totals: headcount, cost and revenue per FTE add up the bands. The total Billable UR is the UR report's figure
-  for all staff in actual months and the fiscal year's overall target in forecast months (the template's row 54),
-  not an average of the bands.
-  Revenue           typed in by Finance; placeholder from the settings ($8M a month)
+Revenue is never split by band (it is not sold by band), so there is no revenue per band. Totals:
+  headcount and cost add up the bands. The total Billable UR is the UR report's figure for all staff in actual
+  months and the fiscal year's overall target in forecast months (the template's row 54), not an average of bands.
+  Revenue           the ABCD report's revenue for Singapore delivery (inputs "revenue": actuals, then its
+                    forecast); the settings' placeholder where it has none. Editable by Finance.
   Gross Margin      Revenue - Resource Cost;  Gross Margin % = Gross Margin / Revenue
+  Revenue per HC    Revenue / Ending HC (per month; quarters and years: the period's revenue / average HC)
+  GP per HC         Gross Margin / Ending HC (the same way)
+  Revenue per $ of HC cost   Revenue / Resource Cost
 Quarter and year columns:
   Current HC        the opening headcount: the first month's Current HC
   Ending HC         the closing headcount: the last month's Ending HC
@@ -42,16 +46,16 @@ import datetime as dt
 BANDS = ("b9", "b8", "b7", "b6", "b5", "b4", "b3")
 MONTH_NAMES = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
-SECTIONS = ("current-hc", "joiners", "leavers", "ending-hc", "revenue-per-fte", "revenue", "resource-cost",
-            "gross-margin", "gross-margin-pct", "billable-ur", "billable-hc", "non-billable-hc", "working-days",
-            "joiners-pct", "leavers-pct")
-BAND_SECTIONS = {"current-hc", "joiners", "leavers", "ending-hc", "revenue-per-fte", "resource-cost",
+SECTIONS = ("current-hc", "joiners", "leavers", "ending-hc", "revenue", "resource-cost",
+            "gross-margin", "gross-margin-pct", "revenue-per-hc", "gp-per-hc", "revenue-per-hc-cost",
+            "billable-ur", "billable-hc", "non-billable-hc", "working-days", "joiners-pct", "leavers-pct")
+BAND_SECTIONS = {"current-hc", "joiners", "leavers", "ending-hc", "resource-cost",
                  "billable-ur", "billable-hc", "non-billable-hc", "joiners-pct", "leavers-pct"}
 AVERAGED = {"billable-hc", "non-billable-hc"}
 OPENING = {"current-hc"}   # quarter / year column = the first month's value
 CLOSING = {"ending-hc"}    # quarter / year column = the last month's value
-SUMMED = {"joiners", "leavers", "revenue-per-fte", "revenue", "resource-cost", "gross-margin", "working-days"}
-MONEY = {"revenue-per-fte", "revenue", "resource-cost", "gross-margin"}
+SUMMED = {"joiners", "leavers", "revenue", "resource-cost", "gross-margin", "working-days"}
+MONEY = {"revenue", "resource-cost", "gross-margin", "revenue-per-hc", "gp-per-hc"}
 
 # What a person may type (the same rule as isEditableCell in the web app), and the allowed range.
 EDITABLE_BAND_SECTIONS = {"joiners": (0, 10_000), "leavers": (0, 10_000), "billable-ur": (0, 1.5)}
@@ -130,6 +134,8 @@ def build(inputs: dict, edits: dict[str, float]) -> dict[str, dict[str, float | 
     ur_actual = inputs.get("billableUr") or {}
     days_actual = inputs.get("workingDays") or {}
     hires = (inputs.get("hiringNeeds") or {}).get("byMonth") or {}
+    flows = inputs.get("actualFlows") or {}
+    revenue_by_month = inputs.get("revenue") or {}
 
     for index, m in enumerate(months):
         month, fy = m["month"], m["fiscalYear"]
@@ -146,36 +152,45 @@ def build(inputs: dict, edits: dict[str, float]) -> dict[str, dict[str, float | 
             cur = previous_end[b]
             if index == 0 and edited(f"current-hc:{b}", col) is not None:
                 cur = edited(f"current-hc:{b}", col)
+            flow = flows.get(month)
             join = edited(f"joiners:{b}", col)
             if join is None:
-                join = float(((hires.get(month) or {}).get(b) or {}).get("heads", 0))
-            leave = edited(f"leavers:{b}", col) or 0.0
+                join = (float((flow.get("joiners") or {}).get(b, 0)) if flow else
+                        float(((hires.get(month) or {}).get(b) or {}).get("heads", 0)))
+            leave = edited(f"leavers:{b}", col)
+            if leave is None:
+                leave = float((flow.get("leavers") or {}).get(b, 0)) if flow else 0.0
             end = cur + join - leave
             ur = edited(f"billable-ur:{b}", col)
             if ur is None:
                 actual_ur = (ur_actual.get(month) or {}).get(b) if m.get("actual") else None
                 ur = actual_ur if actual_ur is not None else targets.get(b, targets.get("all", 0.0))
             billable = end * ur
-            revenue_fte = billable * rates[b] * days
             cost = end * rates[b] * days
             for section, v in (("current-hc", cur), ("joiners", join), ("leavers", leave), ("ending-hc", end),
                                ("billable-ur", ur), ("billable-hc", billable), ("non-billable-hc", end - billable),
-                               ("revenue-per-fte", revenue_fte), ("resource-cost", cost),
+                               ("resource-cost", cost),
                                ("joiners-pct", join / end if end else 0.0),
                                ("leavers-pct", leave / cur if cur else 0.0)):
                 put(f"{section}:{b}", col, v)
             previous_end[b] = end
-            for k, v in (("cur", cur), ("join", join), ("leave", leave), ("end", end), ("rev", revenue_fte),
+            for k, v in (("cur", cur), ("join", join), ("leave", leave), ("end", end),
                          ("cost", cost), ("bill", billable)):
                 total[k] += v
 
         all_ur = (ur_actual.get(month) or {}).get("all") if m.get("actual") else None
         all_ur = targets.get("all", 0.0) if all_ur is None else all_ur
         revenue = edited("revenue", col)
-        revenue = float(settings["revenuePerMonthUsd"]) if revenue is None else revenue
+        if revenue is None:
+            known = (revenue_by_month.get(month) or {}).get("revenue")
+            revenue = float(known) if known is not None else float(settings["revenuePerMonthUsd"])
         margin = revenue - total["cost"]
+        end_hc = total["end"]
         for section, v in (("current-hc", total["cur"]), ("joiners", total["join"]), ("leavers", total["leave"]),
-                           ("ending-hc", total["end"]), ("revenue-per-fte", total["rev"]),
+                           ("ending-hc", total["end"]),
+                           ("revenue-per-hc", revenue / end_hc if end_hc else 0.0),
+                           ("gp-per-hc", margin / end_hc if end_hc else 0.0),
+                           ("revenue-per-hc-cost", revenue / total["cost"] if total["cost"] else 0.0),
                            ("resource-cost", total["cost"]), ("billable-hc", total["bill"]),
                            ("non-billable-hc", total["end"] - total["bill"]),
                            ("billable-ur", all_ur),
@@ -212,6 +227,12 @@ def build(inputs: dict, edits: dict[str, float]) -> dict[str, dict[str, float | 
                     v = total_of(row)
                 elif section == "gross-margin-pct":
                     v = total_of("gross-margin") / total_of("revenue") if total_of("revenue") else 0.0
+                elif section in ("revenue-per-hc", "gp-per-hc"):
+                    hc = avg("ending-hc")
+                    money = "revenue" if section == "revenue-per-hc" else "gross-margin"
+                    v = total_of(money) / hc if hc else 0.0
+                elif section == "revenue-per-hc-cost":
+                    v = total_of("revenue") / total_of("resource-cost") if total_of("resource-cost") else 0.0
                 elif section == "billable-ur" and not suffix:
                     v = avg(row)  # the total row: the average of the months' overall UR
                 elif section == "billable-ur":
