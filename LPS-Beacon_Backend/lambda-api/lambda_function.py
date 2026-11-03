@@ -1152,12 +1152,45 @@ def clear_my_edits(event, caller):
     return _plan_reply(_capacity_inputs(), doc, caller, cleared=len(mine))
 
 
+def dashboard_view(inputs, agency=None, project_id=None):
+    """GET /dashboard: today's headcount by employment type (staff list), the agency and project lists for the
+    Dashboard's filter, and, with ?agency= or ?projectId=, that selection's figures per month (people, FTE demand,
+    permanent / secondment, UR days). The pipeline precomputes them (pipeline/capacity.py, "breakdown")."""
+    out = dict(inputs.get("headcountBreakdown") or {})
+    split = inputs.get("breakdown") or {}
+    agencies, projects = split.get("agencies") or {}, split.get("projects") or {}
+    out["filters"] = {
+        "agencies": sorted(agencies),
+        "projects": sorted(({"id": pid, "name": p.get("name") or pid, "agency": p.get("agency")}
+                            for pid, p in projects.items()), key=lambda p: (p["agency"] or "", p["name"])),
+    }
+    selection = None
+    if project_id:
+        found = projects.get(project_id)
+        if found is None:
+            raise HttpError(404, "No project with that ID in the uploaded files")
+        selection = {"kind": "project", "projectId": project_id, "name": found.get("name"),
+                     "agency": found.get("agency"), "byMonth": found.get("byMonth") or {}}
+    elif agency:
+        found = agencies.get(agency)
+        if found is None:
+            raise HttpError(404, "No agency with that name in the uploaded files")
+        selection = {"kind": "agency", "agency": agency, "projects": found.get("projects") or [],
+                     "byMonth": found.get("byMonth") or {}}
+    out["selection"] = selection
+    return out
+
+
 def get_dashboard(event, caller):
-    """Today's headcount by employment type (staff list). 204 when no staff list was uploaded yet."""
+    """See dashboard_view. 204 when nothing was uploaded yet."""
     caller.require_finance_hr()
-    inputs = _capacity_inputs() or {}
-    breakdown = inputs.get("headcountBreakdown")
-    return reply(200, breakdown) if breakdown else reply(204)
+    inputs = _capacity_inputs()
+    if not inputs:
+        return reply(204)
+    query = event.get("queryStringParameters") or {}
+    agency = str(query.get("agency") or "").strip()[:200] or None
+    project_id = str(query.get("projectId") or "").strip()[:60] or None
+    return reply(200, dashboard_view(inputs, agency, project_id))
 
 
 DASHBOARD_INSIGHTS_KEY = "results/dashboard/insights.json"

@@ -42,6 +42,7 @@ import datetime as dt
 import pandas as pd
 
 from . import fiscal, plan_settings
+from .clean import UR_WORKING_DAYS as UR_DAYS
 from .s3io import Store
 
 KEY = "results/capacity/inputs.json"
@@ -292,8 +293,6 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
 
     n = len(months)
     target = fy_settings["target"]
-    year_days = sum(_weekdays(m) for m in _fy_months(fy))
-
     def metrics(revenue: float, rows: pd.DataFrame) -> dict:
         fte = float(rows["fte"].sum()) / n if len(rows) else 0.0
         hc_cost = cost_of(rows)
@@ -302,12 +301,12 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
         rate_per_day = (hc_cost / (fte * sum(days.values()))) if fte else None   # weighted iRate of this mix
         required = None
         if rate_per_day:
-            price = rate_per_day / (1 - target["gpPct"])
-            required = revenue * annual / (price * year_days * target["billableUr"])
+            required = fte_required(revenue * annual, rate_per_day, target)
         return {"revenue": round(revenue, 2), "hcCost": round(hc_cost, 2), "gp": round(gp, 2), "fte": round(fte, 2),
                 "revenuePerFte": round(revenue * annual / fte, 2) if fte else None,
                 "gpPerFte": round(gp * annual / fte, 2) if fte else None,
                 "revenuePerHcCost": round(revenue / hc_cost, 3) if hc_cost else None,
+                "ratePerDay": round(rate_per_day, 2) if rate_per_day else None,
                 "requiredFte": round(required, 2) if required else None}
 
     rev_by_project = rev.groupby(rev["Project_ID"].astype(str))["Revenue"].sum().to_dict()
@@ -400,6 +399,117 @@ def _demand(store: Store, months: list[str], rp_full_month_mds: float = 18.0) ->
                  "(Pre Sales, Internal and open quotes O1-O5 left out)"]
 
 
+SECONDMENT_EMPLOYEE_TYPES = {"secondment", "secondment pm"}
+
+
+def _people_types(store: Store) -> dict[str, str]:
+    """IT Code -> "permanent" | "secondment" | "other". Staff list Employee Type first (Regular Employee = permanent,
+    Secondment / Secondment PM = secondment, the Supplemental types = other: open question #12); for people not on
+    the staff list, the UR report's Tier ("Tier S_..." = secondment, else permanent)."""
+    out: dict[str, str] = {}
+    if store.exists("clean/bu_ur/latest.json.gz"):
+        ur = store.read_table("clean/bu_ur/latest.json.gz")
+        if "Tier" in ur.columns:
+            for code, tier in ur.dropna(subset=["IT Code"])[["IT Code", "Tier"]].itertuples(index=False):
+                out[str(code)] = "secondment" if str(tier).startswith("Tier S") else "permanent"
+    if store.exists("clean/staff_list/latest.json.gz"):
+        staff = store.read_table("clean/staff_list/latest.json.gz")
+        for code, kind in staff.dropna(subset=["IT Code"])[["IT Code", "Employee Type"]].itertuples(index=False):
+            k = str(kind or "").strip().lower()
+            out[str(code)] = ("permanent" if k == "regular employee" else
+                              "secondment" if k in SECONDMENT_EMPLOYEE_TYPES else "other")
+    return out
+
+
+def _breakdown(store: Store, months: list[str], rp_full_month_mds: float = 18.0) -> tuple[dict | None, list[str]]:
+    """Per agency and per project, per month, for the Dashboard's agency / project / quarter filter:
+         fte          demand on won and ongoing work: SL x RP "Project" + "Quote Won" man-days / 18
+         people       people planned on the project that month (SL x RP "Project" rows with man-days)
+         permanent, secondment, other, unknown   those people by employment type (_people_types)
+         billable, workingDays   their UR report days that month, so the page can work out the UR of a selection
+    A person on two projects counts in both (their FTE is split; their headcount is not)."""
+    if not store.exists("clean/sl_rp/latest.json.gz"):
+        return None, []
+    sl = store.read_table("clean/sl_rp/latest.json.gz")
+    kind = sl["Demand Type"].astype("string").str.lower()
+    sl = sl[kind.isin(DEMAND_TYPES)].copy()
+    sl["kind"] = kind[kind.isin(DEMAND_TYPES)]
+    sl["month"] = pd.to_datetime(sl["Calendar Date"]).dt.strftime("%Y-%m")
+    sl = sl[sl["month"].isin(months)]
+    sl["fte"] = pd.to_numeric(sl["MD"], errors="coerce").fillna(0) / rp_full_month_mds
+    sl["project"] = sl["ID"].astype("string")
+    sl = sl.dropna(subset=["project"])
+
+    agency: dict[str, str] = {}
+    names: dict[str, str] = {}
+    if store.exists("clean/abcd/latest.json.gz"):
+        abcd = store.read_table("clean/abcd/latest.json.gz")
+        agency = _agency_of(abcd)
+        names = abcd.drop_duplicates("Project_ID").set_index("Project_ID")["Project_Name"].dropna().astype(str).to_dict()
+    for r in sl.drop_duplicates("project").itertuples(index=False):
+        if r.project not in agency and isinstance(r.Customer, str) and r.Customer.strip():
+            agency[r.project] = r.Customer.strip()
+        if r.project not in names and isinstance(r.Name, str):
+            names[r.project] = r.Name
+    sl["agency"] = sl["project"].map(lambda p: agency.get(p, "(no customer)"))
+
+    types = _people_types(store)
+    ur_days: dict[tuple[str, str], tuple[float, float]] = {}
+    if store.exists("clean/bu_ur/latest.json.gz"):
+        ur = store.read_table("clean/bu_ur/latest.json.gz").dropna(subset=["IT Code"])
+        sums = ur.groupby(["IT Code", "Month"])[["Billable", UR_DAYS]].sum()
+        ur_days = {(str(c), str(m)): (float(v.iloc[0]), float(v.iloc[1])) for (c, m), v in sums.iterrows()}
+
+    staffed = sl[(sl["kind"] == "project") & (sl["fte"] > 0) & sl["IT Code"].notna()]
+
+    def cells(frame: pd.DataFrame, people: pd.DataFrame) -> dict[str, dict]:
+        out: dict[str, dict] = {}
+        fte = frame.groupby("month")["fte"].sum()
+        for month, value in fte.items():
+            out[str(month)] = {"fte": round(float(value), 2), "people": 0, "permanent": 0, "secondment": 0, "other": 0,
+                               "unknown": 0, "billable": 0.0, "workingDays": 0.0}
+        for month, part in people.groupby("month"):
+            cell = out.setdefault(str(month), {"fte": 0.0, "people": 0, "permanent": 0, "secondment": 0, "other": 0,
+                                               "unknown": 0, "billable": 0.0, "workingDays": 0.0})
+            codes = sorted(set(part["IT Code"].astype(str)))
+            cell["people"] = len(codes)
+            for code in codes:
+                cell[types.get(code, "unknown")] += 1
+                b, d = ur_days.get((code, str(month)), (0.0, 0.0))
+                cell["billable"] += b
+                cell["workingDays"] += d
+            cell["billable"], cell["workingDays"] = round(cell["billable"], 2), round(cell["workingDays"], 2)
+        return dict(sorted(out.items()))
+
+    agencies: dict[str, dict] = {}
+    for name, part in sl.groupby("agency"):
+        projects = sorted(set(part["project"].astype(str)))
+        agencies[str(name)] = {"projects": projects, "byMonth": cells(part, staffed[staffed["agency"] == name])}
+    projects: dict[str, dict] = {}
+    for pid, part in sl.groupby("project"):
+        projects[str(pid)] = {"name": names.get(str(pid)) or str(pid), "agency": agency.get(str(pid), "(no customer)"),
+                              "byMonth": cells(part, staffed[staffed["project"] == pid])}
+    unknown = sum(c["unknown"] for a in agencies.values() for c in a["byMonth"].values())
+    notes = ["the Dashboard's agency and project filter uses the people planned in SL x RP; a person on two "
+             "projects counts in both"]
+    if unknown:
+        notes.append("some people planned in SL x RP are on neither the staff list nor the UR report, so their "
+                     "employment type is unknown")
+    return {"agencies": agencies, "projects": projects}, notes
+
+
+def fte_required(annual_revenue: float, rate_per_day: float, target: dict) -> float:
+    """FTE an annual revenue needs (section 8.2 of the 3 Nov instructions, the same formula as the Analysis page):
+        revenue per FTE-day = weighted iRate / (1 - GP %)
+        billable FTE        = annual revenue / (12 x man-days per FTE per month x revenue per FTE-day)
+        total FTE           = billable FTE / UR, only when the man-days are working days (manDaysAreBillable false);
+                              18 man-days is about 85 % of a 21-day month, so by default they are taken as billable
+                              days already and UR is not applied again (open question #2)."""
+    price = rate_per_day / (1 - target["gpPct"])
+    billable = annual_revenue / (12 * target["manDaysPerFte"] * price)
+    return billable if target.get("manDaysAreBillable", True) else billable / target["billableUr"]
+
+
 def _weekdays(month: str) -> int:
     year, number = (int(p) for p in month.split("-"))
     days = calendar.monthrange(year, number)[1]
@@ -487,6 +597,8 @@ def build(store: Store, today: dt.date | None = None) -> dict:
     notes.extend(revenue_notes)
     demand, demand_notes = _demand(store, months)
     notes.extend(demand_notes)
+    split, split_notes = _breakdown(store, months)
+    notes.extend(split_notes)
     productivity = None
     if abcd is not None:
         productivity, prod_notes = _productivity(store, abcd, settings, working_days)
@@ -509,6 +621,7 @@ def build(store: Store, today: dt.date | None = None) -> dict:
         "revenue": revenue,
         "productivity": productivity,
         "demand": demand,
+        "breakdown": split,
         "productivitySettings": {"headcountBase": plan_settings.PRODUCTIVITY["headcountBase"],
                                  "abcdScope": plan_settings.PRODUCTIVITY["abcdScope"]},
         "headcountBreakdown": breakdown,

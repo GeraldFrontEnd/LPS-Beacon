@@ -127,7 +127,8 @@ export interface ProductivityFigures {
   revenuePerFte: number | null;
   gpPerFte: number | null;
   revenuePerHcCost: number | null;
-  requiredFte: number | null; // the FTE its revenue needs at the target GP and UR
+  requiredFte: number | null; // the FTE its revenue needs (the calculator's formula, default settings)
+  ratePerDay: number | null; // weighted rate card (iRate) of its people, USD a day
   flag: Flag | null; // the worse of the productivity and staffing flags; null = not flagged (too small)
   productivityFlag: Flag | null;
   staffingFlag: Flag | null;
@@ -187,7 +188,8 @@ export interface PlanFySettings {
   revenuePerMonthUsd?: number;
   basedOn?: string; // set when this year borrows another year's settings
   bandDayRatesUsd?: Record<string, number>; // the rate card (iRate): cost per day per band, USD
-  target?: { revenueUsd: number; gpPct: number; billableUr: number }; // the "FTE required" defaults
+  // The FTE-required calculator's defaults (plan_settings.py "target").
+  target?: { revenueUsd: number; gpPct: number; billableUr: number; manDaysPerFte?: number; manDaysAreBillable?: boolean };
   priorYear?: { fiscalYear: string; averageHeadcount: number; staffCostUsd: number; source: string };
 }
 
@@ -203,6 +205,30 @@ export interface HeadcountBreakdown {
     supplementalRetiree: number; // Supplemental - Retiree
   };
   secondment: number;
+}
+
+// GET /dashboard?agency=&projectId=: the headcount by employment type, the filter's lists, and the selection's figures.
+export interface DashboardMonthCell {
+  fte: number; // FTE demand on won and ongoing work (SL x RP man-days / 18)
+  people: number; // people planned that month
+  permanent: number;
+  secondment: number;
+  other: number; // Supplemental types (open question #12)
+  unknown: number; // on neither the staff list nor the UR report
+  billable: number; // UR report billable days of those people
+  workingDays: number; // and their standard working days
+}
+
+export interface DashboardView extends Partial<HeadcountBreakdown> {
+  filters: { agencies: string[]; projects: { id: string; name: string; agency: string | null }[] };
+  selection: {
+    kind: "agency" | "project";
+    agency: string | null;
+    projectId?: string;
+    name?: string;
+    projects?: string[];
+    byMonth: Record<string, DashboardMonthCell>;
+  } | null;
 }
 
 // One cell a person has changed on the Analysis page.

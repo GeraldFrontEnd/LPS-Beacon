@@ -18,6 +18,7 @@ Each part is left out (null) when its file was not uploaded yet. All money in US
 from __future__ import annotations
 
 import datetime as dt
+import re
 import json
 
 import pandas as pd
@@ -143,10 +144,57 @@ def resources(store: Store, today: dt.date) -> dict | None:
                             for role, r in pivot.iterrows()]
         out["benchRiskTotal"] = int(soon["unmatched"].sum())
     out["redeployments"] = _redeployments(store, pointer["prefix"], today)
+    out["availability"] = _availability(store, pointer["prefix"])
     return out
 
 
 REDEPLOY_MONTHS = 6
+
+
+LEVEL = re.compile(r"\bL([1-3])$")
+
+
+def _availability(store: Store, prefix: str) -> list[dict]:
+    """Everyone in the published matching with an availability date, for the Dashboard's bench by quarter (9.4 E) and
+    urgent-staffing list (9.4 A): standardised position, level (L1/L2/L3 suffix, or "No level"), band, the date they
+    can start on another project (the first day after their last planned month), the fiscal quarter of that date,
+    their current project and agency, and the won / ongoing line the matching put them on, if any.
+    One row per resource-plan line, as the matching counts them (the masked samples reuse a handful of names, so
+    rows can't be grouped by person there)."""
+    key = prefix + "detail/matching.json"
+    if not store.exists(key):
+        return []
+    m = pd.DataFrame(store.read_json(key))
+    if m.empty or "Match Status" not in m.columns:
+        return []
+    m = m[m["Match Status"].isin(["MATCHED", "UNMATCHED RESOURCE"])].copy()
+    m["from"] = pd.to_datetime(m.get("PRP | Available From"), errors="coerce")
+    m = m.dropna(subset=["from"])
+    m["matched"] = m["Match Status"] == "MATCHED"
+
+    def txt(r, col):
+        v = r.get(col)
+        return None if v is None or (not isinstance(v, str) and pd.isna(v)) else str(v).strip() or None
+
+    rows = []
+    for _, r in m.sort_values("from").iterrows():
+        position = txt(r, "PRP | Standardized Position") or txt(r, "PRP | Position Name")
+        level = LEVEL.search(position or "")
+        try:
+            band = int(float(r.get("PRP | Grade")))
+        except (TypeError, ValueError):
+            band = None
+        when = r["from"].date()
+        rows.append({
+            "resource": txt(r, "PRP | Resource"), "position": position,
+            "level": f"L{level.group(1)}" if level else "No level", "band": band,
+            "availableFrom": when.isoformat(), "fiscalYear": fiscal.fy_label(when), "quarter": fiscal.quarter(when),
+            "status": txt(r, "PRP | Availability Status"), "currentProject": txt(r, "PRP | Project Name"),
+            "currentCustomer": txt(r, "PRP | Customer"),
+            "redeployedTo": txt(r, "QL | Project Name") if r["matched"] else None,
+            "redeployedStart": _month(r.get("QL | Start Date")) if r["matched"] else None,
+        })
+    return rows
 
 
 def _redeployments(store: Store, prefix: str, today: dt.date) -> list[dict]:

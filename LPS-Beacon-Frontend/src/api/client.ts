@@ -13,6 +13,7 @@ import type {
   UploadUrlResponse,
   CapacityPlan,
   CapacityPlanEdit,
+  DashboardView,
   HeadcountBreakdown,
   ChatMessage,
   SessionSummary,
@@ -266,6 +267,19 @@ export async function clearMyCapacityPlanEdits(token?: string): Promise<Capacity
 
 // Today's headcount split by employment type (GET /dashboard, from the staff list). null before a staff list
 // was uploaded. With VITE_USE_SAMPLE_PLAN=true (or VITE_USE_MOCK=true) it returns made-up numbers.
+// GET /dashboard with the Dashboard's filter. null in mock mode or before anything was uploaded.
+export async function getDashboardView(
+  filter: { agency?: string | null; projectId?: string | null },
+  token?: string
+): Promise<DashboardView | null> {
+  if (USE_MOCK || USE_SAMPLE_PLAN) return null;
+  const query = new URLSearchParams();
+  if (filter.agency) query.set("agency", filter.agency);
+  if (filter.projectId) query.set("projectId", filter.projectId);
+  const path = query.toString() ? `${API_ROUTES.dashboard}?${query}` : API_ROUTES.dashboard;
+  return (await apiRequest<DashboardView | undefined>("GET", path, token)) ?? null;
+}
+
 export async function getHeadcountBreakdown(token?: string): Promise<HeadcountBreakdown | null> {
   if (USE_MOCK || USE_SAMPLE_PLAN) {
     await wait(300);

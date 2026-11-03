@@ -42,6 +42,9 @@ export interface ResourceOutlook {
   rollOffs?: { month: string; available: number; availableIfNotRenewed: number; pipelineDemand: number; matched: number }[];
   benchRisk?: { role: string; availableNow: number; rollingOff6m: number; total: number }[];
   benchRiskTotal?: number;
+  // Everyone in the published matching with the date they can start on another project (bench by quarter, urgent
+  // staffing). One row per resource-plan line.
+  availability?: AvailablePerson[];
   // People on the bench or rolling off in the next 6 months and the won / ongoing project they were matched to.
   redeployments?: {
     resource: string | null;
@@ -78,4 +81,19 @@ export interface Utilisation {
 export interface Workforce {
   upcomingLeavers: ({ month: string; total: number } & Record<string, number | string>)[];
   upcomingLeaversTotal: number;
+}
+
+export interface AvailablePerson {
+  resource: string | null;
+  position: string | null; // standardised position
+  level: string; // "L1", "L2", "L3" or "No level"
+  band: number | null;
+  availableFrom: string; // "YYYY-MM-DD", the first day after their last planned month
+  fiscalYear: string; // "FY26"
+  quarter: string; // "Q1".."Q4" (fiscal: Q1 = Apr-Jun)
+  status: string | null; // "Available now", "Rolling off 0-6m", ...
+  currentProject: string | null;
+  currentCustomer: string | null;
+  redeployedTo: string | null; // the won / ongoing project the published matching put them on
+  redeployedStart: string | null;
 }

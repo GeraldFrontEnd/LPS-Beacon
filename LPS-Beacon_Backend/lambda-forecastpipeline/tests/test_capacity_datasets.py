@@ -194,6 +194,31 @@ class CurrencyTests(Base):
             clean.clean_rates(pd.DataFrame({"Grade": ["3"], "Daily Rate": ["200"], "Currency": ["EUR"]}))
 
 
+class BreakdownTests(Base):
+    def test_agency_and_project_figures_per_month(self):
+        import pandas as pd
+        sl = pd.DataFrame([
+            # demand type, project, customer, IT code, grade, month, man-days
+            ("Project", "P1", "Agency X", "a1", 7, "2026-10-01", 18.0),
+            ("Project", "P1", "Agency X", "s1", 5, "2026-10-01", 9.0),
+            ("Project", "P2", "Agency X", "a1", 7, "2026-10-01", 0.0),     # no man-days: not counted as a person
+            ("Quote Won", "P2", "Agency X", None, 6, "2026-10-01", 18.0),  # demand without a named person
+            ("Pre Sales", "P3", "Agency Y", "z1", 6, "2026-10-01", 18.0),  # not won or ongoing work
+        ], columns=["Demand Type", "ID", "Customer", "IT Code", "Grade", "Calendar Date", "MD"])
+        sl["Name"] = sl["ID"]
+        self.store.write_table("clean/sl_rp/latest.json.gz", sl)
+        self.store.write_table("clean/bu_ur/latest.json.gz", pd.DataFrame([
+            ("a1", "2026-10", "Tier B", 18.0, 21.0), ("s1", "2026-10", "Tier S_B", 21.0, 21.0)],
+            columns=["IT Code", "Month", "Tier", "Billable", clean.UR_WORKING_DAYS]))
+        split, _ = capacity._breakdown(self.store, ["2026-10"])
+        x = split["agencies"]["Agency X"]["byMonth"]["2026-10"]
+        self.assertEqual((x["fte"], x["people"], x["permanent"], x["secondment"]), (2.5, 2, 1, 1))
+        self.assertEqual((x["billable"], x["workingDays"]), (39.0, 42.0), "for the selection's UR")
+        self.assertNotIn("Agency Y", split["agencies"], "Pre Sales is not demand")
+        self.assertEqual(split["projects"]["P2"]["byMonth"]["2026-10"]["people"], 0)
+        self.assertEqual(split["projects"]["P2"]["agency"], "Agency X")
+
+
 class CapacityInputsTests(Base):
     def test_inputs_after_uploading_the_ur_report_and_staff_list(self):
         import lambda_function

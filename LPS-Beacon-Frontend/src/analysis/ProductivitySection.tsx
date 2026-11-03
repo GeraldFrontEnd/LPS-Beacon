@@ -1,172 +1,157 @@
 // src/analysis/ProductivitySection.tsx
 // "How productive are we, and who needs attention?" on the Analysis page, above the capacity plan.
-//  1. Organisation baseline: Revenue per HC, GP per HC and Revenue per $ of HC cost, this fiscal year to date
-//     (annualised) against last fiscal year.
-//  2. FTE required: how many FTE a revenue target needs at a GP % and billable UR, with the rate card (iRate).
-//  3. By agency (customer) and project: the same figures per FTE, flagged red / amber / green against the company
-//     average and against the FTE their revenue needs. The thresholds are a draft until Ethan sets them.
-// Naming: HC (headcount) for productivity; FTE only for "how many people do we need" and for the delivery effort
-// planned on a project (SL x RP man-days / 18).
+//  1. Organisation baseline: Revenue per HC, GP per HC, Revenue per $ of HC cost and the weighted cost per FTE per day,
+//     this fiscal year to date (annualised) against last fiscal year. Each shows how it is worked out.
+//  2. Agencies and projects: every agency at a glance; a dropdown narrows it to the agencies picked; a row opens to
+//     show its projects (the Project View). Flagged red / amber / green with the draft thresholds.
+//  3. FTE required: the 3 Nov calculator (1 FTE = 18 man-days a month), for the organisation or the agencies picked,
+//     with its formula printed beside the result.
+// Naming: HC (headcount) for productivity; FTE for "how many people do we need" and for the delivery effort planned on
+// a project (SL x RP man-days / 18).
 
 import { Fragment, useMemo, useState } from "react";
 import type { AgencyProductivity, CapacityPlan, Flag, ProductivityFigures } from "../api/types";
-import { lastYearBaseline, reportingYear, thisYearBaseline } from "./baseline";
-import { BANDS, rowId } from "./capacityPlanLayout";
+import MultiSelect from "../components/MultiSelect";
+import {
+  fmt,
+  fteRequired,
+  lastYearBaseline,
+  latestActual,
+  monthName,
+  reportingYear,
+  thisYearBaseline,
+  weightedIRate,
+} from "./baseline";
 
-const usd0 = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-const dec1 = new Intl.NumberFormat(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-const dec2 = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const int0 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
-
-const money = (v: number | null | undefined) => (v === null || v === undefined || !Number.isFinite(v) ? "–" : usd0.format(v));
-const kUsd = (v: number | null | undefined) =>
-  v === null || v === undefined || !Number.isFinite(v) ? "–" : `${v < 0 ? "−" : ""}$${dec1.format(Math.abs(v) / 1000)}K`;
-const mUsd = (v: number | null | undefined) =>
-  v === null || v === undefined || !Number.isFinite(v) ? "–" : `$${dec2.format(v / 1_000_000)}M`;
-const ratio = (v: number | null | undefined) => (v === null || v === undefined || !Number.isFinite(v) ? "–" : `$${dec2.format(v)}`);
-const pct = (v: number) => `${int0.format(v * 100)}%`;
-
-function monthLabel(ym: string): string {
-  const [y, m] = ym.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "short", year: "numeric" });
-}
-
-function change(now: number | null, before: number | null | undefined): string | null {
-  if (now === null || before === null || before === undefined || !before) return null;
-  const d = (now - before) / Math.abs(before);
-  return `${d >= 0 ? "▲" : "▼"} ${int0.format(Math.abs(d) * 100)}% vs last FY`;
-}
+const FLAG_TEXT: Record<Flag, string> = { red: "Needs attention", amber: "Watch", green: "On track" };
 
 function FlagPill({ flag }: { flag: Flag | null }) {
-  if (!flag) return <span className="flag-pill none">Not flagged</span>;
-  const text = flag === "red" ? "Needs attention" : flag === "amber" ? "Watch" : "On track";
-  return <span className={`flag-pill ${flag}`}>{text}</span>;
+  return <span className={`flag-pill ${flag ?? "none"}`}>{flag ? FLAG_TEXT[flag] : "Not flagged"}</span>;
 }
 
-// ---- 2. FTE required ----
-function FteRequired({ plan, fy }: { plan: CapacityPlan; fy: string }) {
-  const settings = plan.settings?.[fy];
-  const cols = (plan.months ?? []).filter((m) => m.fiscalYear === fy);
-  const lastActual = [...cols].reverse().find((m) => m.actual) ?? cols[0];
-  const fyDays = cols.reduce((s, c) => s + (plan.values["working-days"]?.[c.key] ?? 0), 0);
-  const fyRevenue = cols.reduce((s, c) => s + (plan.values["revenue"]?.[c.key] ?? 0), 0);
-  const target = settings?.target ?? { revenueUsd: 90_000_000, gpPct: 0.27, billableUr: 0.87 };
+function FlagDot({ flag }: { flag: Flag | null }) {
+  return <span className={`flag-dot ${flag ?? "none"}`} aria-hidden="true" />;
+}
 
-  const [revenueM, setRevenueM] = useState(String(target.revenueUsd / 1_000_000));
-  const [gp, setGp] = useState(String(target.gpPct * 100));
-  const [ur, setUr] = useState(String(target.billableUr * 100));
-  const [days, setDays] = useState(String(Math.round(fyDays) || 250));
+// ---- 1. Organisation baseline ----
+function Baseline({ plan, fy }: { plan: CapacityPlan; fy: string }) {
+  const now = thisYearBaseline(plan, fy);
+  const before = lastYearBaseline(plan, fy);
+  const last = latestActual(plan);
+  const iRate = last ? weightedIRate(plan, last.key, fy) : null;
+  if (!now) return null;
 
-  // Weighted average cost per FTE per day: the rate card (iRate) weighted by the headcount in each band.
-  const rates = settings?.bandDayRatesUsd ?? {};
-  const key = lastActual?.key;
-  let weightSum = 0;
-  let costSum = 0;
-  for (const band of BANDS) {
-    const hc = key ? plan.values[rowId("ending-hc", band.id)]?.[key] ?? 0 : 0;
-    weightSum += hc;
-    costSum += hc * (rates[band.id] ?? 0);
-  }
-  const iRate = weightSum ? costSum / weightSum : null;
-  const currentHc = key ? plan.values["ending-hc"]?.[key] ?? null : null;
-
-  const revenue = Number(revenueM) * 1_000_000;
-  const gpPct = Number(gp) / 100;
-  const urPct = Number(ur) / 100;
-  const workDays = Number(days);
-  const valid = revenue > 0 && gpPct >= 0 && gpPct < 1 && urPct > 0 && urPct <= 1.5 && workDays > 0 && iRate;
-  const price = valid ? iRate / (1 - gpPct) : null; // revenue per billable FTE-day at the target GP
-  const perFte = price ? price * workDays * urPct : null; // revenue one FTE brings in a year
-  const required = perFte ? revenue / perFte : null;
-  const forForecast = perFte ? fyRevenue / perFte : null;
-  const gap = required !== null && currentHc !== null ? required - currentHc : null;
+  const delta = (a: number | null, b: number | null | undefined) => {
+    if (a === null || b === null || b === undefined || !b) return null;
+    const d = (a - b) / Math.abs(b);
+    return { text: `${d >= 0 ? "▲" : "▼"} ${Math.abs(d * 100).toFixed(0)}%`, down: d < 0 };
+  };
+  const tiles = [
+    { label: "Revenue per HC", value: fmt.usdK(now.revenuePerHc), was: before && fmt.usdK(before.revenuePerHc),
+      d: delta(now.revenuePerHc, before?.revenuePerHc) },
+    { label: "GP per HC", value: fmt.usdK(now.gpPerHc), was: before && fmt.usdK(before.gpPerHc),
+      d: delta(now.gpPerHc, before?.gpPerHc) },
+    { label: "Revenue per $1 of HC cost", value: fmt.ratio(now.revenuePerHcCost), was: before && fmt.ratio(before.revenuePerHcCost),
+      d: delta(now.revenuePerHcCost, before?.revenuePerHcCost) },
+    { label: "Weighted cost per FTE per day", value: fmt.usd(iRate), was: null, d: null },
+  ];
 
   return (
-    <section className="prod-card prod-fte" aria-labelledby="fte-title">
-      <h3 id="fte-title">FTE required for the revenue target</h3>
-      <div className="prod-inputs">
-        <label>
-          Revenue target (USD M)
-          <input inputMode="decimal" value={revenueM} onChange={(e) => setRevenueM(e.target.value)} />
-        </label>
-        <label>
-          GP %
-          <input inputMode="decimal" value={gp} onChange={(e) => setGp(e.target.value)} />
-        </label>
-        <label>
-          Billable UR %
-          <input inputMode="decimal" value={ur} onChange={(e) => setUr(e.target.value)} />
-        </label>
-        <label>
-          Working days a year
-          <input inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value)} />
-        </label>
-      </div>
-      {valid ? (
-        <>
-          <dl className="prod-calc">
-            <div>
-              <dt>Revenue needed per calendar day</dt>
-              <dd>{money(revenue / 365)}</dd>
-            </div>
-            <div>
-              <dt>Weighted average cost per FTE per day (iRate)</dt>
-              <dd>{money(iRate)}</dd>
-            </div>
-            <div>
-              <dt>Revenue per FTE per billable day at {pct(gpPct)} GP</dt>
-              <dd>{money(price)}</dd>
-            </div>
-            <div>
-              <dt>Revenue one FTE brings in a year ({int0.format(workDays)} days × {pct(urPct)} UR)</dt>
-              <dd>{money(perFte)}</dd>
-            </div>
-          </dl>
-          <div className="prod-result">
-            <div>
-              <span className="prod-big">{int0.format(required ?? 0)}</span> FTE required
-            </div>
-            <div>
-              <span className="prod-big">{currentHc === null ? "–" : int0.format(currentHc)}</span> HC today
-              {lastActual ? ` (${lastActual.key})` : ""}
-            </div>
-            <div className={gap !== null && gap > 0 ? "prod-gap short" : "prod-gap"}>
-              <span className="prod-big">{gap === null ? "–" : `${gap > 0 ? "+" : ""}${int0.format(gap)}`}</span>{" "}
-              {gap !== null && gap > 0 ? "FTE short" : "FTE spare"}
+    <section className="prod-card" aria-labelledby="baseline-title">
+      <header className="prod-card-head">
+        <div>
+          <h3 id="baseline-title">Organisation baseline</h3>
+          <p className="prod-sub">
+            {fy} to date, {monthName(now.months[0])} to {monthName(now.months[now.months.length - 1])}, as a yearly rate.
+            The company figure every agency is compared with.
+          </p>
+        </div>
+      </header>
+      <div className="prod-tiles">
+        {tiles.map((t) => (
+          <div key={t.label} className="prod-tile">
+            <div className="prod-tile-label">{t.label}</div>
+            <div className="prod-tile-value">{t.value}</div>
+            <div className="prod-tile-was">
+              {t.was ? (
+                <>
+                  {before?.label} {t.was}
+                  {t.d && <span className={t.d.down ? "down" : "up"}> {t.d.text}</span>}
+                </>
+              ) : (
+                <>Rate card (iRate) by band, weighted by {last?.key ?? "today's"} headcount</>
+              )}
             </div>
           </div>
-          <p className="note">
-            This year&apos;s revenue on the plan ({mUsd(fyRevenue)}) needs {int0.format(forForecast ?? 0)} FTE at these
-            rates. Formula: revenue target ÷ (iRate ÷ (1 − GP %) × working days × UR).
-          </p>
-        </>
-      ) : (
-        <p className="note">Enter a revenue target, a GP % below 100, a UR % and the working days.</p>
-      )}
+        ))}
+      </div>
+      <details className="prod-formula">
+        <summary>How these are worked out</summary>
+        <ul>
+          <li>
+            Revenue per HC = revenue {fmt.usdM(now.revenue)} a year (ABCD actuals, annualised) ÷ average delivery HC{" "}
+            {fmt.int(now.headcount)} = {fmt.usdK(now.revenuePerHc)}
+          </li>
+          <li>GP per HC = (revenue − HC cost at the rate card) ÷ average delivery HC = {fmt.usdK(now.gpPerHc)}</li>
+          <li>Revenue per $1 of HC cost = revenue ÷ HC cost at the rate card = {fmt.ratio(now.revenuePerHcCost)}</li>
+          <li>Weighted cost per FTE per day = Σ (HC in each band × iRate of that band) ÷ Σ HC = {fmt.usd(iRate)}</li>
+          {before && (
+            <li>
+              {before.label}: ABCD revenue {fmt.usdM(before.revenue)}, {fmt.int(before.headcount)} average HC and staff cost
+              from the {before.source}.
+            </li>
+          )}
+        </ul>
+      </details>
     </section>
   );
 }
 
-// ---- 3. By agency and project ----
-function figuresCells(f: ProductivityFigures) {
+// ---- 2. Agencies and projects ----
+type StatusFilter = "all" | Flag;
+
+function figures(f: ProductivityFigures) {
+  const gap = f.requiredFte === null ? null : f.fte - f.requiredFte;
   return (
     <>
-      <td className="num">{mUsd(f.revenue)}</td>
-      <td className="num">{dec1.format(f.fte)}</td>
-      <td className="num">{kUsd(f.revenuePerFte)}</td>
-      <td className="num">{kUsd(f.gpPerFte)}</td>
-      <td className="num">{ratio(f.revenuePerHcCost)}</td>
-      <td className="num">{f.requiredFte === null ? "–" : dec1.format(f.requiredFte)}</td>
+      <td className="num">{fmt.usdM(f.revenue)}</td>
+      <td className="num">{fmt.dec1(f.fte)}</td>
+      <td className="num">{fmt.usdK(f.revenuePerFte)}</td>
+      <td className="num">{fmt.usdK(f.gpPerFte)}</td>
+      <td className="num">{fmt.dec1(f.requiredFte)}</td>
+      <td className={`num${gap !== null && Math.abs(gap) >= 1 ? (gap > 0 ? " over" : " under") : ""}`}>
+        {gap === null ? "–" : `${gap > 0 ? "+" : gap < 0 ? "−" : ""}${fmt.dec1(Math.abs(gap))}`}
+      </td>
     </>
   );
 }
 
-function AgencyTable({ agencies, plan }: { agencies: AgencyProductivity[]; plan: CapacityPlan }) {
+function AgencyExplorer({
+  plan,
+  selected,
+  onSelect,
+}: {
+  plan: CapacityPlan;
+  selected: string[];
+  onSelect: (v: string[]) => void;
+}) {
   const p = plan.productivity!;
-  const [filter, setFilter] = useState<"attention" | "all">("attention");
+  const [status, setStatus] = useState<StatusFilter>("all");
   const [open, setOpen] = useState<Set<string>>(() => new Set());
-  const attention = agencies.filter((a) => a.flag === "red" || a.flag === "amber");
-  const shown = filter === "attention" ? attention : agencies;
+  const agencies = p.agencies;
+  const counts = { red: 0, amber: 0, green: 0 } as Record<Flag, number>;
+  agencies.forEach((a) => a.flag && (counts[a.flag] += 1));
+
+  const shown = agencies.filter(
+    (a) => (selected.length === 0 || selected.includes(a.agency)) && (status === "all" || a.flag === status)
+  );
+  const total = shown.reduce(
+    (t, a) => ({ revenue: t.revenue + a.revenue, fte: t.fte + a.fte, gp: t.gp + a.gp }),
+    { revenue: 0, fte: 0, gp: 0 }
+  );
+  const annual = 12 / p.months.length;
+  const avg = p.companyAverage;
+  const revPerFte = total.fte ? (total.revenue * annual) / total.fte : null;
   const toggle = (name: string) =>
     setOpen((prev) => {
       const next = new Set(prev);
@@ -175,91 +160,332 @@ function AgencyTable({ agencies, plan }: { agencies: AgencyProductivity[]; plan:
       return next;
     });
   const r = p.rules;
-  const avg = p.companyAverage;
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
 
   return (
-    <section className="prod-card prod-agencies" aria-labelledby="agency-title">
-      <div className="prod-agency-head">
-        <h3 id="agency-title">Agencies and projects needing attention</h3>
-        <div className="segmented" role="group" aria-label="Show">
-          <button type="button" className={filter === "attention" ? "on" : ""} aria-pressed={filter === "attention"}
-            onClick={() => setFilter("attention")}>
-            Red or amber ({attention.length})
-          </button>
-          <button type="button" className={filter === "all" ? "on" : ""} aria-pressed={filter === "all"} onClick={() => setFilter("all")}>
-            All agencies ({agencies.length})
-          </button>
+    <section className="prod-card" aria-labelledby="agency-title">
+      <header className="prod-card-head">
+        <div>
+          <h3 id="agency-title">Agencies and projects</h3>
+          <p className="prod-sub">
+            {p.fiscalYear} {monthName(p.months[0])} to {monthName(p.months[p.months.length - 1])}. Revenue from the ABCD
+            report; delivery FTE from the people planned on each project (SL x RP). Click an agency to see its projects.
+          </p>
+        </div>
+        <div className="prod-controls">
+          <MultiSelect
+            label="Agencies"
+            allLabel="All agencies"
+            options={agencies.map((a) => ({
+              value: a.agency,
+              label: a.agency,
+              hint: a.projects.map((pr) => `${pr.projectId} ${pr.projectName}`).join(" "),
+              marker: <FlagDot flag={a.flag} />,
+            }))}
+            selected={selected}
+            onChange={onSelect}
+            shortcuts={[
+              { label: "Only red", values: agencies.filter((a) => a.flag === "red").map((a) => a.agency) },
+              { label: "Red and amber", values: agencies.filter((a) => a.flag === "red" || a.flag === "amber").map((a) => a.agency) },
+            ]}
+          />
+          <div className="segmented" role="group" aria-label="Status">
+            {(["all", "red", "amber", "green"] as StatusFilter[]).map((s) => (
+              <button key={s} type="button" className={status === s ? "on" : ""} aria-pressed={status === s}
+                onClick={() => setStatus(s)}>
+                {s === "all" ? "All" : `${FLAG_TEXT[s]} (${counts[s]})`}
+              </button>
+            ))}
+          </div>
+        </div>
+      </header>
+
+      <div className="prod-summary">
+        <div>
+          <span className="prod-summary-value">{shown.length}</span>
+          <span className="prod-summary-label">{shown.length === 1 ? "agency" : "agencies"} shown</span>
+        </div>
+        <div>
+          <span className="prod-summary-value">{fmt.usdM(total.revenue)}</span>
+          <span className="prod-summary-label">revenue to date</span>
+        </div>
+        <div>
+          <span className="prod-summary-value">{fmt.dec1(total.fte)}</span>
+          <span className="prod-summary-label">delivery FTE</span>
+        </div>
+        <div>
+          <span className="prod-summary-value">{fmt.usdK(revPerFte)}</span>
+          <span className="prod-summary-label">revenue per FTE (company {fmt.usdK(avg.revenuePerFte)})</span>
         </div>
       </div>
-      <p className="note">
-        {p.fiscalYear} {monthLabel(p.months[0])} to {monthLabel(p.months[p.months.length - 1])}. Revenue from the ABCD
-        report; delivery FTE from the people planned on each project in SL x RP; per-FTE figures annualised. Company
-        average (all agencies with at least {r.minFte} FTE): Revenue per FTE {kUsd(avg.revenuePerFte)}, GP per FTE{" "}
-        {kUsd(avg.gpPerFte)}, Revenue per $ of HC cost {ratio(avg.revenuePerHcCost)}. Open an agency for its projects.
-      </p>
-      {r.draft && (
-        <p className="prod-draft" role="note">
-          Draft thresholds, waiting for Ethan to confirm: red when{" "}
-          {r.metrics.map((m) => (m === "revenuePerFte" ? "Revenue per FTE" : "GP per FTE")).join(" or ")} is more than{" "}
-          {pct(r.productivity.redBelowPct)} below the company average, amber when {pct(r.productivity.amberBelowPct)} to{" "}
-          {pct(r.productivity.redBelowPct)} below; staffing red when actual FTE is more than {pct(r.staffing.redOffPct)} off
-          the FTE required, amber when {pct(r.staffing.amberOffPct)} to {pct(r.staffing.redOffPct)} off.
-        </p>
-      )}
+
       <div className="prod-scroll">
-        <table className="review-table prod-table">
+        <table className="prod-table">
           <thead>
             <tr>
-              <th scope="col">Agency / project</th>
+              <th scope="col">Agency</th>
               <th scope="col">Status</th>
-              <th scope="col" className="num">Revenue YTD</th>
+              <th scope="col" className="num">Revenue to date</th>
               <th scope="col" className="num">Delivery FTE</th>
               <th scope="col" className="num">Revenue per FTE</th>
               <th scope="col" className="num">GP per FTE</th>
-              <th scope="col" className="num">Revenue per $ HC cost</th>
-              <th scope="col" className="num">FTE required</th>
-              <th scope="col">Why</th>
+              <th scope="col" className="num">FTE needed</th>
+              <th scope="col" className="num" title="Delivery FTE minus FTE needed: + overstaffed, − understaffed">
+                Over / under
+              </th>
             </tr>
           </thead>
           <tbody>
-            {shown.map((a) => {
+            {shown.map((a: AgencyProductivity) => {
               const isOpen = open.has(a.agency);
               return (
                 <Fragment key={a.agency}>
-                  <tr className={`prod-agency flag-${a.flag ?? "none"}`}>
+                  <tr className={`prod-row${isOpen ? " open" : ""}`} onClick={() => toggle(a.agency)}>
                     <th scope="row">
-                      <button type="button" className="plan-toggle" aria-expanded={isOpen} onClick={() => toggle(a.agency)}>
-                        <span aria-hidden="true">{isOpen ? "▾" : "▸"}</span>
-                        {a.agency}
-                        <span className="note"> · {a.projects.length} project{a.projects.length === 1 ? "" : "s"}</span>
+                      <button type="button" className="prod-expand" aria-expanded={isOpen}
+                        onClick={(e) => { e.stopPropagation(); toggle(a.agency); }}>
+                        <span aria-hidden="true" className="prod-chevron">{isOpen ? "▾" : "▸"}</span>
+                        <span className="prod-agency-name">{a.agency}</span>
+                        <span className="prod-agency-count">
+                          {a.projects.length} project{a.projects.length === 1 ? "" : "s"}
+                        </span>
                       </button>
                     </th>
                     <td>
                       <FlagPill flag={a.flag} />
                     </td>
-                    {figuresCells(a)}
-                    <td className="prod-why">{a.flagReason}</td>
+                    {figures(a)}
                   </tr>
-                  {isOpen &&
-                    a.projects.map((pr) => (
-                      <tr key={pr.projectId} className="prod-project">
-                        <th scope="row">
-                          {pr.projectName}
-                          <span className="note"> · {pr.projectId}</span>
-                        </th>
-                        <td>
-                          <FlagPill flag={pr.flag} />
-                        </td>
-                        {figuresCells(pr)}
-                        <td className="prod-why">{pr.flagReason}</td>
-                      </tr>
-                    ))}
+                  {isOpen && (
+                    <tr className="prod-detail">
+                      <td colSpan={8}>
+                        <p className="prod-reason">
+                          <strong>Why:</strong> {a.flagReason}.
+                        </p>
+                        <table className="prod-subtable">
+                          <thead>
+                            <tr>
+                              <th scope="col">Project</th>
+                              <th scope="col">Status</th>
+                              <th scope="col" className="num">Revenue to date</th>
+                              <th scope="col" className="num">Delivery FTE</th>
+                              <th scope="col" className="num">Revenue per FTE</th>
+                              <th scope="col" className="num">GP per FTE</th>
+                              <th scope="col" className="num">FTE needed</th>
+                              <th scope="col" className="num">Over / under</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {a.projects.map((pr) => (
+                              <tr key={pr.projectId} title={pr.flagReason}>
+                                <th scope="row">
+                                  <span className="prod-project-name">{pr.projectName}</span>
+                                  <span className="prod-project-id">{pr.projectId}</span>
+                                </th>
+                                <td>
+                                  <FlagPill flag={pr.flag} />
+                                </td>
+                                {figures(pr)}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </td>
+                    </tr>
+                  )}
                 </Fragment>
               );
             })}
           </tbody>
         </table>
-        {shown.length === 0 && <p className="note review-none">No agency is flagged.</p>}
+        {shown.length === 0 && <p className="note prod-empty">No agency matches this filter.</p>}
+      </div>
+
+      <details className="prod-formula">
+        <summary>How agencies are flagged{r.draft ? " (draft thresholds, waiting for Ethan)" : ""}</summary>
+        <ul>
+          <li>
+            Company average, all agencies with at least {r.minFte} delivery FTE: revenue per FTE {fmt.usdK(avg.revenuePerFte)},
+            GP per FTE {fmt.usdK(avg.gpPerFte)}, revenue per $1 of HC cost {fmt.ratio(avg.revenuePerHcCost)}.
+          </li>
+          <li>
+            Red: {r.metrics.map((m) => (m === "revenuePerFte" ? "revenue per FTE" : "GP per FTE")).join(" or ")} more than{" "}
+            {pct(r.productivity.redBelowPct)} below the company average, or delivery FTE more than {pct(r.staffing.redOffPct)} off
+            the FTE needed.
+          </li>
+          <li>
+            Amber: {pct(r.productivity.amberBelowPct)} to {pct(r.productivity.redBelowPct)} below, or {pct(r.staffing.amberOffPct)}{" "}
+            to {pct(r.staffing.redOffPct)} off the FTE needed. Green: neither.
+          </li>
+          <li>
+            FTE needed = the agency&apos;s yearly revenue ÷ (12 × 18 man-days × its weighted iRate ÷ (1 − 27% GP)), the
+            calculator&apos;s formula below. Agencies under {r.minFte} FTE or without revenue are listed but not flagged.
+          </li>
+        </ul>
+      </details>
+    </section>
+  );
+}
+
+// ---- 3. FTE required ----
+interface Scope {
+  key: string;
+  label: string;
+  annualRevenue: number; // the default target
+  iRate: number | null;
+  current: number | null;
+  currentLabel: string;
+}
+
+function FteCalculator({ plan, fy, scope }: { plan: CapacityPlan; fy: string; scope: Scope }) {
+  const t = plan.settings?.[fy]?.target;
+  const [revenueM, setRevenueM] = useState((scope.annualRevenue / 1_000_000).toFixed(scope.key === "org" ? 0 : 2));
+  const [gp, setGp] = useState(String(((t?.gpPct ?? 0.27) * 100).toFixed(0)));
+  const [ur, setUr] = useState(String(Number(((t?.billableUr ?? 0.854) * 100).toFixed(1))));
+  const [manDays, setManDays] = useState(String(t?.manDaysPerFte ?? 18));
+  const [rate, setRate] = useState(scope.iRate ? scope.iRate.toFixed(0) : "");
+  const [billableDays, setBillableDays] = useState(t?.manDaysAreBillable ?? true);
+
+  const inputs = {
+    annualRevenue: Number(revenueM) * 1_000_000,
+    gpPct: Number(gp) / 100,
+    ur: Number(ur) / 100,
+    manDaysPerFte: Number(manDays),
+    manDaysAreBillable: billableDays,
+    iRate: Number(rate),
+  };
+  const result = fteRequired(inputs);
+  const gap = result && scope.current !== null ? result.totalFte - scope.current : null;
+
+  return (
+    <section className="prod-card" aria-labelledby="fte-title">
+      <header className="prod-card-head">
+        <div>
+          <h3 id="fte-title">FTE required for a revenue target</h3>
+          <p className="prod-sub">For {scope.label}. Change any input; the formula on the right updates with it.</p>
+        </div>
+      </header>
+      <div className="fte-layout">
+        <div className="fte-inputs">
+          <label>
+            <span>Revenue target a year</span>
+            <span className="fte-field">
+              <span className="fte-unit">$</span>
+              <input inputMode="decimal" value={revenueM} onChange={(e) => setRevenueM(e.target.value)} />
+              <span className="fte-unit">M</span>
+            </span>
+          </label>
+          <label>
+            <span>Gross profit</span>
+            <span className="fte-field">
+              <input inputMode="decimal" value={gp} onChange={(e) => setGp(e.target.value)} />
+              <span className="fte-unit">%</span>
+            </span>
+          </label>
+          <label>
+            <span>Billable UR</span>
+            <span className="fte-field">
+              <input inputMode="decimal" value={ur} onChange={(e) => setUr(e.target.value)} />
+              <span className="fte-unit">%</span>
+            </span>
+          </label>
+          <label>
+            <span>Man-days per FTE a month</span>
+            <span className="fte-field">
+              <input inputMode="decimal" value={manDays} onChange={(e) => setManDays(e.target.value)} />
+              <span className="fte-unit">days</span>
+            </span>
+          </label>
+          <label className="fte-wide">
+            <span>
+              Weighted cost per FTE per day (iRate)
+              {scope.iRate !== null && Number(rate).toFixed(0) !== scope.iRate.toFixed(0) && (
+                <button type="button" className="link-button" onClick={() => setRate(scope.iRate!.toFixed(0))}>
+                  reset to {fmt.usd(scope.iRate)}
+                </button>
+              )}
+            </span>
+            <span className="fte-field">
+              <span className="fte-unit">$</span>
+              <input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} />
+              <span className="fte-unit">a day</span>
+            </span>
+          </label>
+          <fieldset className="fte-wide fte-convention">
+            <legend>The {manDays || "18"} man-days are…</legend>
+            <label>
+              <input type="radio" checked={billableDays} onChange={() => setBillableDays(true)} />
+              billable days (UR already allowed for)
+            </label>
+            <label>
+              <input type="radio" checked={!billableDays} onChange={() => setBillableDays(false)} />
+              working days (divide by UR)
+            </label>
+          </fieldset>
+        </div>
+
+        <div className="fte-result">
+          {result ? (
+            <>
+              <div className="fte-numbers">
+                <div>
+                  <span className="fte-big">{fmt.int(result.totalFte)}</span>
+                  <span className="fte-cap">FTE required</span>
+                </div>
+                <div>
+                  <span className="fte-big">{fmt.int(scope.current)}</span>
+                  <span className="fte-cap">{scope.currentLabel}</span>
+                </div>
+                <div className={gap !== null && gap > 0 ? "short" : "spare"}>
+                  <span className="fte-big">
+                    {gap === null ? "–" : fmt.int(Math.abs(gap))}
+                  </span>
+                  <span className="fte-cap">{gap !== null && gap > 0 ? "FTE short" : "FTE to spare"}</span>
+                </div>
+              </div>
+              <ol className="fte-steps">
+                <li>
+                  <span>Revenue per FTE-day</span>
+                  <span>
+                    {fmt.usd(inputs.iRate)} ÷ (1 − {gp}%) = <strong>{fmt.usd(result.pricePerDay)}</strong>
+                  </span>
+                </li>
+                <li>
+                  <span>Revenue one FTE brings a year</span>
+                  <span>
+                    12 × {manDays} × {fmt.usd(result.pricePerDay)} = <strong>{fmt.usd(result.revenuePerFteYear)}</strong>
+                  </span>
+                </li>
+                <li>
+                  <span>Billable FTE</span>
+                  <span>
+                    {fmt.usdM(inputs.annualRevenue)} ÷ {fmt.usd(result.revenuePerFteYear)} = <strong>{fmt.dec1(result.billableFte)}</strong>
+                  </span>
+                </li>
+                <li>
+                  <span>Total FTE</span>
+                  <span>
+                    {billableDays ? (
+                      <>
+                        = billable FTE = <strong>{fmt.dec1(result.totalFte)}</strong> (UR not applied again)
+                      </>
+                    ) : (
+                      <>
+                        {fmt.dec1(result.billableFte)} ÷ {ur}% = <strong>{fmt.dec1(result.totalFte)}</strong>
+                      </>
+                    )}
+                  </span>
+                </li>
+              </ol>
+              <p className="fte-note">
+                Still to confirm with Ethan: whether 18 man-days are billable or working days (dividing by UR again would count
+                it twice), and whether $90M is the country target.
+              </p>
+            </>
+          ) : (
+            <p className="note">Enter a revenue target, a GP below 100%, a UR, the man-days and a daily cost.</p>
+          )}
+        </div>
       </div>
     </section>
   );
@@ -267,63 +493,61 @@ function AgencyTable({ agencies, plan }: { agencies: AgencyProductivity[]; plan:
 
 export default function ProductivitySection({ plan }: { plan: CapacityPlan }) {
   const fy = reportingYear(plan);
-  const now = useMemo(() => thisYearBaseline(plan, fy), [plan, fy]);
-  const before = useMemo(() => lastYearBaseline(plan, fy), [plan, fy]);
-  if (!plan.months || plan.months.length === 0) return null;
+  const [selected, setSelected] = useState<string[]>([]);
+  const [scopeKind, setScopeKind] = useState<"org" | "selection">("org");
+  const p = plan.productivity;
 
-  const tiles: { label: string; value: string; was: string | null; delta: string | null }[] = now
-    ? [
-        { label: "Revenue per HC", value: kUsd(now.revenuePerHc), was: before ? kUsd(before.revenuePerHc) : null,
-          delta: change(now.revenuePerHc, before?.revenuePerHc) },
-        { label: "GP per HC", value: kUsd(now.gpPerHc), was: before ? kUsd(before.gpPerHc) : null,
-          delta: change(now.gpPerHc, before?.gpPerHc) },
-        { label: "Revenue per $ of HC cost", value: ratio(now.revenuePerHcCost),
-          was: before ? ratio(before.revenuePerHcCost) : null, delta: change(now.revenuePerHcCost, before?.revenuePerHcCost) },
-      ]
-    : [];
+  const scope: Scope = useMemo(() => {
+    const last = latestActual(plan);
+    if (scopeKind === "selection" && p && selected.length > 0) {
+      const picked = p.agencies.filter((a) => selected.includes(a.agency));
+      const annual = 12 / p.months.length;
+      const fte = picked.reduce((s, a) => s + a.fte, 0);
+      const weighted = picked.reduce((s, a) => s + (a.ratePerDay ?? 0) * a.fte, 0);
+      return {
+        key: `sel:${selected.join("|")}`,
+        label: picked.length === 1 ? picked[0].agency : `the ${picked.length} agencies picked`,
+        annualRevenue: picked.reduce((s, a) => s + a.revenue, 0) * annual,
+        iRate: fte ? weighted / fte : null,
+        current: fte,
+        currentLabel: "delivery FTE today",
+      };
+    }
+    return {
+      key: "org",
+      label: "the organisation (Singapore delivery)",
+      annualRevenue: plan.settings?.[fy]?.target?.revenueUsd ?? 90_000_000,
+      iRate: last ? weightedIRate(plan, last.key, fy) : null,
+      current: last ? plan.values["ending-hc"]?.[last.key] ?? null : null,
+      currentLabel: `HC today (${last?.key ?? "–"})`,
+    };
+  }, [plan, fy, p, selected, scopeKind]);
+
+  if (!plan.months || plan.months.length === 0) return null;
 
   return (
     <div className="productivity">
       <h2 className="prod-title">How productive are we, and who needs attention?</h2>
-      {now && (
-        <section className="prod-card" aria-labelledby="baseline-title">
-          <h3 id="baseline-title">Organisation baseline</h3>
-          <p className="note">
-            {fy} to date ({monthLabel(now.months[0])} to {monthLabel(now.months[now.months.length - 1])}), annualised:{" "}
-            {mUsd(now.revenue)} revenue run-rate over an average of {int0.format(now.headcount)} delivery HC. GP is revenue
-            minus HC cost at the rate card (iRate).
-          </p>
-          <div className="prod-tiles">
-            {tiles.map((t) => (
-              <div key={t.label} className="prod-tile">
-                <div className="prod-tile-label">{t.label}</div>
-                <div className="prod-tile-value">{t.value}</div>
-                {t.was && (
-                  <div className="prod-tile-was">
-                    {before?.label}: {t.was}
-                    {t.delta && <span className={t.delta.startsWith("▼") ? " down" : " up"}> {t.delta}</span>}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-          {before && (
-            <p className="note">
-              {before.label}: ABCD revenue {mUsd(before.revenue)} over {int0.format(before.headcount)} average HC and
-              staff cost from the {before.source}.
-            </p>
-          )}
-        </section>
-      )}
-      <FteRequired plan={plan} fy={fy} />
-      {plan.productivity && plan.productivity.agencies.length > 0 ? (
-        <AgencyTable agencies={plan.productivity.agencies} plan={plan} />
+      <Baseline plan={plan} fy={fy} />
+      {p && p.agencies.length > 0 ? (
+        <AgencyExplorer plan={plan} selected={selected} onSelect={setSelected} />
       ) : (
         <p className="note">
-          The breakdown by agency and project appears once an ABCD report with actual months and an SL x RP file are
-          uploaded.
+          The agencies and projects appear once an ABCD report with actual months and an SL x RP file are uploaded.
         </p>
       )}
+      <div className="fte-scope segmented" role="group" aria-label="Calculate for">
+        <button type="button" className={scopeKind === "org" ? "on" : ""} aria-pressed={scopeKind === "org"}
+          onClick={() => setScopeKind("org")}>
+          Organisation
+        </button>
+        <button type="button" className={scopeKind === "selection" ? "on" : ""} aria-pressed={scopeKind === "selection"}
+          disabled={selected.length === 0} title={selected.length === 0 ? "Pick agencies in the dropdown above first" : undefined}
+          onClick={() => setScopeKind("selection")}>
+          {selected.length === 0 ? "Agencies picked above" : `The ${selected.length} agenc${selected.length === 1 ? "y" : "ies"} picked`}
+        </button>
+      </div>
+      <FteCalculator key={scope.key} plan={plan} fy={fy} scope={scope} />
     </div>
   );
 }

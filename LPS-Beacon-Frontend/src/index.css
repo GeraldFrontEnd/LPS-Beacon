@@ -3250,8 +3250,8 @@ select.cell-input {
   margin: 12px 20px 0;
 }
 
-/* ---- Analysis page: productivity (organisation baseline, FTE required, agencies needing attention) ---- */
-/* The page now scrolls as a whole; the capacity plan keeps its own scroll box for the sticky header. */
+/* ---- Analysis page: productivity (baseline, agencies and projects, FTE required) ---- */
+/* The page scrolls as a whole; the capacity plan keeps its own scroll box for the sticky header. */
 .analysis-page {
   overflow-y: auto;
 }
@@ -3264,41 +3264,65 @@ select.cell-input {
 .productivity {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 0 20px;
+  gap: 20px;
+  padding: 0 24px 8px;
 }
 
 .prod-title {
-  margin: 16px 20px 0;
-  font-size: 1.05rem;
+  margin: 24px 24px 0;
+  font-size: 1.15rem;
 }
 
 .productivity .prod-title {
-  margin: 12px 0 0;
+  margin: 20px 0 0;
 }
 
 .prod-card {
-  padding: 12px 16px;
+  padding: 20px 24px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--surface);
 }
 
-.prod-card h3 {
-  margin: 0 0 6px;
-  font-size: 0.95rem;
+.prod-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
 }
 
+.prod-card h3 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
+.prod-sub {
+  margin: 0;
+  max-width: 720px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.prod-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Baseline tiles */
 .prod-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
-  margin: 10px 0;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
 }
 
 .prod-tile {
-  padding: 10px 12px;
-  border-radius: 6px;
+  padding: 14px 16px;
+  border-radius: 8px;
   background: var(--plan-section-bg);
 }
 
@@ -3308,7 +3332,8 @@ select.cell-input {
 }
 
 .prod-tile-value {
-  font-size: 1.5rem;
+  margin: 4px 0 2px;
+  font-size: 1.6rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -3320,109 +3345,77 @@ select.cell-input {
 
 .prod-tile-was .down {
   color: var(--error);
+  font-weight: 600;
 }
 
 .prod-tile-was .up {
   color: var(--success);
+  font-weight: 600;
 }
 
-.prod-inputs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin: 6px 0 10px;
-}
-
-.prod-inputs label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
-.prod-inputs input {
-  width: 120px;
-  padding: 5px 8px;
-  border: 1px solid var(--plan-input-line);
-  border-radius: 4px;
-  background: var(--plan-input-bg);
-  color: var(--ink);
-  font: inherit;
-}
-
-.prod-calc {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 6px 16px;
-  margin: 0 0 10px;
-}
-
-.prod-calc div {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
+/* "How this is worked out" panels */
+.prod-formula {
+  margin-top: 14px;
   font-size: 0.85rem;
 }
 
-.prod-calc dt {
-  color: var(--muted);
+.prod-formula summary {
+  cursor: pointer;
+  color: var(--brand-ink);
 }
 
-.prod-calc dd {
-  margin: 0;
-  font-variant-numeric: tabular-nums;
+.prod-formula ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  line-height: 1.6;
+  color: var(--ink);
 }
 
-.prod-result {
+/* Summary strip above the agency table */
+.prod-summary {
   display: flex;
   flex-wrap: wrap;
-  gap: 24px;
-  margin-bottom: 6px;
+  gap: 32px;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid var(--line);
 }
 
-.prod-big {
-  font-size: 1.6rem;
+.prod-summary div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.prod-summary-value {
+  font-size: 1.15rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
-.prod-gap.short .prod-big {
-  color: var(--error);
-}
-
-.prod-agency-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.prod-draft {
-  margin: 6px 0;
-  padding: 6px 10px;
-  border-left: 3px solid var(--brand-ink);
-  background: var(--brand-soft);
+.prod-summary-label {
   font-size: 0.8rem;
+  color: var(--muted);
 }
 
+/* Agency table */
 .prod-scroll {
   overflow-x: auto;
 }
 
-.prod-table th[scope="row"] {
-  min-width: 240px;
-  font-weight: 500;
-  color: var(--ink);
-  background: transparent;
+.prod-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
 }
 
-/* Agency names: the arrow, the name and the project count on one wrapping line. */
-.prod-table .plan-toggle {
-  display: inline;
+.prod-table > thead th {
+  padding: 12px 14px;
+  font-size: 0.75rem;
+  font-weight: 600;
   text-align: left;
-  white-space: normal;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
 }
 
 .prod-table .num {
@@ -3431,24 +3424,124 @@ select.cell-input {
   white-space: nowrap;
 }
 
-.prod-table .prod-project th[scope="row"] {
-  padding-left: 32px;
-  font-weight: 400;
+.prod-row > th,
+.prod-row > td {
+  padding: 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
 }
 
-.prod-table .prod-project td,
-.prod-table .prod-project th {
-  background: var(--plan-section-bg);
+.prod-row {
+  cursor: pointer;
 }
 
-.prod-why {
-  min-width: 220px;
+.prod-row:hover > th,
+.prod-row:hover > td,
+.prod-row.open > th,
+.prod-row.open > td {
+  background: var(--hover);
+}
+
+.prod-row > th {
+  text-align: left;
+  font-weight: 500;
+  min-width: 260px;
+}
+
+.prod-expand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.prod-chevron {
+  width: 12px;
   color: var(--muted);
 }
 
+.prod-agency-name {
+  font-weight: 600;
+}
+
+.prod-agency-count {
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.prod-table td.over {
+  color: #9a6700;
+}
+
+.prod-table td.under {
+  color: var(--error);
+}
+
+/* The opened agency: its reason and its projects */
+.prod-detail > td {
+  padding: 4px 14px 20px 34px;
+  border-bottom: 1px solid var(--line);
+  background: var(--plan-section-bg);
+}
+
+.prod-reason {
+  margin: 12px 0;
+  font-size: 0.85rem;
+}
+
+.prod-subtable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.825rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.prod-subtable th,
+.prod-subtable td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.prod-subtable thead th {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.prod-subtable tbody th {
+  font-weight: 400;
+  max-width: 420px;
+}
+
+.prod-project-name {
+  display: block;
+}
+
+.prod-project-id {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.prod-empty {
+  padding: 16px 0;
+}
+
+/* Flags */
 .flag-pill {
   display: inline-block;
-  padding: 1px 8px;
+  padding: 2px 10px;
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 600;
@@ -3475,12 +3568,780 @@ select.cell-input {
   background: var(--hover);
 }
 
-/* ---- Dashboard: "How are we doing today?" ---- */
-.dashboard-subtitle {
-  margin: 16px 0 6px;
+.flag-dot {
+  display: inline-block;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+.flag-dot.red {
+  background: #b42318;
+}
+
+.flag-dot.amber {
+  background: #f5b83d;
+}
+
+.flag-dot.green {
+  background: #1f6b3a;
+}
+
+/* Multi-select dropdown */
+.multiselect {
+  position: relative;
+}
+
+.multiselect-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 220px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.multiselect-label {
+  color: var(--muted);
+}
+
+.multiselect-value {
+  flex: 1;
+  max-width: 260px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.multiselect-caret {
+  color: var(--muted);
+}
+
+.multiselect-pop {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 340px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+
+.multiselect-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.multiselect-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.multiselect-actions button,
+.link-button {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--brand-ink);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.link-button {
+  margin-left: 8px;
+}
+
+.multiselect-list {
+  max-height: 300px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.multiselect-list label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.multiselect-list label:hover {
+  background: var(--hover);
+}
+
+.multiselect-empty {
+  padding: 8px 4px;
+}
+
+/* FTE calculator */
+.fte-scope {
+  align-self: flex-start;
+}
+
+.fte-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr);
+  gap: 24px;
+}
+
+@media (max-width: 900px) {
+  .fte-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.fte-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 16px;
+  align-content: start;
+}
+
+.fte-inputs > label,
+.fte-convention {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.fte-wide {
+  grid-column: 1 / -1;
+}
+
+.fte-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--plan-input-line);
+  border-radius: 6px;
+  background: var(--plan-input-bg);
+}
+
+.fte-field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.fte-unit {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.fte-convention {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.fte-convention legend {
+  padding: 0 4px;
+}
+
+.fte-convention label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 0.85rem;
+}
+
+.fte-result {
+  padding: 18px 20px;
+  border-radius: 8px;
+  background: var(--plan-section-bg);
+}
+
+.fte-numbers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.fte-numbers > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fte-big {
+  font-size: 1.9rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.fte-cap {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.fte-numbers .short .fte-big {
+  color: var(--error);
+}
+
+.fte-numbers .spare .fte-big {
+  color: var(--success);
+}
+
+.fte-steps {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+
+.fte-steps li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.fte-steps li > span:first-child {
+  color: var(--muted);
+}
+
+.fte-steps li > span:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.fte-note {
+  margin: 12px 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* ---- Dashboard: "How are we doing today?" (filters, header cards, sections) ---- */
+.dashboard-page {
+  max-width: 1280px;
+}
+
+/* The title and the filter stay at the top while the sections scroll under them. */
+.dash-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dash-title h1 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.dash-title p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.dash-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.dash-filters label,
+.bench-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.dash-filters select,
+.bench-filters select,
+.urgent select {
+  min-width: 170px;
+  max-width: 280px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.dashboard-page .dashboard-body {
+  padding: 20px 24px 32px;
+  gap: 20px;
+}
+
+/* Header cards: one row of six, wrapping on narrow screens. */
+.dash-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.dash-card {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: help;
+}
+
+.dash-card dt {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.dash-card dd {
+  margin: 0;
+}
+
+.dash-card dd:first-of-type {
+  margin-top: 4px;
+  font-size: 1.6rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-card dd.tone-bad {
+  color: var(--error);
+}
+
+.dash-card dd.tone-good {
+  color: var(--success);
+}
+
+.dash-card-sub {
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* Productivity vs the baseline, with the what-if beside it */
+.prodchart {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 24px;
+}
+
+@media (max-width: 1000px) {
+  .prodchart {
+    grid-template-columns: 1fr;
+  }
+}
+
+.prodchart-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.prodchart-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.legend-dash {
+  display: inline-block;
+  width: 18px;
+  border-top: 2px dashed var(--ink);
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-left: 8px;
+  border-radius: 2px;
+}
+
+.legend-swatch.below,
+.prodchart-bar.below {
+  background: #b42318;
+  fill: #b42318;
+}
+
+.legend-swatch.above,
+.prodchart-bar.above {
+  background: var(--chart-1);
+  fill: var(--chart-1);
+}
+
+.prodchart-bar.picked {
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+
+.prodchart-svg {
+  width: 100%;
+  height: auto;
+}
+
+.prodchart-label,
+.prodchart-value,
+.bridge-label,
+.bridge-value {
+  fill: var(--ink);
+  font-size: 12px;
+}
+
+.prodchart-value,
+.bridge-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.prodchart-baseline {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+.prodchart-baseline-text {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.whatif {
+  padding: 16px 18px;
+  border-radius: 10px;
+  background: var(--plan-section-bg);
+  align-self: start;
+}
+
+.whatif h4,
+.urgent h4 {
+  margin: 0 0 4px;
   font-size: 0.95rem;
 }
 
-.stat-value.stat-bad {
+.whatif-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  font-size: 0.875rem;
+}
+
+.whatif-input input {
+  width: 60px;
+  padding: 6px 8px;
+  border: 1px solid var(--plan-input-line);
+  border-radius: 6px;
+  background: var(--plan-input-bg);
+  color: var(--ink);
+  font: inherit;
+  text-align: right;
+}
+
+.whatif-rows {
+  margin: 0;
+}
+
+.whatif-rows div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--line);
+  font-size: 0.875rem;
+}
+
+.whatif-rows dt {
+  color: var(--muted);
+}
+
+.whatif-rows dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.whatif-rows dd.down {
   color: var(--error);
+}
+
+.whatif-rows dd.up {
+  color: var(--success);
+}
+
+/* Agencies needing attention */
+.attention-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.attention-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 4px solid #b42318;
+  border-radius: 8px;
+}
+
+.attention-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.attention-name:hover {
+  color: var(--brand-ink);
+  text-decoration: underline;
+}
+
+.attention-why {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* Bench by quarter and who can start soonest */
+.bench-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.bench-filters select {
+  min-width: 130px;
+}
+
+.bench-filters .bench-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 8px;
+  color: var(--ink);
+  font-size: 0.85rem;
+}
+
+.bench-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 1fr);
+  gap: 24px;
+}
+
+@media (max-width: 1000px) {
+  .bench-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bench-table-wrap {
+  max-height: 460px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.bench-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.bench-table th,
+.bench-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.bench-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--plan-section-bg);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.bench-table tfoot th,
+.bench-table tfoot td {
+  position: sticky;
+  bottom: 0;
+  background: var(--plan-section-bg);
+  font-weight: 600;
+}
+
+.bench-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.bench-table td.zero {
+  color: var(--line);
+}
+
+.bench-span {
+  display: block;
+  font-weight: 400;
+}
+
+.bench-table tbody tr {
+  cursor: pointer;
+}
+
+.bench-table tbody tr:hover,
+.bench-table tbody tr.picked {
+  background: var(--hover);
+}
+
+.bench-pos {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.urgent select {
+  width: 100%;
+  max-width: none;
+  margin: 8px 0 12px;
+}
+
+.urgent-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.urgent-counts strong {
+  color: var(--ink);
+  font-size: 1.05rem;
+}
+
+.urgent-list {
+  max-height: 340px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.urgent-list li {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 2px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.85rem;
+}
+
+.urgent-when {
+  grid-row: span 2;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.urgent-now {
+  font-size: 0.78rem;
+}
+
+/* Headcount waterfall */
+.bridge-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.bridge-svg {
+  width: 100%;
+  max-width: 760px;
+  height: auto;
+}
+
+.bridge-bar.total {
+  fill: var(--chart-1);
+}
+
+.bridge-bar.up {
+  fill: var(--success);
+}
+
+.bridge-bar.down {
+  fill: #b42318;
+}
+
+.bridge-bar.billable {
+  fill: var(--band-6);
+}
+
+.bridge-bar.bench {
+  fill: var(--chart-4);
+}
+
+.bridge-link {
+  stroke: var(--muted);
+  stroke-dasharray: 3 3;
 }

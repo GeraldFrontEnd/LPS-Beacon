@@ -194,6 +194,26 @@ class RouteTests(unittest.TestCase):
     def test_dashboard(self):
         status, body = self.call("GET /dashboard")
         self.assertEqual((status, body["permanent"]["regular"]), (200, 2))
+        self.assertIsNone(body["selection"], "no filter: the page uses the organisation's figures")
+        self.assertEqual(body["filters"], {"agencies": [], "projects": []})
+
+    def test_dashboard_filtered_by_agency_or_project(self):
+        import lambda_function as L
+        data = inputs()
+        cell = {"fte": 3.5, "people": 4, "permanent": 3, "secondment": 1, "other": 0, "unknown": 0,
+                "billable": 60, "workingDays": 80}
+        data["breakdown"] = {"agencies": {"Agency X": {"projects": ["P1"], "byMonth": {"2026-04": cell}}},
+                             "projects": {"P1": {"name": "Proj One", "agency": "Agency X", "byMonth": {"2026-04": cell}}}}
+        view = L.dashboard_view(data, agency="Agency X")
+        self.assertEqual(view["filters"]["agencies"], ["Agency X"])
+        self.assertEqual(view["filters"]["projects"], [{"id": "P1", "name": "Proj One", "agency": "Agency X"}])
+        self.assertEqual((view["selection"]["kind"], view["selection"]["byMonth"]["2026-04"]["people"]), ("agency", 4))
+        view = L.dashboard_view(data, project_id="P1")
+        self.assertEqual((view["selection"]["kind"], view["selection"]["agency"]), ("project", "Agency X"))
+        with self.assertRaises(L.HttpError):
+            L.dashboard_view(data, agency="Nobody")
+
+    def test_dashboard_204_without_inputs(self):
         del self.objects["results/capacity/inputs.json"]
         self.assertEqual(self.call("GET /dashboard")[0], 204)
 

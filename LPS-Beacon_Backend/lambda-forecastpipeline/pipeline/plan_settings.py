@@ -11,8 +11,8 @@ Per fiscal year (April to March, see fiscal.py):
                       the resource cost and the weighted average cost per FTE (never to split revenue by band:
                       revenue is not sold by band).
   revenuePerMonthUsd  fallback for the Revenue row when no ABCD report gives the month's revenue.
-  target              the "FTE required" panel's defaults: annual revenue target, GP % and billable UR targets
-                      (Ethan, 28 Oct 2026 demo: US$90M, 27% GP, 87% UR). Editable on the page.
+  target              the "FTE required" calculator's defaults: annual revenue target, GP %, UR, man-days per FTE per
+                      month and whether those man-days are billable days. Editable on the page.
   priorYear           last fiscal year's organisation baseline, for "this FY vs last FY", when the system has no
                       files for that year: average headcount and staff cost from the MBR headcount file.
 
@@ -37,7 +37,10 @@ FISCAL_YEARS: dict[str, dict] = {
         "bandDayRatesCurrency": "SGD",
         "bandDayRates": {"b9": 1145, "b8": 715, "b7": 562, "b6": 412, "b5": 347, "b4": 274, "b3": 219},
         "revenuePerMonthUsd": 8_000_000,
-        "target": {"revenueUsd": 90_000_000, "gpPct": 0.27, "billableUr": 0.87},
+        # FTE-required calculator defaults (3 Nov instructions 8.2 / 9.4 C, all OPEN #2 / #18): $90M is Ethan's example,
+        # 1 FTE = 18 man-days a month, taken as billable days (so UR is not applied again); UR = the overall target.
+        "target": {"revenueUsd": 90_000_000, "gpPct": 0.27, "billableUr": 0.854, "manDaysPerFte": 18,
+                   "manDaysAreBillable": True},
         # FY25 (Apr 2025 - Mar 2026), from HeadCount_File-MBR File.xlsx "FY25/26 HC phasing": FY average headcount
         # and gross staff cost (billable + non-billable, USD).
         "priorYear": {"fiscalYear": "FY25", "averageHeadcount": 561, "staffCostUsd": 45_690_000,
