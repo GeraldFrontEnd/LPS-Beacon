@@ -75,12 +75,21 @@ export default function ChatPage() {
     activeChatIdRef.current = activeChat?.id ?? null;
   });
 
-  // Example questions shown as buttons. Only Finance/HR users get the extra question.
-  const suggestions = [
-    "Show all forecasted available L2 Cloud Engineer resources in Q1 within the Infra OS skill family. ",
-    "List all Underutilized and Overutilized resources for Q1?",
-    ...(user?.role === "finance_hr" ? ["Which ITSO resources are available in Q3?"] : []),
-  ];
+  // Example questions shown as buttons, one per question the product answers (3 Nov 2026 instructions, section 10).
+  // Productivity and FTE questions are Finance/HR only; restricted users get headcount and redeployment counts.
+  const suggestions =
+    user?.role === "finance_hr"
+      ? [
+          "A new project urgently needs two Cloud Engineer L2s. Who can be redeployed soonest, and when does each one's current assignment end?",
+          "What is today's demand vs capacity? Do we have bench or a shortage?",
+          "Which agencies are below the company average on revenue per FTE?",
+          "How many FTE do we need to deliver $90M at 27% GP? Show the formula.",
+        ]
+      : [
+          "How many Cloud Engineer L2s will be free in the next 3 months?",
+          "What is today's demand vs capacity? Do we have bench or a shortage?",
+          "Which standardised position has the biggest demand on won and ongoing work?",
+        ];
 
   // The toast hides itself after a few seconds.
   useEffect(() => {
