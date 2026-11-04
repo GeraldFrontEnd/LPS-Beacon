@@ -173,7 +173,8 @@ export interface FlagRules {
   draft: boolean;
   metrics: string[]; // which per-FTE figures can turn an agency red or amber
   productivity: { redBelowPct: number; amberBelowPct: number };
-  utilisation: { fullMonthManDays: number; urTarget: number; redBelowDays: number; redAboveDays: number };
+  // Missing when inputs.json was built by a pipeline older than 4 Nov 2026: the page falls back to the agreed rule.
+  utilisation?: { fullMonthManDays: number; urTarget: number; redBelowDays: number; redAboveDays: number };
   minFte: number;
 }
 

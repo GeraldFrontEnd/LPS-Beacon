@@ -8,6 +8,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import AuthProvider from "./auth/AuthProvider";
 import { ANALYSIS_ROLES, DASHBOARD_ROLES, UPLOAD_ROLES } from "./auth/permissions";
 import NavBar from "./components/NavBar";
+import PageErrorBoundary from "./components/PageErrorBoundary";
 import RequireAuth from "./components/RequireAuth";
 import AnalysisPage from "./pages/AnalysisPage";
 import CapacityPlanPage from "./pages/CapacityPlanPage";
@@ -31,57 +32,59 @@ export default function App() {
             {/* app-shell stacks the navigation bar on top and the current page below it. */}
             <div className="app-shell">
               <NavBar />
-              <Routes>
-                {/* The login page is the only page that doesn't need a login. */}
-                <Route path="/login" element={<LoginPage />} />
-                {/* RequireAuth wraps each page that needs a login. */}
-                <Route
-                  path="/"
-                  element={
-                    <RequireAuth>
-                      <ChatPage />
-                    </RequireAuth>
-                  }
-                />
-                {/* The dashboard checks the role against DASHBOARD_ROLES (Finance/HR only). */}
-                <Route
-                  path="/dashboard"
-                  element={
-                    <RequireAuth allowedRoles={DASHBOARD_ROLES}>
-                      <DashboardPage />
-                    </RequireAuth>
-                  }
-                />
-                {/* The upload page also checks the role against UPLOAD_ROLES. */}
-                <Route
-                  path="/upload"
-                  element={
-                    <RequireAuth allowedRoles={UPLOAD_ROLES}>
-                      <UploadPage />
-                    </RequireAuth>
-                  }
-                />
-                {/* The Analysis page (productivity) is limited to the roles in ANALYSIS_ROLES (Finance/HR). */}
-                <Route
-                  path="/analysis"
-                  element={
-                    <RequireAuth allowedRoles={ANALYSIS_ROLES}>
-                      <AnalysisPage />
-                    </RequireAuth>
-                  }
-                />
-                {/* The Capacity plan tab (split from Analysis on 3 Nov 2026): the same Finance/HR roles. */}
-                <Route
-                  path="/capacity-plan"
-                  element={
-                    <RequireAuth allowedRoles={ANALYSIS_ROLES}>
-                      <CapacityPlanPage />
-                    </RequireAuth>
-                  }
-                />
-                {/* Any other address sends the user to the chat (which sends them to login if needed). */}
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
+              <PageErrorBoundary>
+                <Routes>
+                  {/* The login page is the only page that doesn't need a login. */}
+                  <Route path="/login" element={<LoginPage />} />
+                  {/* RequireAuth wraps each page that needs a login. */}
+                  <Route
+                    path="/"
+                    element={
+                      <RequireAuth>
+                        <ChatPage />
+                      </RequireAuth>
+                    }
+                  />
+                  {/* The dashboard checks the role against DASHBOARD_ROLES (Finance/HR only). */}
+                  <Route
+                    path="/dashboard"
+                    element={
+                      <RequireAuth allowedRoles={DASHBOARD_ROLES}>
+                        <DashboardPage />
+                      </RequireAuth>
+                    }
+                  />
+                  {/* The upload page also checks the role against UPLOAD_ROLES. */}
+                  <Route
+                    path="/upload"
+                    element={
+                      <RequireAuth allowedRoles={UPLOAD_ROLES}>
+                        <UploadPage />
+                      </RequireAuth>
+                    }
+                  />
+                  {/* The Analysis page (productivity) is limited to the roles in ANALYSIS_ROLES (Finance/HR). */}
+                  <Route
+                    path="/analysis"
+                    element={
+                      <RequireAuth allowedRoles={ANALYSIS_ROLES}>
+                        <AnalysisPage />
+                      </RequireAuth>
+                    }
+                  />
+                  {/* The Capacity plan tab (split from Analysis on 3 Nov 2026): the same Finance/HR roles. */}
+                  <Route
+                    path="/capacity-plan"
+                    element={
+                      <RequireAuth allowedRoles={ANALYSIS_ROLES}>
+                        <CapacityPlanPage />
+                      </RequireAuth>
+                    }
+                  />
+                  {/* Any other address sends the user to the chat (which sends them to login if needed). */}
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </PageErrorBoundary>
             </div>
           </UploadProvider>
         </ReviewProvider>

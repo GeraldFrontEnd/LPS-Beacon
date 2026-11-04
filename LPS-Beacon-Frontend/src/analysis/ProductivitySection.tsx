@@ -180,6 +180,8 @@ function AgencyExplorer({
       return next;
     });
   const r = p.rules;
+  // The 4 Nov rule; inputs built by an older pipeline do not carry it, and the page must not fail on them.
+  const util = r.utilisation ?? { fullMonthManDays: 18, urTarget: 0.85, redBelowDays: 15.3, redAboveDays: 18 };
   const pct = (v: number) => `${Math.round(v * 100)}%`;
 
   return (
@@ -319,9 +321,9 @@ function AgencyExplorer({
             GP per FTE {fmt.usdK(avg.gpPerFte)}, revenue per $1 of HC cost {fmt.ratio(avg.revenuePerHcCost)}.
           </li>
           <li>
-            Red on utilisation: its people clock on average below {r.utilisation.redBelowDays} or above{" "}
-            {r.utilisation.redAboveDays} billable days a month (1 person = {r.utilisation.fullMonthManDays} man-days at a{" "}
-            {pct(r.utilisation.urTarget)} UR target).
+            Red on utilisation: its people clock on average below {util.redBelowDays} or above {util.redAboveDays}{" "}
+            billable days a month (1 person = {util.fullMonthManDays} working days at a {pct(util.urTarget)} UR target);
+            green otherwise.
           </li>
           <li>
             Red on productivity: {r.metrics.map((m) => (m === "revenuePerFte" ? "revenue per FTE" : "GP per FTE")).join(" or ")}{" "}

@@ -4422,3 +4422,20 @@ select.cell-input {
 .mt-table td.mt-bad {
   color: var(--flag);
 }
+
+/* A page that failed to draw (components/PageErrorBoundary.tsx). */
+.page-error {
+  max-width: 640px;
+  margin: 48px auto;
+  padding: 0 24px;
+}
+
+.page-error h1 {
+  font-size: 1.2rem;
+}
+
+.page-error-detail {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
