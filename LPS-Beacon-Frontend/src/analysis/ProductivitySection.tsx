@@ -9,7 +9,9 @@
 //  4. Management target: Finance's P&L summary, full year and quarters (ManagementTarget.tsx).
 // Naming: HC = people (names); FTE = clocked days / 18 (MSPO clocking via the UR report).
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
+import { usePageState } from "../lib/pageState";
 import type { AgencyProductivity, CapacityPlan, Flag, ManagementTargetEdit, ProductivityFigures } from "../api/types";
 import { FISCAL_YEARS } from "./capacityPlanLayout";
 import ManagementTarget from "./ManagementTarget";
@@ -161,13 +163,25 @@ function AgencyExplorer({
   onSelect: (v: string[]) => void;
 }) {
   const p = plan.productivity!;
-  const [status, setStatus] = useState<StatusFilter>("all");
-  const [open, setOpen] = useState<Set<string>>(() => new Set());
+  // Remembered for 30 minutes (lib/pageState.ts), so coming back from the Dashboard finds the page as it was left.
+  const [status, setStatus] = usePageState<StatusFilter>("analysis.status", "all");
+  const [openList, setOpenList] = usePageState<string[]>("analysis.open", []);
+  const open = useMemo(() => new Set(openList), [openList]);
   // The period: the fiscal year to date (default), a quarter or a month (4 Nov 2026).
   const options = useMemo(() => periodOptions(p.months, p.fiscalYear), [p.months, p.fiscalYear]);
-  const [periodId, setPeriodId] = useState("fy");
+  const [periodId, setPeriodId] = usePageState("analysis.period", "fy");
   const period = options.find((o) => o.id === periodId) ?? options[0];
   const view = useMemo(() => periodView(plan, fy, period?.months ?? p.months), [plan, fy, period, p.months]);
+  // A project opens on the Dashboard, filtered to it (4 Nov 2026). The Dashboard's periods are the latest month and
+  // the fiscal quarters, so a quarter or the latest month carries over; another month or the year opens the latest.
+  const navigate = useNavigate();
+  const openProject = (projectId: string) => {
+    const q = new URLSearchParams({ projectId });
+    const last = p.months[p.months.length - 1];
+    if (period?.id.startsWith("Q")) q.set("period", `${period.id}'${p.fiscalYear.slice(2)}`);
+    else if (period?.id === last) q.set("period", "latest");
+    navigate(`/dashboard?${q}`);
+  };
   const agencies = view.agencies;
   const counts = { red: 0, amber: 0, green: 0 } as Record<Flag, number>;
   agencies.forEach((a) => a.flag && (counts[a.flag] += 1));
@@ -183,12 +197,7 @@ function AgencyExplorer({
   const avg = view.companyAverage;
   const revPerFte = total.fte ? (total.revenue * annual) / total.fte : null;
   const toggle = (name: string) =>
-    setOpen((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
+    setOpenList((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
   const r = p.rules;
   // The 4 Nov rule; inputs built by an older pipeline do not carry it, and the page must not fail on them.
   const util = r.utilisation ?? { fullMonthManDays: 18, urTarget: 0.85, redBelowDays: 15.3, redAboveDays: 18 };
@@ -313,10 +322,14 @@ function AgencyExplorer({
                           </thead>
                           <tbody>
                             {a.projects.map((pr) => (
-                              <tr key={pr.projectId} title={pr.flagReason}>
+                              <tr key={pr.projectId} className="prod-project-row" onClick={() => openProject(pr.projectId)}>
                                 <th scope="row">
-                                  <span className="prod-project-name">{pr.projectName}</span>
-                                  <span className="prod-project-id">{pr.projectId}</span>
+                                  <button type="button" className="prod-project-link"
+                                    title={`${pr.flagReason}.\nClick to open this project on the Dashboard.`}
+                                    onClick={(e) => { e.stopPropagation(); openProject(pr.projectId); }}>
+                                    <span className="prod-project-name">{pr.projectName}</span>
+                                    <span className="prod-project-id">{pr.projectId} · open on the Dashboard ›</span>
+                                  </button>
                                 </th>
                                 <td>
                                   <FlagPill flag={pr.flag} />
@@ -377,12 +390,14 @@ interface Scope {
 
 function FteCalculator({ plan, fy, scope }: { plan: CapacityPlan; fy: string; scope: Scope }) {
   const t = plan.settings?.[fy]?.target;
-  const [revenueM, setRevenueM] = useState((scope.annualRevenue / 1_000_000).toFixed(scope.key === "org" ? 0 : 2));
-  const [gp, setGp] = useState(String(((t?.gpPct ?? 0.27) * 100).toFixed(0)));
-  const [ur, setUr] = useState(String(Number(((t?.billableUr ?? 0.854) * 100).toFixed(1))));
-  const [manDays, setManDays] = useState(String(t?.manDaysPerFte ?? 18));
-  const [rate, setRate] = useState(scope.iRate ? scope.iRate.toFixed(0) : "");
-  const [billableDays, setBillableDays] = useState(t?.manDaysAreBillable ?? false);
+  // The inputs are remembered for 30 minutes per scope (lib/pageState.ts).
+  const k = `analysis.fte.${scope.key}.`;
+  const [revenueM, setRevenueM] = usePageState(k + "revenue", (scope.annualRevenue / 1_000_000).toFixed(scope.key === "org" ? 0 : 2));
+  const [gp, setGp] = usePageState(k + "gp", String(((t?.gpPct ?? 0.27) * 100).toFixed(0)));
+  const [ur, setUr] = usePageState(k + "ur", String(Number(((t?.billableUr ?? 0.854) * 100).toFixed(1))));
+  const [manDays, setManDays] = usePageState(k + "manDays", String(t?.manDaysPerFte ?? 18));
+  const [rate, setRate] = usePageState(k + "rate", scope.iRate ? scope.iRate.toFixed(0) : "");
+  const [billableDays, setBillableDays] = usePageState(k + "billable", t?.manDaysAreBillable ?? false);
 
   const inputs = {
     annualRevenue: Number(revenueM) * 1_000_000,
@@ -540,14 +555,14 @@ export default function ProductivitySection({
 }) {
   const fy = reportingYear(plan);
   // The management target's fiscal year: the one we are in, else the plan's first.
-  const [targetYear, setTargetYear] = useState<string>(() => {
+  const [targetYear, setTargetYear] = usePageState<string>("analysis.targetYear", () => {
     const now = new Date();
     const start = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
     const y = `FY'${String(start).slice(2)}`;
     return FISCAL_YEARS.includes(y) ? y : FISCAL_YEARS[0];
   });
-  const [selected, setSelected] = useState<string[]>([]);
-  const [scopeKind, setScopeKind] = useState<"org" | "selection">("org");
+  const [selected, setSelected] = usePageState<string[]>("analysis.agencies", []);
+  const [scopeKind, setScopeKind] = usePageState<"org" | "selection">("analysis.scope", "org");
   const p = plan.productivity;
 
   const scope: Scope = useMemo(() => {

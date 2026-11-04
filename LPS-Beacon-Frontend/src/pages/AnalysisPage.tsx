@@ -4,18 +4,22 @@
 // (CapacityPlanPage.tsx).
 // The whole page scrolls as one, so there is one vertical scroll bar.
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import ProductivitySection from "../analysis/ProductivitySection";
 import { getCapacityPlan, saveManagementTarget } from "../api/client";
 import type { CapacityPlan, ManagementTargetEdit } from "../api/types";
 import { useAuth } from "../auth/useAuth";
+import { loadPageState, savePageState } from "../lib/pageState";
 
 export default function AnalysisPage() {
   const { token } = useAuth();
   const [plan, setPlan] = useState<CapacityPlan | null>(null); // null = still loading
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Where the page was scrolled to, remembered for 30 minutes (lib/pageState.ts) and put back once the data is drawn.
+  const main = useRef<HTMLElement | null>(null);
+  const restored = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,10 +44,20 @@ export default function AnalysisPage() {
     }
   }
 
+  useLayoutEffect(() => {
+    if (!plan || restored.current || !main.current) return;
+    restored.current = true;
+    main.current.scrollTop = loadPageState("analysis.scroll", 0);
+  }, [plan]);
+
   const empty = plan !== null && Object.keys(plan.values).length === 0;
 
   return (
-    <main className="analysis-page productivity-page">
+    <main
+      ref={main}
+      className="analysis-page productivity-page"
+      onScroll={(e) => restored.current && savePageState("analysis.scroll", e.currentTarget.scrollTop)}
+    >
       <header className="page-header">
         <h1>Analysis</h1>
         <p>

@@ -1,7 +1,8 @@
 // src/components/MessageInput.tsx
 // The rounded prompt box at the bottom of the chat: a text box that grows as you type, and a round send-arrow button.
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef } from "react";
+import { usePageState } from "../lib/pageState";
 import type { FormEvent, KeyboardEvent } from "react";
 
 interface MessageInputProps {
@@ -11,7 +12,8 @@ interface MessageInputProps {
 
 export default function MessageInput({ onSend, disabled }: MessageInputProps) {
   // "text" holds what the user has typed so far; setText updates it.
-  const [text, setText] = useState("");
+  // A half-typed question survives leaving the Chat tab (remembered 30 minutes, lib/pageState.ts).
+  const [text, setText] = usePageState("chat.draft", "");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Grow (or shrink) the box to fit its text after every change, so long questions never need a scrollbar.

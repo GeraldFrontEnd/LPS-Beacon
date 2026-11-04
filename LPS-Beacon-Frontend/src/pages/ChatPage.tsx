@@ -3,6 +3,7 @@
 // It owns the data (chat history, waiting replies, errors) and passes it to smaller components.
 
 import { useEffect, useRef, useState } from "react";
+import { usePageState } from "../lib/pageState";
 import { sendMessage } from "../api/client";
 import type { ChatMessage, Sender } from "../api/types";
 import MessageList from "../components/MessageList";
@@ -48,7 +49,9 @@ export default function ChatPage() {
   const { user, token } = useAuth(); // who is logged in, and the token that proves it
   const [theme, setTheme] = useTheme();
 
-  const [view, setView] = useState<View>({ kind: "new", projectId: null });
+  // The open chat (or folder) is remembered for 30 minutes (lib/pageState.ts): coming back to the Chat tab reopens it
+  // instead of starting a new chat. After 30 minutes away, a new chat starts and the old one stays in the history.
+  const [view, setView] = usePageState<View>("chat.view", { kind: "new", projectId: null });
   const [greeting] = useState(() => makeMessage("assistant", GREETING)); // shown in a chat that has no messages yet
   const [pendingIds, setPendingIds] = useState<string[]>([]); // chats waiting for the backend
   const [error, setError] = useState<string | null>(null); // error text for the open chat, or null
@@ -63,6 +66,19 @@ export default function ChatPage() {
   );
 
   const activeChat = view.kind === "chat" ? (history.chats.find((c) => c.id === view.id) ?? null) : null;
+
+  // A remembered chat: once the history list is in, fetch its messages, or start fresh if it no longer exists.
+  useEffect(() => {
+    if (history.loading) return;
+    if (view.kind === "chat") {
+      const chat = history.chats.find((c) => c.id === view.id);
+      if (!chat) setView({ kind: "new", projectId: null });
+      else if (!chat.loaded) void history.loadMessages(chat.id);
+    } else if (view.kind === "project" && !history.projects.some((p) => p.id === view.id)) {
+      setView({ kind: "new", projectId: null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run when the list arrives or the view changes, not on every history update
+  }, [history.loading, view]);
   const openProject = view.kind === "project" ? (history.projects.find((p) => p.id === view.id) ?? null) : null;
   // The folder to highlight in the sidebar: the open one, or the one holding the open or new chat.
   const activeProjectId =

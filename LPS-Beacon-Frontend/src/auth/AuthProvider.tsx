@@ -1,6 +1,7 @@
 // src/auth/AuthProvider.tsx
 // Wraps the whole app, keeps track of who is logged in, and shares it through AuthContext.
 
+import { clearPageState } from "../lib/pageState";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react"; // ReactNode = "anything React can display"
 import { AuthContext } from "./authContext";
@@ -56,6 +57,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
   // Logs out. We clear the screen state first so the UI reacts immediately.
   async function signOut() {
+    clearPageState(); // the remembered filters and open chat belong to the person signing out
     setSession(null);
     await serviceSignOut();
   }

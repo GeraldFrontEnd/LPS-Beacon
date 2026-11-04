@@ -11,8 +11,8 @@
 //                  Capacity plan: the plan's charts over the months (full width, charts side by side)
 //                  "a | b" = side by side, each half the page, on a large screen; one under the other on a smaller one.
 
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { reportingYear } from "../analysis/baseline";
 import { getCapacityPlan, getDashboardInsights, getDashboardView } from "../api/client";
 import type { CapacityPlan, DashboardView } from "../api/types";
@@ -49,9 +49,14 @@ export default function DashboardPage() {
   const [insights, setInsights] = useState<DashboardInsights | null>(null);
   const [view, setView] = useState<DashboardView | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [agency, setAgency] = useState("");
-  const [projectId, setProjectId] = useState("");
-  const [periodId, setPeriodId] = useState("latest");
+  // The filter lives in the address (?agency=&projectId=&period=), so the Analysis page can open a project here,
+  // the browser's back button works, and a filtered view can be bookmarked or shared.
+  const [params, setParams] = useSearchParams();
+  const [agency, setAgency] = useState(() => params.get("agency") ?? "");
+  const [projectId, setProjectId] = useState(() => params.get("projectId") ?? "");
+  const [periodId, setPeriodId] = useState(() => params.get("period") ?? "latest");
+  const [filterNote, setFilterNote] = useState<string | null>(null);
+  const [arrivedWith] = useState(() => params.get("projectId")); // opened from another page: show its people
   const [allRed, setAllRed] = useState(false); // the red agencies list starts with the first RED_SHOWN
 
   useEffect(() => {
@@ -77,12 +82,48 @@ export default function DashboardPage() {
   useEffect(() => {
     let cancelled = false;
     getDashboardView({ agency: projectId ? null : agency || null, projectId: projectId || null, month }, token ?? undefined)
-      .then((v) => !cancelled && setView(v))
-      .catch((err) => !cancelled && setError(err instanceof Error ? err.message : "Could not load the filter."));
+      .then((v) => {
+        if (cancelled) return;
+        setView(v);
+        setFilterNote(null);
+        // A project opened from elsewhere: show its agency in the Agency box too.
+        const sel = v?.selection;
+        if (sel?.kind === "project" && sel.agency && !agency) setAgency(sel.agency);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // A project or agency the Dashboard has no plan for (e.g. revenue only): say so and keep the page.
+        if (projectId || agency) {
+          setFilterNote(
+            `${projectId || agency} has no people or demand planned in the resource plan, so the Dashboard can't show it. ` +
+              "Showing all agencies instead."
+          );
+          setProjectId("");
+          setAgency("");
+        } else setError(err instanceof Error ? err.message : "Could not load the filter.");
+      });
     return () => {
       cancelled = true;
     };
   }, [token, agency, projectId, month]);
+
+  // Keep the address in step with the filter (replace, so each change is not a new history entry).
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (agency) next.set("agency", agency);
+    if (projectId) next.set("projectId", projectId);
+    if (periodId !== "latest") next.set("period", periodId);
+    if (next.toString() !== params.toString()) setParams(next, { replace: true });
+  }, [agency, projectId, periodId, params, setParams]);
+
+  // Opened on a project: bring its people into view once, when they are loaded.
+  const scrolled = useRef(false);
+  useEffect(() => {
+    if (arrivedWith && view?.people && !scrolled.current) {
+      scrolled.current = true;
+      document.getElementById("dashboard-section-people")?.closest("section")?.scrollIntoView({ block: "start" });
+    }
+  }, [arrivedWith, view?.people]);
   const fy = plan ? reportingYear(plan) : "FY26";
   const projects = (view?.filters.projects ?? []).filter((p) => !agency || p.agency === agency);
   const filterName = projectId
@@ -165,6 +206,11 @@ export default function DashboardPage() {
       </header>
 
       <div className="dashboard-body">
+        {filterNote && (
+          <p className="note dash-filter-note" role="status">
+            {filterNote}
+          </p>
+        )}
         {!hasPlan ? (
           <p className="note">No capacity plan yet. The Dashboard fills in once the uploaded files have been processed.</p>
         ) : (
