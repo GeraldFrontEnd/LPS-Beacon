@@ -4,10 +4,12 @@
 //
 //  Filter bar      agency, project ID and period (latest month or a fiscal quarter), with a jump bar to the groups
 //                  below; the header cards and the people list recalculate. Full window width (4 Nov 2026).
-//  Groups          Today: header cards · demand vs capacity · who is on it (people on the agency / project picked)
-//                  Who needs attention: agencies flagged red · productivity vs the company baseline + hiring what-if
-//                  Can we redeploy: bench by quarter and who can start soonest
-//                  Headcount over time: headcount waterfall · capacity plan trends
+//  Groups          Today: header cards · who is on it (full width, right under the cards) · demand vs capacity |
+//                         headcount waterfall
+//                  Who needs attention: agencies flagged red | productivity vs the company baseline + hiring what-if
+//                  Can we redeploy: bench by quarter and who can start soonest (full width)
+//                  Capacity plan: the plan's charts over the months (full width, charts side by side)
+//                  "a | b" = side by side, each half the page, on a large screen; one under the other on a smaller one.
 
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -34,7 +36,7 @@ const GROUPS = [
   { id: "group-today", label: "Today" },
   { id: "group-attention", label: "Who needs attention" },
   { id: "group-redeploy", label: "Can we redeploy" },
-  { id: "group-headcount", label: "Headcount over time" },
+  { id: "group-plan", label: "Capacity plan" },
 ];
 
 function jumpTo(id: string) {
@@ -170,12 +172,6 @@ export default function DashboardPage() {
             <h2 className="dash-group" id="group-today">Today</h2>
             {period && <HeaderCards plan={plan} view={view} period={period} fy={fy} />}
 
-            <DashboardSection id="demand" title="Demand vs capacity">
-              <div className="chart-grid">
-                <DemandCapacity plan={plan} view={view} />
-              </div>
-            </DashboardSection>
-
             <DashboardSection
               id="people"
               title={view?.selection ? `Who is on ${view.selection.kind === "project" ? "this project" : "this agency"}` : "Who is on it"}
@@ -191,49 +187,57 @@ export default function DashboardPage() {
               )}
             </DashboardSection>
 
-            <h2 className="dash-group" id="group-attention">Who needs attention</h2>
-            <DashboardSection id="attention" title={`Agencies needing attention (${red.length})`}>
-              {red.length > 0 ? (
-                <ul className="attention-list">
-                  {(allRed ? red : red.slice(0, RED_SHOWN)).map((a) => (
-                    <li key={a.agency}>
-                      <button type="button" className="attention-name" onClick={() => { setAgency(a.agency); setProjectId(""); }}
-                        title="Show only this agency">
-                        {a.agency}
-                      </button>
-                      <span className="attention-why">{a.flagReason}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="note">No agency is flagged red.</p>
-              )}
-              {red.length > RED_SHOWN && (
-                <button type="button" className="secondary-button attention-more" onClick={() => setAllRed((v) => !v)}>
-                  {allRed ? "Show fewer" : `Show all ${red.length}`}
-                </button>
-              )}
-              <p className="note">
-                For management attention and Thomas&apos;s review{plan.productivity?.rules.draft ? " (draft thresholds)" : ""}. Click an
-                agency to filter the Dashboard to it, or <Link to="/analysis">see every agency and its projects</Link>.
-              </p>
-            </DashboardSection>
+            <div className="dash-pair">
+              <DashboardSection id="demand" title="Demand vs capacity">
+                <div className="chart-grid">
+                  <DemandCapacity plan={plan} view={view} />
+                </div>
+              </DashboardSection>
+              <DashboardSection id="bridge" title="Headcount waterfall by quarter">
+                <HeadcountBridge plan={plan} fy={fy} />
+              </DashboardSection>
+            </div>
 
-            <DashboardSection id="productivity" title="How productive are we? Against the company baseline">
-              <ProductivityChart plan={plan} fy={fy} agency={agency || view?.selection?.agency || null} />
-            </DashboardSection>
+            <h2 className="dash-group" id="group-attention">Who needs attention</h2>
+            <div className="dash-pair">
+              <DashboardSection id="attention" title={`Agencies needing attention (${red.length})`}>
+                {red.length > 0 ? (
+                  <ul className="attention-list">
+                    {(allRed ? red : red.slice(0, RED_SHOWN)).map((a) => (
+                      <li key={a.agency}>
+                        <button type="button" className="attention-name" onClick={() => { setAgency(a.agency); setProjectId(""); }}
+                          title="Show only this agency">
+                          {a.agency}
+                        </button>
+                        <span className="attention-why">{a.flagReason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="note">No agency is flagged red.</p>
+                )}
+                {red.length > RED_SHOWN && (
+                  <button type="button" className="secondary-button attention-more" onClick={() => setAllRed((v) => !v)}>
+                    {allRed ? "Show fewer" : `Show all ${red.length}`}
+                  </button>
+                )}
+                <p className="note">
+                  For management attention and Thomas&apos;s review{plan.productivity?.rules.draft ? " (draft thresholds)" : ""}. Click an
+                  agency to filter the Dashboard to it, or <Link to="/analysis">see every agency and its projects</Link>.
+                </p>
+              </DashboardSection>
+              <DashboardSection id="productivity" title="How productive are we? Against the company baseline">
+                <ProductivityChart plan={plan} fy={fy} agency={agency || view?.selection?.agency || null} />
+              </DashboardSection>
+            </div>
 
             <h2 className="dash-group" id="group-redeploy">Can we redeploy?</h2>
             <DashboardSection id="bench" title="Bench by quarter and who can start soonest">
               <BenchView people={insights?.resources?.availability ?? []} asOf={insights?.asOf ?? null} />
             </DashboardSection>
 
-            <h2 className="dash-group" id="group-headcount">Headcount over time</h2>
-            <DashboardSection id="bridge" title="Headcount waterfall by quarter">
-              <HeadcountBridge plan={plan} fy={fy} />
-            </DashboardSection>
-
-            <DashboardSection id="capacity-plan" title="Capacity plan over the months">
+            <h2 className="dash-group" id="group-plan">Capacity plan</h2>
+            <DashboardSection id="capacity-plan" title="Headcount, joiners and leavers, and utilisation over the months">
               <CapacityCharts plan={plan} />
             </DashboardSection>
           </>

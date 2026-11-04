@@ -4688,3 +4688,59 @@ select.cell-input {
   align-self: flex-start;
   margin-top: 4px;
 }
+
+/* ---- Dashboard layout (4 Nov 2026): two sections side by side on a large screen, stacked on a smaller one ---- */
+.dash-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (min-width: 1200px) {
+  .dash-pair {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  /* Half a page: a chart and its what-if panel stack, and the cards inside use one column. */
+  .dash-pair .prodchart {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dash-pair .chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dash-pair .attention-list {
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  }
+}
+
+/* The capacity plan's charts: two side by side on a large screen (the utilisation heat map below them spans both),
+   one under the other on a smaller screen. */
+#dashboard-section-capacity-plan .chart-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 1200px) {
+  #dashboard-section-capacity-plan .chart-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+/* The six stat cards: one row on a large screen, two rows of three below it (never five and one). */
+.dash-cards {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (min-width: 1200px) {
+  .dash-cards {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .dash-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
