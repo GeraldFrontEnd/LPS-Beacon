@@ -1,19 +1,21 @@
 // src/pages/AnalysisPage.tsx
 // The Analysis tab: "How productive are we, and who needs attention?" (organisation baseline, agencies and projects,
-// FTE required). The capacity plan table moved to its own tab on 3 Nov 2026 (CapacityPlanPage.tsx).
+// calculated FTE required, management target). The capacity plan table moved to its own tab on 3 Nov 2026
+// (CapacityPlanPage.tsx).
 // The whole page scrolls as one, so there is one vertical scroll bar.
 
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import ProductivitySection from "../analysis/ProductivitySection";
-import { getCapacityPlan } from "../api/client";
-import type { CapacityPlan } from "../api/types";
+import { getCapacityPlan, saveManagementTarget } from "../api/client";
+import type { CapacityPlan, ManagementTargetEdit } from "../api/types";
 import { useAuth } from "../auth/useAuth";
 
 export default function AnalysisPage() {
   const { token } = useAuth();
   const [plan, setPlan] = useState<CapacityPlan | null>(null); // null = still loading
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -25,6 +27,19 @@ export default function AnalysisPage() {
     };
   }, [token]);
 
+  // One typed line of the management target: saved for everyone, and the page gets the plan back.
+  async function saveTarget(edit: ManagementTargetEdit) {
+    setSaving(true);
+    setError(null);
+    try {
+      setPlan(await saveManagementTarget(edit, token ?? undefined));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save the change.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const empty = plan !== null && Object.keys(plan.values).length === 0;
 
   return (
@@ -32,8 +47,8 @@ export default function AnalysisPage() {
       <header className="page-header">
         <h1>Analysis</h1>
         <p>
-          How productive we are against the company baseline, which agencies and projects need attention, and how many FTE a
-          revenue target needs. All amounts in USD. The month-by-month numbers are on the{" "}
+          How many FTE a revenue target needs, how productive we are against the company baseline, which agencies and
+          projects need attention, and where we stand against the management target. All amounts in USD. The month-by-month numbers are on the{" "}
           <Link to="/capacity-plan">Capacity plan</Link> tab.
         </p>
       </header>
@@ -48,7 +63,7 @@ export default function AnalysisPage() {
           Nothing to analyse yet. The figures appear once the system has processed the uploaded files.
         </p>
       )}
-      {plan && !empty && <ProductivitySection plan={plan} />}
+      {plan && !empty && <ProductivitySection plan={plan} savingTarget={saving} onSaveTarget={(e) => void saveTarget(e)} />}
     </main>
   );
 }

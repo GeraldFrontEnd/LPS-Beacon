@@ -81,14 +81,15 @@ export default function ChatPage() {
     user?.role === "finance_hr"
       ? [
           "A new project urgently needs two Cloud Engineer L2s. Who can be redeployed soonest, and when does each one's current assignment end?",
-          "What is today's demand vs capacity? Do we have bench or a shortage?",
+          "What is today's FTE demand vs FTE actual vs headcount? Do we have bench or a shortage?",
           "Which agencies are below the company average on revenue per FTE?",
-          "How many FTE do we need to deliver $90M at 27% GP? Show the formula.",
+          "List the resources on a project, with each person's FTE and days clocked this month, and plan vs actual.",
         ]
       : [
           "How many Cloud Engineer L2s will be free in the next 3 months?",
           "What is today's demand vs capacity? Do we have bench or a shortage?",
           "Which standardised position has the biggest demand on won and ongoing work?",
+          "Show a project's plan vs actual FTE this month.",
         ];
 
   // The toast hides itself after a few seconds.

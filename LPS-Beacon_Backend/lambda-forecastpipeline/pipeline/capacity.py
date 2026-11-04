@@ -25,9 +25,12 @@ What it holds (all money in USD):
                        report has them, its forecast after. The Revenue row's default.
   demand               FTE demand per month on won and ongoing work: SL x RP "Project" and "Quote Won" man-days / 18
                        (the backlog the headcount delivers), for "demand vs capacity today" on the Dashboard
-  productivity         per agency (customer) and project, this fiscal year to date: revenue (ABCD), delivery FTE
-                       (SL x RP man-days on "Project" rows), HC cost at the rate card (iRate), and the ratios,
-                       flagged against the company average with the DRAFT thresholds in plan_settings.PRODUCTIVITY
+  productivity         per agency (customer) and project, this fiscal year to date: revenue (ABCD), HC, FTE actual
+                       (clocked, clocking.py), planned FTE (SL x RP "Project" rows), clocked days per head, HC cost
+                       at the rate card (iRate), and the ratios; flagged red / green on clocked days per head (15.3 to
+                       18) and against the company average (DRAFT thresholds in plan_settings.PRODUCTIVITY)
+  actualFte            FTE actual for the organisation per clocked month: all clocked billable days / 18
+  roster               results/capacity/roster.json: plan vs actual per person, project and month (clocking.py)
   hiringNeeds          the people the latest published review found must be hired (its hiring gap: demand
                        nobody could be matched to), per month and band, with the roles. They are the plan's
                        default joiners. A need starting in an actual month is moved to the first forecast
@@ -38,11 +41,12 @@ What it holds (all money in USD):
 from __future__ import annotations
 
 import calendar
+import json
 import datetime as dt
 
 import pandas as pd
 
-from . import fiscal, plan_settings
+from . import clocking, fiscal, plan_settings
 from .clean import UR_WORKING_DAYS as UR_DAYS
 from .s3io import Store
 
@@ -235,26 +239,31 @@ def _flag(value: float | None, average: float | None, rules: dict) -> str | None
     return "green"
 
 
-def _staffing_flag(fte: float, required: float | None, rules: dict) -> tuple[str | None, str | None]:
-    if not required:
-        return None, None
-    off = (fte - required) / required
-    state = "over" if off > 0 else "under"
-    if abs(off) > rules["redOffPct"]:
-        return "red", state
-    if abs(off) > rules["amberOffPct"]:
-        return "amber", state
-    return "green", "on target"
-
-
 def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days: dict[str, float],
-                  rp_full_month_mds: float = 18.0) -> tuple[dict | None, list[str]]:
-    """This fiscal year to date, per agency and project. Months: the ABCD report's actual months in the latest FY."""
+                  clocked_months: set[str], rp_full_month_mds: float = 18.0) -> tuple[dict | None, list[str]]:
+    """This fiscal year to date, per agency and project (4 Nov 2026 rules):
+         headcount     people on it, averaged over the months like the FTE (distinct names on its SL x RP
+                       Project rows each month)
+         fte           FTE actual: clocked billable days / 18 (MSPO clocking, else the UR report; clocking.py), averaged
+         planFte       SL x RP man-days / 18, averaged
+         daysPerHead   clocked billable days per person per month; red below 15.3 or above 18
+    Months: the ABCD report's actual months in the latest FY that the UR report also has (so revenue and clocking
+    cover the same months). Without a UR report the planned FTE stands in, and the notes say so."""
     actual = sorted(abcd.loc[abcd["Actual"], "Month"].astype(str).unique())
     if not actual:
         return None, ["the ABCD report has no actual months yet, so productivity by agency is not worked out"]
     fy = fiscal.fy_label(dt.date.fromisoformat(actual[-1] + "-01"))
     months = [m for m in actual if fiscal.fy_label(dt.date.fromisoformat(m + "-01")) == fy]
+    notes: list[str] = []
+    clocked = bool(clocked_months & set(months))
+    if clocked:
+        dropped = [m for m in months if m not in clocked_months]
+        months = [m for m in months if m in clocked_months]
+        if dropped:
+            notes.append(f"productivity leaves out {', '.join(dropped)}: ABCD has revenue but there is no "
+                         "clocking for it yet")
+    else:
+        notes.append("no clocking for these months: delivery FTE is the planned FTE (SL x RP), not clocked")
     fy_settings = settings.get(fy) or plan_settings.resolve(fy)
     rates = fy_settings["bandDayRatesUsd"]
     days = {m: float(working_days.get(m) or _weekdays(m)) for m in months}
@@ -264,25 +273,18 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
     names = abcd.drop_duplicates("Project_ID").set_index("Project_ID")["Project_Name"].to_dict() \
         if "Project_Name" in abcd.columns else {}
 
-    # Delivery FTE per project per month and band: SL x RP "Project" rows (named people), man-days / 18.
-    fte_rows = pd.DataFrame(columns=["project", "month", "band", "fte"])
-    notes: list[str] = []
-    if store.exists("clean/sl_rp/latest.json.gz"):
-        sl = store.read_table("clean/sl_rp/latest.json.gz")
-        sl = sl[sl["Demand Type"].astype("string").str.lower().eq("project")].copy()
-        sl["month"] = pd.to_datetime(sl["Calendar Date"]).dt.strftime("%Y-%m")
-        sl = sl[sl["month"].isin(months)]
-        sl["band"] = pd.to_numeric(sl["Grade"], errors="coerce")
-        sl["fte"] = pd.to_numeric(sl["MD"], errors="coerce").fillna(0) / rp_full_month_mds
-        sl["project"] = sl["ID"].astype("string")
-        for r in sl.dropna(subset=["project"]).drop_duplicates("project").itertuples(index=False):
-            if r.project not in agency and isinstance(r.Customer, str) and r.Customer.strip():
-                agency[r.project] = r.Customer.strip()
-            if r.project not in names and isinstance(r.Name, str):
-                names[r.project] = r.Name
-        fte_rows = sl.groupby(["project", "month", "band"], dropna=False, as_index=False)["fte"].sum()
-    else:
-        notes.append("no SL x RP uploaded: delivery FTE by agency is unknown, so per-FTE figures are left out")
+    pm = clocking.person_months(store, months, rp_full_month_mds)
+    if pm.empty and not store.exists("clean/sl_rp/latest.json.gz"):
+        notes.append("no SL x RP uploaded: headcount and FTE by agency are unknown, so per-FTE figures are left out")
+    for r in pm.drop_duplicates("project").itertuples(index=False):
+        if r.project not in agency and isinstance(r.customer, str) and r.customer.strip():
+            agency[r.project] = r.customer.strip()
+        if r.project not in names and isinstance(r.projectName, str):
+            names[r.project] = r.projectName
+    pm = pm.copy()
+    pm["fteDays"] = pm["actualDays"].fillna(0.0) if clocked else pm["planDays"]
+    latest = months[-1] if months else None
+    rules = plan_settings.PRODUCTIVITY["flags"]
 
     def cost_of(rows: pd.DataFrame) -> float:
         total = 0.0
@@ -291,21 +293,27 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
             rate = rates.get(band) if band else None
             if rate is None:     # no band: the average of the rate card
                 rate = sum(rates.values()) / len(rates)
-            total += r.fte * rate * days.get(r.month, 0.0)
+            total += r.fteDays * rate          # man-days x day rate
         return total
 
     n = len(months)
     target = fy_settings["target"]
+
     def metrics(revenue: float, rows: pd.DataFrame) -> dict:
-        fte = float(rows["fte"].sum()) / n if len(rows) else 0.0
+        fte = float(rows["fteDays"].sum()) / rp_full_month_mds / n if len(rows) else 0.0
+        plan_fte = float(rows["planDays"].sum()) / rp_full_month_mds / n if len(rows) else 0.0
         hc_cost = cost_of(rows)
         gp = revenue - hc_cost
         annual = 12 / n
-        rate_per_day = (hc_cost / (fte * sum(days.values()))) if fte else None   # weighted iRate of this mix
-        required = None
-        if rate_per_day:
-            required = fte_required(revenue * annual, rate_per_day, target)
-        return {"revenue": round(revenue, 2), "hcCost": round(hc_cost, 2), "gp": round(gp, 2), "fte": round(fte, 2),
+        fte_days = float(rows["fteDays"].sum())
+        rate_per_day = hc_cost / fte_days if fte_days else None              # weighted iRate of this mix
+        required = fte_required(revenue * annual, rate_per_day, target) if rate_per_day else None
+        per_person = rows.dropna(subset=["clockedDays"]).drop_duplicates(["itCode", "month"])
+        days_per_head = float(per_person["clockedDays"].mean()) if clocked and len(per_person) else None
+        return {"revenue": round(revenue, 2), "hcCost": round(hc_cost, 2), "gp": round(gp, 2),
+                "headcount": round(rows.groupby("month")["itCode"].nunique().sum() / n, 1) if len(rows) else 0,
+                "fte": round(fte, 2), "planFte": round(plan_fte, 2),
+                "daysPerHead": round(days_per_head, 2) if days_per_head is not None else None,
                 "revenuePerFte": round(revenue * annual / fte, 2) if fte else None,
                 "gpPerFte": round(gp * annual / fte, 2) if fte else None,
                 "revenuePerHcCost": round(revenue / hc_cost, 3) if hc_cost else None,
@@ -313,22 +321,21 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
                 "requiredFte": round(required, 2) if required else None}
 
     rev_by_project = rev.groupby(rev["Project_ID"].astype(str))["Revenue"].sum().to_dict()
-    projects = set(rev_by_project) | set(fte_rows["project"].astype(str))
+    projects = set(rev_by_project) | set(pm["project"].astype(str))
     by_agency: dict[str, dict] = {}
     for pid in projects:
         name = agency.get(pid, "(no customer)")
-        rows = fte_rows[fte_rows["project"].astype(str) == pid]
+        rows = pm[pm["project"] == pid]
         m = metrics(float(rev_by_project.get(pid, 0.0)), rows)
-        if not m["revenue"] and not m["fte"]:
+        if not m["revenue"] and not m["fte"] and not m["planFte"]:
             continue
         a = by_agency.setdefault(name, {"agency": name, "projects": [], "_rows": []})
         a["projects"].append({"projectId": pid, "projectName": names.get(pid) or pid, **m})
         a["_rows"].append(rows)
 
-    rules = plan_settings.PRODUCTIVITY["flags"]
     agencies = []
     for a in by_agency.values():
-        rows = pd.concat(a.pop("_rows"), ignore_index=True) if a["_rows"] else fte_rows.iloc[0:0]
+        rows = pd.concat(a.pop("_rows"), ignore_index=True) if a["_rows"] else pm.iloc[0:0]
         a.update(metrics(sum(p["revenue"] for p in a["projects"]), rows))
         a["projects"].sort(key=lambda p: -p["revenue"])
         agencies.append(a)
@@ -341,26 +348,33 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
                "gpPerFte": round(tot_gp * annual / tot_fte, 2) if tot_fte else None,
                "revenuePerHcCost": round(tot_rev / sum(a["hcCost"] for a in flagged), 3)
                if sum(a["hcCost"] for a in flagged) else None}
+    util = rules["utilisation"]
 
     def flags_for(item: dict) -> None:
+        use = clocking.utilisation_flag(item["daysPerHead"], util)
+        item["utilisationFlag"] = use
         if item["fte"] < rules["minFte"] or item["revenue"] <= 0:
-            item.update(flag=None, productivityFlag=None, staffingFlag=None, staffing=None,
-                        flagReason="not flagged: less than %g delivery FTE or no revenue" % rules["minFte"])
+            reasons = []
+            if use == "red":
+                reasons.append(_days_reason(item["daysPerHead"], util))
+            item.update(flag=use if use == "red" else None, productivityFlag=None,
+                        flagReason="; ".join(reasons) or
+                        "productivity not flagged: less than %g delivery FTE or no revenue" % rules["minFte"])
             return
         per = [_flag(item[k], average[k], rules["productivity"]) for k in rules["metrics"]]
         order = {"red": 2, "amber": 1, "green": 0}
         prod = max((f for f in per if f), key=lambda f: order[f], default=None)
-        staff, state = _staffing_flag(item["fte"], item["requiredFte"], rules["staffing"])
-        overall = max((f for f in (prod, staff) if f), key=lambda f: order[f], default=None)
+        overall = max((f for f in (prod, use) if f), key=lambda f: order[f], default=None)
         reasons = []
+        if use == "red":
+            reasons.append(_days_reason(item["daysPerHead"], util))
         for k, f in zip(rules["metrics"], per):
             if f in ("red", "amber") and average[k]:
                 reasons.append(f"{'Revenue' if k == 'revenuePerFte' else 'GP'} per FTE "
                                f"{(average[k] - item[k]) / average[k]:.0%} below the company average")
-        if staff in ("red", "amber") and item["requiredFte"]:
-            reasons.append(f"{state}staffed: {item['fte']:.1f} FTE vs {item['requiredFte']:.1f} needed")
-        item.update(flag=overall, productivityFlag=prod, staffingFlag=staff, staffing=state,
-                    flagReason="; ".join(reasons) or "at or above the company average")
+        item.update(flag=overall, productivityFlag=prod,
+                    flagReason="; ".join(reasons) or "clocking within %g to %g days a head; at or above the company "
+                                                      "average" % (util["redBelowDays"], util["redAboveDays"]))
 
     for a in agencies:
         flags_for(a)
@@ -369,15 +383,26 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
     order = {"red": 0, "amber": 1, "green": 2, None: 3}
     agencies.sort(key=lambda a: (order[a["flag"]], -a["revenue"]))
     no_fte = sum(1 for a in agencies if not a["fte"])
-    notes.append(f"productivity by agency covers {fy} {months[0]} to {months[-1]} (ABCD actuals); per-FTE figures "
-                 "are annualised and use the FTE planned on each project in SL x RP")
+    notes.append(f"productivity by agency covers {fy} {months[0]} to {months[-1]}; per-FTE figures are annualised; "
+                 "delivery FTE = clocked billable days / 18 (" + ("MSPO clocking by project" if clocking.source(store)
+                 == "mspo" else "UR report, split by plan") + "); headcount = people on the project (names on SL x RP "
+                 "and the clocking); both are averages a month")
+    split = int((pm["projectsThatMonth"] > 1).sum()) if len(pm) else 0
+    if split:
+        notes.append(f"{split} person-months are on more than one project: their clocked days are split by plan days")
     if no_fte:
-        notes.append(f"{no_fte} agencies have revenue but no delivery FTE in SL x RP (resale, or projects not "
-                     "planned there): listed, not flagged")
+        notes.append(f"{no_fte} agencies have revenue but no delivery FTE (resale, or projects not in SL x RP): "
+                     "listed, not flagged on productivity")
     if rules.get("draft"):
-        notes.append("the red / amber / green thresholds are a draft, waiting for Ethan to confirm them")
-    return {"fiscalYear": fy, "months": months, "companyAverage": average,
-            "rules": {k: v for k, v in rules.items()}, "agencies": agencies}, notes
+        notes.append("the revenue-per-FTE thresholds are a draft, waiting for Ethan to confirm them")
+    return {"fiscalYear": fy, "months": months, "latestMonth": latest, "clocked": clocked,
+            "companyAverage": average, "rules": {k: v for k, v in rules.items()}, "agencies": agencies}, notes
+
+
+def _days_reason(days: float, util: dict) -> str:
+    if days < util["redBelowDays"]:
+        return f"under-utilised: {days:.1f} clocked days a head a month (below {util['redBelowDays']:g})"
+    return f"over-utilised: {days:.1f} clocked days a head a month (above {util['redAboveDays']:g})"
 
 
 DEMAND_TYPES = ("project", "quote won")
@@ -430,6 +455,8 @@ def _breakdown(store: Store, months: list[str], rp_full_month_mds: float = 18.0)
          people       people planned on the project that month (SL x RP "Project" rows with man-days)
          permanent, secondment, other, unknown   those people by employment type (_people_types)
          billable, workingDays   their UR report days that month, so the page can work out the UR of a selection
+         actualFte    FTE actual: clocked billable days on its projects that month / 18 (clocking.py), clocked
+                      months only
     A person on two projects counts in both (their FTE is split; their headcount is not)."""
     if not store.exists("clean/sl_rp/latest.json.gz"):
         return None, []
@@ -464,6 +491,12 @@ def _breakdown(store: Store, months: list[str], rp_full_month_mds: float = 18.0)
         ur_days = {(str(c), str(m)): (float(v.iloc[0]), float(v.iloc[1])) for (c, m), v in sums.iterrows()}
 
     staffed = sl[(sl["kind"] == "project") & (sl["fte"] > 0) & sl["IT Code"].notna()]
+    clocked = clocking.clocked_months(store) & set(months)
+    pm = clocking.person_months(store, sorted(clocked), rp_full_month_mds) if clocked else None
+    actual_days: dict[tuple[str, str], float] = {}
+    if pm is not None and len(pm):
+        actual_days = {(str(k[0]), str(k[1])): float(v)
+                       for k, v in pm.groupby(["project", "month"])["actualDays"].sum().items()}
 
     def cells(frame: pd.DataFrame, people: pd.DataFrame) -> dict[str, dict]:
         out: dict[str, dict] = {}
@@ -482,6 +515,13 @@ def _breakdown(store: Store, months: list[str], rp_full_month_mds: float = 18.0)
                 cell["billable"] += b
                 cell["workingDays"] += d
             cell["billable"], cell["workingDays"] = round(cell["billable"], 2), round(cell["workingDays"], 2)
+        projects_here = set(frame["project"].astype(str))
+        for month in clocked:
+            days = sum(actual_days.get((p, month), 0.0) for p in projects_here)
+            if days or month in out:
+                cell = out.setdefault(month, {"fte": 0.0, "people": 0, "permanent": 0, "secondment": 0, "other": 0,
+                                              "unknown": 0, "billable": 0.0, "workingDays": 0.0})
+                cell["actualFte"] = round(days / rp_full_month_mds, 2)
         return dict(sorted(out.items()))
 
     agencies: dict[str, dict] = {}
@@ -505,12 +545,13 @@ def fte_required(annual_revenue: float, rate_per_day: float, target: dict) -> fl
     """FTE an annual revenue needs (section 8.2 of the 3 Nov instructions, the same formula as the Analysis page):
         revenue per FTE-day = weighted iRate / (1 - GP %)
         billable FTE        = annual revenue / (12 x man-days per FTE per month x revenue per FTE-day)
-        total FTE           = billable FTE / UR, only when the man-days are working days (manDaysAreBillable false);
-                              18 man-days is about 85 % of a 21-day month, so by default they are taken as billable
-                              days already and UR is not applied again (open question #2)."""
+        total FTE           = billable FTE / UR when the man-days are working days (manDaysAreBillable false, the
+                              default: 18 working days is the company's standard baseline, 4 Nov 2026); billable FTE
+                              as it is when they are billable days.
+    The formula is agreed to be incorrect (4 Nov 2026) and will be replaced."""
     price = rate_per_day / (1 - target["gpPct"])
     billable = annual_revenue / (12 * target["manDaysPerFte"] * price)
-    return billable if target.get("manDaysAreBillable", True) else billable / target["billableUr"]
+    return billable if target.get("manDaysAreBillable", False) else billable / target["billableUr"]
 
 
 def _weekdays(month: str) -> int:
@@ -527,7 +568,8 @@ def _fy_months(fy: str) -> list[str]:
 def build(store: Store, today: dt.date | None = None) -> dict:
     today = today or dt.date.today()
     notes: list[str] = []
-    sources = {d: _source(store, d) for d in ("bu_ur", "staff_list", "workday_hire_leaver", "abcd", "sl_rp")}
+    sources = {d: _source(store, d) for d in ("bu_ur", "staff_list", "workday_hire_leaver", "abcd", "sl_rp",
+                                              "mspo_clocking")}
 
     billable_ur: dict[str, dict] = {}
     working_days: dict[str, float] = {}
@@ -602,9 +644,16 @@ def build(store: Store, today: dt.date | None = None) -> dict:
     notes.extend(demand_notes)
     split, split_notes = _breakdown(store, months)
     notes.extend(split_notes)
+    # FTE actual for the organisation: every clocked billable day that month / 18.
+    actual_fte = {m: round(d / 18.0, 1) for m, d in clocking.billable_days_by_month(store).items() if m in months}
+    actual_source = clocking.source(store)
+    if actual_fte:
+        notes.append("FTE actual = clocked billable days / 18 from the " + (
+            "MSPO clocking export (SANDBOX: synthetic file)" if actual_source == "mspo" else
+            "UR report (no MSPO clocking export uploaded; projects split by plan days)"))
     productivity = None
     if abcd is not None:
-        productivity, prod_notes = _productivity(store, abcd, settings, working_days)
+        productivity, prod_notes = _productivity(store, abcd, settings, working_days, clocking.clocked_months(store))
         notes.extend(prod_notes)
 
     first_forecast = next((m for m in months if m not in billable_ur), None)
@@ -625,6 +674,8 @@ def build(store: Store, today: dt.date | None = None) -> dict:
         "productivity": productivity,
         "demand": demand,
         "breakdown": split,
+        "actualFte": actual_fte or None,
+        "actualFteSource": actual_source,
         "productivitySettings": {"headcountBase": plan_settings.PRODUCTIVITY["headcountBase"],
                                  "abcdScope": plan_settings.PRODUCTIVITY["abcdScope"]},
         "headcountBreakdown": breakdown,
@@ -633,7 +684,23 @@ def build(store: Store, today: dt.date | None = None) -> dict:
     }
 
 
+def _roster(store: Store, inputs: dict) -> dict:
+    """Plan vs actual per person, project and month over the plan's months (clocking.roster)."""
+    months = [m["month"] for m in inputs["months"]]
+    agency: dict[str, str] = {}
+    names: dict[str, str] = {}
+    if store.exists("clean/abcd/latest.json.gz"):
+        abcd = store.read_table("clean/abcd/latest.json.gz")
+        agency = _agency_of(abcd)
+        names = abcd.drop_duplicates("Project_ID").set_index("Project_ID")["Project_Name"].dropna().astype(str).to_dict()
+    pm = clocking.person_months(store, months)
+    actual = clocking.clocked_months(store) & set(months)
+    return clocking.roster(store, pm, agency, names, _people_types(store), actual)
+
+
 def write(store: Store) -> dict:
     inputs = build(store)
     store.write_json(KEY, inputs)
+    roster = json.dumps(_roster(store, inputs), ensure_ascii=False, default=str, separators=(",", ":"))
+    store.write_bytes(clocking.ROSTER_KEY, roster.encode("utf-8"), "application/json")   # compact: about 2 MB
     return inputs

@@ -59,7 +59,7 @@ from .config import Config
 from .s3io import Store
 
 DATASETS = ("resource_plan", "quoteline", "position_mapping", "rates", "sl_rp", "sfdc_pipeline", "abcd",
-            "bu_ur", "staff_list", "workday_hire_leaver")
+            "bu_ur", "staff_list", "workday_hire_leaver", "mspo_clocking")
 
 PLAN_MINIMUM = {"Project ID", "Quote Line Number", "Resource", "Grade", "Position Name", "Fiscal Year"}
 SL_RP_REQUIRED = {"Demand Type", "ID", "Calendar Date", "MD", "Grade", "Position Name"}
@@ -69,6 +69,7 @@ UR_WORKING_DAYS = "Standard Working days (Current month)"
 BU_UR_REQUIRED = {"Report Month", "Grade", "Billable", UR_WORKING_DAYS}
 STAFF_REQUIRED = {"IT Code", "Grade", "Employee Type"}
 WORKDAY_REQUIRED = {"Employee ID", "Worker", "Original Hire Date", "Termination Date"}
+MSPO_REQUIRED = {"Timesheet Month", "IT Code", "Project ID", "Hours"}
 HEADER_SEARCH_ROWS = 30     # report exports put a title block above the real header
 
 RP_REQUIRED = {"Project ID", "Quote Line Number", "Resource", "Grade", "Position Name",
@@ -170,6 +171,10 @@ def detect(sheets: dict[str, pd.DataFrame], source_name: str = "") -> tuple[str,
         found = _header_lower_down(df, SFDC_REQUIRED)
         if found is not None:
             return "sfdc_pipeline", {"main": found}
+    for df in sheets.values():
+        found = df if MSPO_REQUIRED <= set(df.columns) else _header_lower_down(df, MSPO_REQUIRED)
+        if found is not None:
+            return "mspo_clocking", {"main": found}
     for name, df in sheets.items():
         found = df if WORKDAY_REQUIRED <= set(df.columns) else _header_lower_down(df, WORKDAY_REQUIRED)
         if found is not None:
@@ -204,7 +209,7 @@ def detect(sheets: dict[str, pd.DataFrame], source_name: str = "") -> tuple[str,
     shown = {n: df for n, df in sheets.items() if str(n) != "hiddenSheet"} or sheets
     found = "; ".join(f"{short(n)}: {heading(df)}" for n, df in shown.items())
     raise CleanError("columns not recognised as resource plan, quote line, position mapping, rates, "
-                     f"SL x RP, SFDC pipeline, ABCD, BU UR report, staff list or Workday new hire / leaver report ({found})")
+                     f"SL x RP, SFDC pipeline, ABCD, BU UR report, staff list, Workday new hire / leaver report or MSPO clocking ({found})")
 
 
 # ---------------------------------------------------------------- cleaning
@@ -497,6 +502,39 @@ def clean_workday(body: pd.DataFrame, title: pd.DataFrame) -> tuple[pd.DataFrame
     return out.reset_index(drop=True), warnings
 
 
+HOURS_PER_DAY = 8.0
+
+
+def clean_mspo_clocking(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """MSPO clocking (timesheet) export: one row per month, person, project and billable flag, with the days clocked
+    (the file's Man-days, else Hours / 8). The person's name is kept (like SL x RP) so a project's people can be
+    listed; Finance/HR only, see the API. The sandbox file is synthetic (tools/synthesize_mspo_clocking.py)."""
+    warnings: list[str] = []
+    out = pd.DataFrame({
+        "Month": _dates(df["Timesheet Month"]).dt.strftime("%Y-%m"),
+        "IT Code": _text(df["IT Code"]),
+        "Resource": _text(df["Resource"]) if "Resource" in df.columns else pd.NA,
+        "Project ID": _text(df["Project ID"]),
+        "Project Name": _text(df["Project Name"]) if "Project Name" in df.columns else pd.NA,
+        "Customer": _text(df["Customer"]) if "Customer" in df.columns else pd.NA,
+        "Billable": (_text(df["Billable"]).str.lower().isin(["yes", "y", "true", "billable"])
+                     if "Billable" in df.columns else True),
+    })
+    hours = pd.to_numeric(df["Hours"], errors="coerce")
+    days = pd.to_numeric(df["Man-days"], errors="coerce") if "Man-days" in df.columns else hours / HOURS_PER_DAY
+    out["Days"] = days.fillna(hours / HOURS_PER_DAY).fillna(0.0).astype("float64")
+    bad = out["Month"].isna() | out["IT Code"].isna() | out["Project ID"].isna()
+    if bad.any():
+        warnings.append(f"{int(bad.sum())} rows without a month, IT Code or Project ID dropped")
+        out = out.loc[~bad]
+    if not (out["Billable"]).any():
+        warnings.append("no billable rows: delivery FTE can't be worked out from this file")
+    out = (out.groupby(["Month", "IT Code", "Project ID", "Billable"], as_index=False, dropna=False)
+              .agg(Days=("Days", "sum"), Resource=("Resource", "first"), **{"Project Name": ("Project Name", "first")},
+                   Customer=("Customer", "first")))
+    return out.reset_index(drop=True), warnings
+
+
 SL_RP_KEEP = ["Demand Type", "ID", "Name", "Customer", "CRM ID", "Planned Start Date", "Planned End Date",
               "Resource", "IT Code", "Grade", "Skill", "Position Name", "Working City", "Calendar Date", "MD"]
 
@@ -694,6 +732,17 @@ def run_file(cfg: Config, store: Store, key: str, data: bytes, ext: str) -> dict
         gone = int(((month_rows["Month"] == month) & (month_rows["Kind"] == "leaver")).sum())
         quality.update(rowsIn=len(sheets["main"]), month=month, joiners=joined, leavers=gone,
                        months=sorted(month_rows["Month"].astype(str).unique().tolist()), warnings=warnings)
+    elif dataset == "mspo_clocking":
+        rows, warnings = clean_mspo_clocking(sheets["main"])
+        months = sorted(rows["Month"].astype(str).unique().tolist())
+        # An upload may hold some months only: keep the other months already uploaded, replace these.
+        before = store.read_table(prefix + "all.json.gz") if store.exists(prefix + "all.json.gz") else None
+        if before is not None and len(before):
+            rows = pd.concat([before[~before["Month"].astype(str).isin(months)], rows], ignore_index=True)
+        rows = rows.sort_values(["Month", "IT Code", "Project ID"]).reset_index(drop=True)
+        tables = {"all": rows}
+        quality.update(rowsIn=len(sheets["main"]), rowsOut=len(rows), monthsInFile=months,
+                       months=sorted(rows["Month"].astype(str).unique().tolist()), warnings=warnings)
     elif dataset in ("bu_ur", "staff_list"):
         cleaner = clean_bu_ur if dataset == "bu_ur" else clean_staff_list
         tables, warnings = cleaner(sheets["main"])

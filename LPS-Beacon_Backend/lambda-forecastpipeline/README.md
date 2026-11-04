@@ -28,7 +28,8 @@ Two different forecasts:
 | `pipeline/s3io.py` | - | S3 read/write (or a local folder for testing); encryption follows the bucket default unless `S3_SSE` is set |
 | `pipeline/fiscal.py` | - | April-March fiscal year, quarters, halves |
 | `pipeline/validate.py` | 1 | Extension, real size, real content, zip-bomb and macro checks; quarantine |
-| `pipeline/clean.py` | 2 | Recognises resource plan / quote line / position mapping / rates / SL x RP / SFDC pipeline / ABCD / BU UR / staff list; records missing month columns |
+| `pipeline/clean.py` | 2 | Recognises resource plan / quote line / position mapping / rates / SL x RP / SFDC pipeline / ABCD / BU UR / staff list / Workday new hire and leaver / MSPO clocking; records missing month columns |
+| `pipeline/clocking.py` | after cleaning | Plan vs actual per person, project and month (SL x RP plan, MSPO clocking actual, else the UR report); `results/capacity/roster.json` for the chat |
 | `pipeline/crossval.py` | review 1 | Conflicts: the same quote line or project role with a different grade in two files; applies the user's choice |
 | `pipeline/opportunities.py` | review 2 | Opportunity forecast (see above), duplicates flagged |
 | `pipeline/review.py` | review | Review payloads, pipeline demand as extra quote lines, the reviewed matching, hiring gap |

@@ -48,14 +48,16 @@ infrastructure-as-code.
 |---|---|---|
 | Sign-in with Amazon Cognito, plus practice accounts for offline work | Built | `src/auth/` |
 | Upload (CSV/Excel up to 20 MB each, pre-signed S3 upload, per-file status, optional "upload without review") | Built | `src/pages/UploadPage.tsx`, `POST /upload-url` |
-| Review after an upload: Conflicts → Forecast → Matching → publish | Built | `src/review/`, `pipeline/review.py` |
+| Review after an upload: Conflicts → Matching → publish (the Forecast step is switched off) | Built | `src/review/`, `pipeline/review.py` |
 | Chat with the forecast agent (Bedrock Converse with tool use and a guardrail), chat history sidebar with folders | Built | `src/pages/ChatPage.tsx`, `src/components/Sidebar.tsx`, `POST /chat`, `/sessions`, `/folders` |
-| Analysis page: capacity plan with shared editable cells, quarter and FY columns, CSV download | Built | `src/pages/AnalysisPage.tsx`, `lambda-api/capacity_plan.py` |
-| Dashboard: headcount boxes, capacity plan charts, insights from the uploaded files | Built | `src/dashboard/`, `GET /dashboard`, `GET /dashboard/insights` |
+| Analysis page: calculated FTE required calculator, organisation baseline, agencies and projects (HC, FTE actual, clocked days per head, flags), management target (full year and quarters, shared typed lines) | Built | `src/pages/AnalysisPage.tsx`, `src/analysis/`, `lambda-api/management_target.py` |
+| Capacity plan tab: monthly plan with shared editable cells, quarter and FY columns, CSV download | Built | `src/pages/CapacityPlanPage.tsx`, `lambda-api/capacity_plan.py` |
+| Dashboard: headcount, FTE demand / FTE actual / calculated FTE required, filter by agency, project and period, insights | Built | `src/dashboard/`, `GET /dashboard`, `GET /dashboard/insights` |
+| FTE actual from MSPO clocking (hours by person, project and month); the sandbox uses a synthetic export | Built (real export not received) | `pipeline/clocking.py`, `tools/synthesize_mspo_clocking.py` |
 | Activity bell: who uploaded, went through a review step or changed the capacity plan | Built | `src/components/ActivityBell.tsx`, `lambda-api/activity.py` |
 | Monthly refresh of the capacity plan inputs and Dashboard insights | Built (EventBridge) | [Triggers](#triggers) |
 | Chats deleted 90 days after their last message (DynamoDB TTL) | Built | [Chat history model](#chat-history-model) |
-| Leavers, and joiners for past months, from Workday | Waiting on the Workday reports; typed in by hand for now | [Known limitations](#known-limitations) |
+| Leavers, and joiners for past months, from Workday | Built; the sandbox uses synthetic monthly reports (real ones not received) | `pipeline/clean.py`, `tools/synthesize_to_oct26.py` |
 | "Run forecast" on demand (`POST /runs/runForecast`, `GET /runs/{id}`) | Not built (the routes answer 501) | `lambda-api/lambda_function.py` |
 | Charts inside chat answers, what-if scenarios, email notifications, daily chat limit | Not built | [Roadmap](#roadmap) |
 | Authenticator-app (TOTP) MFA setup in the sign-in form | Not supported | [Known limitations](#known-limitations) |
@@ -595,8 +597,9 @@ Everything was set up by hand in the AWS console (Singapore, `ap-southeast-1`).
 - **Pipeline Lambda:** build the container image and follow
   [`DEPLOY.md`](LPS-Beacon_Backend/lambda-forecastpipeline/DEPLOY.md). Pushing a new tag to ECR does not update the
   function: deploy the new image in the Lambda console, and if in doubt compare the function's image digest with ECR.
-- **API Lambda** (`lps-beacon-apilambda`, Python 3.12): paste `lambda_function.py`, `capacity_plan.py` and
-  `activity.py` from `LPS-Beacon_Backend/lambda-api/` into the console and click **Deploy**. It uses only the
+- **API Lambda** (`lps-beacon-apilambda`, Python 3.12): paste `lambda_function.py`, `capacity_plan.py`,
+  `activity.py`, `analytics_tools.py` and `management_target.py` from `LPS-Beacon_Backend/lambda-api/` into the
+  console (create a file for each one that is not there yet) and click **Deploy**. It uses only the
   standard library and boto3.
 - **New API routes** also have to be added in API Gateway (`9dpaon3lz7`) with the JWT authorizer.
 
@@ -660,7 +663,8 @@ LPS-Beacon/
 │   ├── package.json, package-lock.json, vite.config.ts, tsconfig*.json, eslint.config.js, index.html
 │   └── README.md
 └── LPS-Beacon_Backend/
-    ├── lambda-api/               # API Lambda: lambda_function.py (router), capacity_plan.py, activity.py, tests/
+    ├── lambda-api/               # API Lambda: lambda_function.py (router), capacity_plan.py, activity.py,
+    │                             # analytics_tools.py (chat tools), management_target.py, tests/
     └── lambda-forecastpipeline/  # Pipeline Lambda (container image): pipeline/, matching scripts, tests/,
                                   # Dockerfile, build.ps1, run_local.py, README.md, DEPLOY.md
 ```

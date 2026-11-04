@@ -1,16 +1,18 @@
 // src/analysis/ProductivitySection.tsx
-// "How productive are we, and who needs attention?" on the Analysis page, above the capacity plan.
-//  1. Organisation baseline: Revenue per HC, GP per HC, Revenue per $ of HC cost and the weighted cost per FTE per day,
+// "How productive are we, and who needs attention?", the Analysis page, top to bottom (order from 4 Nov 2026):
+//  1. Calculated FTE required: the calculator (1 FTE = 18 man-days a month), for the organisation or the agencies
+//     picked in the agencies dropdown, with its formula printed beside the result.
+//  2. Organisation baseline: Revenue per HC, GP per HC, Revenue per $ of HC cost and the weighted cost per FTE per day,
 //     this fiscal year to date (annualised) against last fiscal year. Each shows how it is worked out.
-//  2. Agencies and projects: every agency at a glance; a dropdown narrows it to the agencies picked; a row opens to
-//     show its projects (the Project View). Flagged red / amber / green with the draft thresholds.
-//  3. FTE required: the 3 Nov calculator (1 FTE = 18 man-days a month), for the organisation or the agencies picked,
-//     with its formula printed beside the result.
-// Naming: HC (headcount) for productivity; FTE for "how many people do we need" and for the delivery effort planned on
-// a project (SL x RP man-days / 18).
+//  3. Agencies and projects: every agency at a glance; a dropdown narrows it to the agencies picked; a row opens to
+//     show its projects (the Project View), with HC, FTE actual (clocked) and days per head.
+//  4. Management target: Finance's P&L summary, full year and quarters (ManagementTarget.tsx).
+// Naming: HC = people (names); FTE = clocked days / 18 (MSPO clocking via the UR report).
 
 import { Fragment, useMemo, useState } from "react";
-import type { AgencyProductivity, CapacityPlan, Flag, ProductivityFigures } from "../api/types";
+import type { AgencyProductivity, CapacityPlan, Flag, ManagementTargetEdit, ProductivityFigures } from "../api/types";
+import { FISCAL_YEARS } from "./capacityPlanLayout";
+import ManagementTarget from "./ManagementTarget";
 import MultiSelect from "../components/MultiSelect";
 import {
   fmt,
@@ -111,17 +113,35 @@ function Baseline({ plan, fy }: { plan: CapacityPlan; fy: string }) {
 type StatusFilter = "all" | Flag;
 
 function figures(f: ProductivityFigures) {
-  const gap = f.requiredFte === null ? null : f.fte - f.requiredFte;
+  const days = f.daysPerHead;
   return (
     <>
       <td className="num">{fmt.usdM(f.revenue)}</td>
-      <td className="num">{fmt.dec1(f.fte)}</td>
+      <td className="num">{fmt.dec1(f.headcount)}</td>
+      <td className="num" title={`Planned ${fmt.dec1(f.planFte)} FTE (SL x RP)`}>{fmt.dec1(f.fte)}</td>
+      <td className={`num${f.utilisationFlag === "red" ? " days-red" : ""}`}
+        title={f.utilisationFlag === "red" ? (days !== null && days < 15.3 ? "Under-utilised" : "Over-utilised") : undefined}>
+        {fmt.dec1(days)}
+      </td>
       <td className="num">{fmt.usdK(f.revenuePerFte)}</td>
       <td className="num">{fmt.usdK(f.gpPerFte)}</td>
       <td className="num">{fmt.dec1(f.requiredFte)}</td>
-      <td className={`num${gap !== null && Math.abs(gap) >= 1 ? (gap > 0 ? " over" : " under") : ""}`}>
-        {gap === null ? "–" : `${gap > 0 ? "+" : gap < 0 ? "−" : ""}${fmt.dec1(Math.abs(gap))}`}
-      </td>
+    </>
+  );
+}
+
+function figureHeads() {
+  return (
+    <>
+      <th scope="col" className="num">Revenue to date</th>
+      <th scope="col" className="num" title="People on it (names on SL x RP), average a month">HC</th>
+      <th scope="col" className="num" title="Clocked billable days ÷ 18 (MSPO clocking), average a month. Planned FTE in the cell's tooltip">FTE actual</th>
+      <th scope="col" className="num" title="Clocked billable days per person a month. Red below 15.3 or above 18">
+        Days / head
+      </th>
+      <th scope="col" className="num">Revenue per FTE</th>
+      <th scope="col" className="num">GP per FTE</th>
+      <th scope="col" className="num">Calculated FTE required</th>
     </>
   );
 }
@@ -169,7 +189,9 @@ function AgencyExplorer({
           <h3 id="agency-title">Agencies and projects</h3>
           <p className="prod-sub">
             {p.fiscalYear} {monthName(p.months[0])} to {monthName(p.months[p.months.length - 1])}. Revenue from the ABCD
-            report; delivery FTE from the people planned on each project (SL x RP). Click an agency to see its projects.
+            report; HC = people on it (names); FTE actual ={" "}
+            {p.clocked === false ? "planned man-days (no clocking yet)" : "clocked billable days"} ÷ 18; both averaged a month. Click an agency to see
+            its projects.
           </p>
         </div>
         <div className="prod-controls">
@@ -211,7 +233,7 @@ function AgencyExplorer({
         </div>
         <div>
           <span className="prod-summary-value">{fmt.dec1(total.fte)}</span>
-          <span className="prod-summary-label">delivery FTE</span>
+          <span className="prod-summary-label">FTE actual</span>
         </div>
         <div>
           <span className="prod-summary-value">{fmt.usdK(revPerFte)}</span>
@@ -225,14 +247,7 @@ function AgencyExplorer({
             <tr>
               <th scope="col">Agency</th>
               <th scope="col">Status</th>
-              <th scope="col" className="num">Revenue to date</th>
-              <th scope="col" className="num">Delivery FTE</th>
-              <th scope="col" className="num">Revenue per FTE</th>
-              <th scope="col" className="num">GP per FTE</th>
-              <th scope="col" className="num">FTE needed</th>
-              <th scope="col" className="num" title="Delivery FTE minus FTE needed: + overstaffed, − understaffed">
-                Over / under
-              </th>
+              {figureHeads()}
             </tr>
           </thead>
           <tbody>
@@ -258,7 +273,7 @@ function AgencyExplorer({
                   </tr>
                   {isOpen && (
                     <tr className="prod-detail">
-                      <td colSpan={8}>
+                      <td colSpan={9}>
                         <p className="prod-reason">
                           <strong>Why:</strong> {a.flagReason}.
                         </p>
@@ -267,12 +282,7 @@ function AgencyExplorer({
                             <tr>
                               <th scope="col">Project</th>
                               <th scope="col">Status</th>
-                              <th scope="col" className="num">Revenue to date</th>
-                              <th scope="col" className="num">Delivery FTE</th>
-                              <th scope="col" className="num">Revenue per FTE</th>
-                              <th scope="col" className="num">GP per FTE</th>
-                              <th scope="col" className="num">FTE needed</th>
-                              <th scope="col" className="num">Over / under</th>
+                              {figureHeads()}
                             </tr>
                           </thead>
                           <tbody>
@@ -309,17 +319,19 @@ function AgencyExplorer({
             GP per FTE {fmt.usdK(avg.gpPerFte)}, revenue per $1 of HC cost {fmt.ratio(avg.revenuePerHcCost)}.
           </li>
           <li>
-            Red: {r.metrics.map((m) => (m === "revenuePerFte" ? "revenue per FTE" : "GP per FTE")).join(" or ")} more than{" "}
-            {pct(r.productivity.redBelowPct)} below the company average, or delivery FTE more than {pct(r.staffing.redOffPct)} off
-            the FTE needed.
+            Red on utilisation: its people clock on average below {r.utilisation.redBelowDays} or above{" "}
+            {r.utilisation.redAboveDays} billable days a month (1 person = {r.utilisation.fullMonthManDays} man-days at a{" "}
+            {pct(r.utilisation.urTarget)} UR target).
           </li>
           <li>
-            Amber: {pct(r.productivity.amberBelowPct)} to {pct(r.productivity.redBelowPct)} below, or {pct(r.staffing.amberOffPct)}{" "}
-            to {pct(r.staffing.redOffPct)} off the FTE needed. Green: neither.
+            Red on productivity: {r.metrics.map((m) => (m === "revenuePerFte" ? "revenue per FTE" : "GP per FTE")).join(" or ")}{" "}
+            more than {pct(r.productivity.redBelowPct)} below the company average. Amber: {pct(r.productivity.amberBelowPct)} to{" "}
+            {pct(r.productivity.redBelowPct)} below. Green: neither.
           </li>
           <li>
-            FTE needed = the agency&apos;s yearly revenue ÷ (12 × 18 man-days × its weighted iRate ÷ (1 − 27% GP)), the
-            calculator&apos;s formula below. Agencies under {r.minFte} FTE or without revenue are listed but not flagged.
+            HC counts names, FTE counts clocked days: a person on two projects counts once in each project&apos;s HC, and their
+            clocked days are split by their planned days. Agencies under {r.minFte} FTE or without revenue are not flagged on
+            productivity.
           </li>
         </ul>
       </details>
@@ -344,7 +356,7 @@ function FteCalculator({ plan, fy, scope }: { plan: CapacityPlan; fy: string; sc
   const [ur, setUr] = useState(String(Number(((t?.billableUr ?? 0.854) * 100).toFixed(1))));
   const [manDays, setManDays] = useState(String(t?.manDaysPerFte ?? 18));
   const [rate, setRate] = useState(scope.iRate ? scope.iRate.toFixed(0) : "");
-  const [billableDays, setBillableDays] = useState(t?.manDaysAreBillable ?? true);
+  const [billableDays, setBillableDays] = useState(t?.manDaysAreBillable ?? false);
 
   const inputs = {
     annualRevenue: Number(revenueM) * 1_000_000,
@@ -361,7 +373,7 @@ function FteCalculator({ plan, fy, scope }: { plan: CapacityPlan; fy: string; sc
     <section className="prod-card" aria-labelledby="fte-title">
       <header className="prod-card-head">
         <div>
-          <h3 id="fte-title">FTE required for a revenue target</h3>
+          <h3 id="fte-title">Calculated FTE required for a revenue target</h3>
           <p className="prod-sub">For {scope.label}. Change any input; the formula on the right updates with it.</p>
         </div>
       </header>
@@ -419,7 +431,7 @@ function FteCalculator({ plan, fy, scope }: { plan: CapacityPlan; fy: string; sc
             </label>
             <label>
               <input type="radio" checked={!billableDays} onChange={() => setBillableDays(false)} />
-              working days (divide by UR)
+              working days (divide by UR, the company standard)
             </label>
           </fieldset>
         </div>
@@ -430,7 +442,7 @@ function FteCalculator({ plan, fy, scope }: { plan: CapacityPlan; fy: string; sc
               <div className="fte-numbers">
                 <div>
                   <span className="fte-big">{fmt.int(result.totalFte)}</span>
-                  <span className="fte-cap">FTE required</span>
+                  <span className="fte-cap">Calculated FTE required</span>
                 </div>
                 <div>
                   <span className="fte-big">{fmt.int(scope.current)}</span>
@@ -478,8 +490,8 @@ function FteCalculator({ plan, fy, scope }: { plan: CapacityPlan; fy: string; sc
                 </li>
               </ol>
               <p className="fte-note">
-                Still to confirm with Ethan: whether 18 man-days are billable or working days (dividing by UR again would count
-                it twice), and whether $90M is the country target.
+                1 FTE = 18 working days a month, the company&apos;s standard baseline, so UR is applied. This formula is
+                being replaced (agreed to be incorrect on 4 Nov), so treat the figure as indicative.
               </p>
             </>
           ) : (
@@ -491,8 +503,23 @@ function FteCalculator({ plan, fy, scope }: { plan: CapacityPlan; fy: string; sc
   );
 }
 
-export default function ProductivitySection({ plan }: { plan: CapacityPlan }) {
+export default function ProductivitySection({
+  plan,
+  savingTarget,
+  onSaveTarget,
+}: {
+  plan: CapacityPlan;
+  savingTarget: boolean;
+  onSaveTarget: (edit: ManagementTargetEdit) => void;
+}) {
   const fy = reportingYear(plan);
+  // The management target's fiscal year: the one we are in, else the plan's first.
+  const [targetYear, setTargetYear] = useState<string>(() => {
+    const now = new Date();
+    const start = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    const y = `FY'${String(start).slice(2)}`;
+    return FISCAL_YEARS.includes(y) ? y : FISCAL_YEARS[0];
+  });
   const [selected, setSelected] = useState<string[]>([]);
   const [scopeKind, setScopeKind] = useState<"org" | "selection">("org");
   const p = plan.productivity;
@@ -510,7 +537,7 @@ export default function ProductivitySection({ plan }: { plan: CapacityPlan }) {
         annualRevenue: picked.reduce((s, a) => s + a.revenue, 0) * annual,
         iRate: fte ? weighted / fte : null,
         current: fte,
-        currentLabel: "delivery FTE today",
+        currentLabel: "FTE actual today",
       };
     }
     return {
@@ -528,6 +555,19 @@ export default function ProductivitySection({ plan }: { plan: CapacityPlan }) {
   return (
     <div className="productivity">
       <h2 className="prod-title">How productive are we, and who needs attention?</h2>
+      <div className="fte-scope segmented" role="group" aria-label="Calculate for">
+        <button type="button" className={scopeKind === "org" ? "on" : ""} aria-pressed={scopeKind === "org"}
+          onClick={() => setScopeKind("org")}>
+          Organisation
+        </button>
+        <button type="button" className={scopeKind === "selection" ? "on" : ""} aria-pressed={scopeKind === "selection"}
+          disabled={selected.length === 0}
+          title={selected.length === 0 ? "Pick agencies in the Agencies dropdown below first" : undefined}
+          onClick={() => setScopeKind("selection")}>
+          {selected.length === 0 ? "Agencies picked below" : `The ${selected.length} agenc${selected.length === 1 ? "y" : "ies"} picked`}
+        </button>
+      </div>
+      <FteCalculator key={scope.key} plan={plan} fy={fy} scope={scope} />
       <Baseline plan={plan} fy={fy} />
       {p && p.agencies.length > 0 ? (
         <AgencyExplorer plan={plan} selected={selected} onSelect={setSelected} />
@@ -536,18 +576,34 @@ export default function ProductivitySection({ plan }: { plan: CapacityPlan }) {
           The agencies and projects appear once an ABCD report with actual months and an SL x RP file are uploaded.
         </p>
       )}
-      <div className="fte-scope segmented" role="group" aria-label="Calculate for">
-        <button type="button" className={scopeKind === "org" ? "on" : ""} aria-pressed={scopeKind === "org"}
-          onClick={() => setScopeKind("org")}>
-          Organisation
-        </button>
-        <button type="button" className={scopeKind === "selection" ? "on" : ""} aria-pressed={scopeKind === "selection"}
-          disabled={selected.length === 0} title={selected.length === 0 ? "Pick agencies in the dropdown above first" : undefined}
-          onClick={() => setScopeKind("selection")}>
-          {selected.length === 0 ? "Agencies picked above" : `The ${selected.length} agenc${selected.length === 1 ? "y" : "ies"} picked`}
-        </button>
-      </div>
-      <FteCalculator key={scope.key} plan={plan} fy={fy} scope={scope} />
+      <section className="prod-card" aria-labelledby="mt-title">
+        <header className="prod-card-head">
+          <div>
+            <h3 id="mt-title">Management target</h3>
+            <p className="prod-sub">
+              Finance&apos;s P&amp;L summary against the management target (MT): the full year, with the four quarters
+              beside it. The MT is set by management, so every MT line is typed in and starts blank. Blue boxes are
+              shared with everyone (costs negative, as on Finance&apos;s sheet); grey italics come from the uploaded
+              files until someone types over them; the other lines are worked out. Quarter per-HC figures are
+              annualised.
+            </p>
+          </div>
+          <div className="prod-controls">
+            {savingTarget && <span className="analysis-status">Saving…</span>}
+            <select className="mt-year" aria-label="Fiscal year" value={targetYear}
+              onChange={(e) => setTargetYear(e.target.value)}>
+              {FISCAL_YEARS.map((y) => (
+                <option key={y} value={y}>
+                  {y.replace("'", "")}
+                </option>
+              ))}
+            </select>
+          </div>
+        </header>
+        <div className="mt-scroll">
+          <ManagementTarget plan={plan} fiscalYear={targetYear} saving={savingTarget} onSave={onSaveTarget} />
+        </div>
+      </section>
     </div>
   );
 }

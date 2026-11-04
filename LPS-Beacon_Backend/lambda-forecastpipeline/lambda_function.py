@@ -94,7 +94,7 @@ def clean_one(cfg, store: Store, key: str) -> dict:
         return {"key": key, "status": "quarantined", "reason": str(exc)}
 
 
-DASHBOARD_DATASETS = ("bu_ur", "staff_list", "sfdc_pipeline", "workday_hire_leaver", "abcd", "sl_rp")
+DASHBOARD_DATASETS = ("bu_ur", "staff_list", "sfdc_pipeline", "workday_hire_leaver", "abcd", "sl_rp", "mspo_clocking")
 
 
 def _refresh_dashboard_data(store: Store) -> None:

@@ -37,10 +37,11 @@ FISCAL_YEARS: dict[str, dict] = {
         "bandDayRatesCurrency": "SGD",
         "bandDayRates": {"b9": 1145, "b8": 715, "b7": 562, "b6": 412, "b5": 347, "b4": 274, "b3": 219},
         "revenuePerMonthUsd": 8_000_000,
-        # FTE-required calculator defaults (3 Nov instructions 8.2 / 9.4 C, all OPEN #2 / #18): $90M is Ethan's example,
-        # 1 FTE = 18 man-days a month, taken as billable days (so UR is not applied again); UR = the overall target.
+        # Calculated-FTE-required calculator defaults: $90M is Ethan's example. 1 FTE = 18 man-days a month, and the 18
+        # are WORKING days: the company's standard baseline (4 Nov 2026), so UR is applied. The formula itself is being
+        # replaced (4 Nov 2026: agreed to be incorrect).
         "target": {"revenueUsd": 90_000_000, "gpPct": 0.27, "billableUr": 0.854, "manDaysPerFte": 18,
-                   "manDaysAreBillable": True},
+                   "manDaysAreBillable": False},
         # FY25 (Apr 2025 - Mar 2026), from HeadCount_File-MBR File.xlsx "FY25/26 HC phasing": FY average headcount
         # and gross staff cost (billable + non-billable, USD).
         "priorYear": {"fiscalYear": "FY25", "averageHeadcount": 561, "staffCostUsd": 45_690_000,
@@ -56,9 +57,8 @@ PRODUCTIVITY = {
     # Headcount base for Revenue / GP per HC (open point 2): "delivery" = the capacity plan's headcount (staff on
     # the UR report). The alternative, all staff on the staff list, is not built.
     "headcountBase": "delivery",
-    # DRAFT thresholds (placeholders until Ethan confirms). Productivity: how far below the company average
-    # (Revenue per FTE or GP per FTE, the worse of the two) an agency may be. Staffing: how far its actual FTE may
-    # sit from the FTE its revenue needs at the target rates.
+    # Productivity: how far below the company average (Revenue per FTE or GP per FTE, the worse of the two) an
+    # agency may be (DRAFT placeholders until Ethan confirms). Utilisation: the clocked-days rule below.
     "flags": {
         "draft": True,
         # GP per FTE is shown for every agency but not in the rule yet: it is a small difference of two big numbers,
@@ -66,7 +66,11 @@ PRODUCTIVITY = {
         # here if Ethan wants it to trigger flags too.
         "metrics": ["revenuePerFte"],
         "productivity": {"redBelowPct": 0.20, "amberBelowPct": 0.05},
-        "staffing": {"redOffPct": 0.30, "amberOffPct": 0.15},
+        # 4 Nov 2026 (Derek, from the meeting): 1 person = 18 working days a month, the company's standard baseline
+        # (a month averages about 20), at an 85 % UR target, so a head clocking below 15.3 or above 18 billable days a
+        # month is red, otherwise green. There is no amber. Applied to a project or agency as the average clocked days
+        # per head.
+        "utilisation": {"fullMonthManDays": 18, "urTarget": 0.85, "redBelowDays": 15.3, "redAboveDays": 18.0},
         "minFte": 1.0,          # agencies with less delivery FTE than this are listed but not flagged
     },
 }

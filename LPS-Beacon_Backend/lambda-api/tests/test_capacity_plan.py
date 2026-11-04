@@ -185,6 +185,27 @@ class RouteTests(unittest.TestCase):
         status, plan = self.call("GET /analysis")
         self.assertEqual((status, plan["values"]), (200, {}), "no plan yet: empty, with a note")
 
+    def test_management_target_lines_are_shared_and_costs_kept_negative(self):
+        status, plan = self.call("PATCH /analysis", {"target": {"fiscalYear": "FY26", "period": "FY", "column": "mt",
+                                                                "rowId": "revenue", "value": 1_000_000}})
+        self.assertEqual((status, plan["managementTarget"]["FY26|FY|mt|revenue"]["value"]), (200, 1_000_000))
+        self.call("PATCH /analysis", {"target": {"fiscalYear": "FY26", "period": "Q2", "column": "mt",
+                                                 "rowId": "opex", "value": 50}}, user="u2", email="u2@lps.com")
+        status, plan = self.call("GET /analysis")
+        cell = plan["managementTarget"]["FY26|Q2|mt|opex"]
+        self.assertEqual((cell["value"], cell["mine"], cell["byName"]), (-50, False, "u2@lps.com"), "a cost is negative")
+        status, plan = self.call("PATCH /analysis", {"target": {"fiscalYear": "FY26", "period": "Q3", "column": "mt",
+                                                                "rowId": "gp-pct", "value": 0.24}})
+        self.assertEqual(plan["managementTarget"]["FY26|Q3|mt|gp-pct"]["value"], 0.24, "MT lines are all typed in")
+        status, plan = self.call("PATCH /analysis", {"target": {"fiscalYear": "FY26", "period": "FY", "column": "mt",
+                                                                "rowId": "revenue", "value": None}})
+        self.assertNotIn("FY26|FY|mt|revenue", plan["managementTarget"])
+        for bad in ({"fiscalYear": "2026", "period": "FY", "column": "mt", "rowId": "revenue", "value": 1},
+                    {"fiscalYear": "FY26", "period": "Q5", "column": "mt", "rowId": "revenue", "value": 1},
+                    {"fiscalYear": "FY26", "period": "FY", "column": "current", "rowId": "gp", "value": 1},
+                    {"fiscalYear": "FY26", "period": "FY", "column": "mt", "rowId": "revenue", "value": "x"}):
+            self.assertEqual(self.call("PATCH /analysis", {"target": bad})[0], 400, bad)
+
     def test_dashboard_insights(self):
         self.assertEqual(self.call("GET /dashboard/insights")[0], 204, "not built yet")
         self.objects["results/dashboard/insights.json"] = json.dumps({"pipeline": {"kpis": {"openCount": 3}}}).encode()

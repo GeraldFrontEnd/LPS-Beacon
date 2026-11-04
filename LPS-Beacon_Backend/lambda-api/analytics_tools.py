@@ -104,15 +104,17 @@ def baseline(inputs, values):
 
 # ---------------------------------------------------------------- productivity by agency / project
 def _figures(item):
-    keep = ("revenue", "fte", "revenuePerFte", "gpPerFte", "revenuePerHcCost", "requiredFte", "flag", "staffing",
-            "flagReason")
+    keep = ("revenue", "headcount", "fte", "planFte", "daysPerHead", "revenuePerFte", "gpPerFte", "revenuePerHcCost",
+            "requiredFte", "flag", "utilisationFlag", "flagReason")
     out = {k: item.get(k) for k in keep}
     out["revenueToDateUsd"] = _r(out.pop("revenue"))
-    out["deliveryFte"] = out.pop("fte")
+    out["deliveryFteClocked"] = out.pop("fte")
+    out["plannedFte"] = out.pop("planFte")
+    out["clockedDaysPerHeadPerMonth"] = out.pop("daysPerHead")
     out["revenuePerFteUsd"] = _r(out.pop("revenuePerFte"))
     out["gpPerFteUsd"] = _r(out.pop("gpPerFte"))
     out["revenuePerDollarOfHcCost"] = out.pop("revenuePerHcCost")
-    out["fteRequired"] = out.pop("requiredFte")
+    out["calculatedFteRequired"] = out.pop("requiredFte")
     return out
 
 
@@ -131,13 +133,14 @@ def productivity(inputs, values, args):
            "companyAverage": {"revenuePerFteUsd": _r(avg.get("revenuePerFte")), "gpPerFteUsd": _r(avg.get("gpPerFte")),
                               "revenuePerDollarOfHcCost": avg.get("revenuePerHcCost"),
                               "basis": f"all agencies with at least {rules.get('minFte', 1)} delivery FTE, "
-                                       "FTE from SL x RP, revenue from ABCD, yearly rates"},
+                                       "FTE = clocked billable days / 18 (UR report), revenue from ABCD, yearly rates"},
            "period": {"fiscalYear": prod.get("fiscalYear"), "months": prod.get("months")},
            "flagRules": {"draft": rules.get("draft"), "metrics": rules.get("metrics"),
                          "redBelowAveragePct": (rules.get("productivity") or {}).get("redBelowPct"),
                          "amberBelowAveragePct": (rules.get("productivity") or {}).get("amberBelowPct"),
-                         "staffingRedOffPct": (rules.get("staffing") or {}).get("redOffPct"),
-                         "staffingAmberOffPct": (rules.get("staffing") or {}).get("amberOffPct")}}
+                         "utilisation": "red when the average clocked billable days per head a month is below "
+                                        f"{(rules.get('utilisation') or {}).get('redBelowDays', 15.3)} or above "
+                                        f"{(rules.get('utilisation') or {}).get('redAboveDays', 18)}"}}
     if level == "organisation":
         return out
 
@@ -207,7 +210,7 @@ def fte_required(inputs, values, args):
     days = number("manDaysPerFte", target.get("manDaysPerFte", 18))
     rate = number("iRateUsd", rate)
     billable_days = args.get("manDaysAreBillable")
-    billable_days = target.get("manDaysAreBillable", True) if billable_days is None else bool(billable_days)
+    billable_days = target.get("manDaysAreBillable", False) if billable_days is None else bool(billable_days)
     if gp > 1:
         gp /= 100            # "27" means 27 %
     if ur > 1.5:
@@ -230,8 +233,9 @@ def fte_required(inputs, values, args):
            "billableFteRequired": _r(billable, 1), "totalFteRequired": _r(total, 1), "formulaSteps": steps,
            "current": _r(current, 1), "currentIs": current_label,
            "gap": _r(total - current, 1) if current is not None else None,
-           "openQuestion": "Still to confirm with Ethan: whether the 18 man-days are billable or working days, and "
-                           "whether $90M is the country target."}
+           "convention": "1 FTE = 18 working days a month, the company's standard baseline; UR is applied.",
+           "openQuestion": "This formula is agreed to be incorrect and is being replaced; treat the figure as "
+                           "indicative. Whether $90M is the country target is also still open."}
     return out
 
 
@@ -382,9 +386,11 @@ def headcount_today(inputs, values, args):
                 "peoplePlanned": cell["people"], "permanent": cell["permanent"], "secondment": cell["secondment"],
                 "otherOrUnknownType": cell["other"] + cell["unknown"],
                 "billableUr": _r(ur, 3) if ur is not None else None, "fteDemand": cell["fte"],
+                "fteActual": cell.get("actualFte"),
                 "basis": "people with man-days on its projects that month (SL x RP); employment type from the staff "
-                         "list, else the UR report's tier; UR from the UR report; FTE demand = Project + Quote Won "
-                         "man-days / 18. Someone on two projects counts in both."}
+                         "list, else the UR report's tier; UR from the UR report; FTE demand (planned) = Project + Quote "
+                         "Won man-days / 18; FTE actual = clocked billable days / 18 (MSPO clocking; null = not "
+                         "clocked yet). Someone on two projects counts in both."}
     col = _key(month)
     hc = (values.get("ending-hc") or {}).get(col)
     demand = ((inputs.get("demand") or {}).get(month) or {}).get("fte")
@@ -395,7 +401,87 @@ def headcount_today(inputs, values, args):
             "supplemental": (perm.get("supplementalOther") or 0) + (perm.get("supplementalRetiree") or 0),
             "secondment": staff.get("secondment"), "staffListAsOf": staff.get("asOf"),
             "billableUr": _r((values.get("billable-ur") or {}).get(col), 3), "fteDemand": demand,
-            "benchOrShortage": _r(hc - demand) if hc is not None and demand is not None else None,
+            "fteActual": (inputs.get("actualFte") or {}).get(month),
+            "benchOrShortageFte": _r(hc - demand) if hc is not None and demand is not None else None,
             "basis": "headcount = capacity plan Ending HC; employment types from the staff list (permanent = Regular "
                      "Employee; Supplemental shown apart, open question #12); UR from the UR report; FTE demand = SL x "
-                     "RP Project + Quote Won man-days / 18. benchOrShortage = headcount - FTE demand (negative = short)."}
+                     "RP Project + Quote Won man-days / 18 (planned); fteActual = all clocked billable days / 18. benchOrShortageFte = headcount - FTE demand, in FTE (negative = "
+                     "short); it is not a number of people."}
+
+
+# ---------------------------------------------------------------- one project: plan vs actual, and its people
+MAX_PEOPLE = 80
+
+
+def _fy_of(month):
+    """"2026-10" -> "FY26" (April to March)."""
+    year, number = int(month[:4]), int(month[5:7])
+    return f"FY{(year if number >= 4 else year - 1) % 100:02d}"
+
+
+def project_resources(roster, args, with_names=True):
+    """A project's plan and actual: per month of its fiscal year (HC, plan FTE, actual FTE), and for one month
+    (the latest month with clocking, or the one asked for) everyone on it with their plan days, clocked days and FTE.
+    roster = results/capacity/roster.json (pipeline/clocking.py). Names only for Finance/HR."""
+    if not roster or not roster.get("projects"):
+        return {"error": "No project roster yet. It is built from the SL x RP file and the UR report: ask a "
+                         "Finance/HR user to upload them."}
+    wanted = str(args.get("project") or "").strip()
+    if not wanted:
+        return {"error": "Which project? Give its project ID or part of its name."}
+    projects = roster["projects"]
+    found = {k: v for k, v in projects.items() if _contains(k, wanted) or _contains(v.get("name"), wanted)}
+    if not found:
+        return {"error": f"No project matches {wanted!r} in the SL x RP file."}
+    if len(found) > 1:
+        exact = {k: v for k, v in found.items()
+                 if k.lower() == wanted.lower() or str(v.get("name") or "").lower() == wanted.lower()}
+        if len(exact) != 1:
+            return {"error": "Several projects match; ask which one.",
+                    "matches": [f"{k} {v.get('name') or ''}".strip() for k, v in sorted(found.items())][:15]}
+        found = exact
+    (pid, p), = found.items()
+    by_month = p.get("byMonth") or {}
+    if not by_month:
+        return {"error": f"Nobody is planned on {pid}."}
+    clocked = [m for m, c in by_month.items() if c.get("actual")]
+    month = str(args.get("month") or "")[:7] or (max(clocked) if clocked else min(by_month))
+    if month not in by_month:
+        return {"error": f"Nobody is planned on {pid} in {month}.", "monthsWithPeople": sorted(by_month)}
+    cell = by_month[month]
+    fy = _fy_of(month)
+    series = [{"month": m, "actualMonth": c["actual"], "headcount": c["headcount"], "planDays": c["planDays"],
+               "planFte": c["planFte"], "actualDays": c["actualDays"], "actualFte": c["actualFte"],
+               "daysPerHead": c["daysPerHead"]}
+              for m, c in sorted(by_month.items()) if _fy_of(m) == fy]
+    done = [s for s in series if s["actualMonth"]]
+    people = []
+    for i, person in enumerate(sorted(cell["people"], key=lambda x: (-(x["planDays"] or 0), x["name"] or ""))):
+        row = {k: person.get(k) for k in ("position", "band", "employment", "planDays", "planFte", "actualDays",
+                                          "actualFte", "clockedDaysAllProjects", "split")}
+        row = {"name": person.get("name") if with_names else f"Person {i + 1}", **row}
+        people.append(row)
+    out = {
+        "project": pid, "projectName": p.get("name"), "agency": p.get("agency"), "month": month,
+        "monthHasClocking": cell["actual"],
+        "thisMonth": {"headcount": cell["headcount"], "planDays": cell["planDays"], "planFte": cell["planFte"],
+                      "actualDays": cell["actualDays"], "actualFte": cell["actualFte"],
+                      "daysPerHead": cell["daysPerHead"], "peopleWithoutClocking": cell["notClocked"]},
+        "fiscalYear": fy,
+        "yearToDate": {"months": len(done),
+                       "planDays": _r(sum(s["planDays"] for s in done), 1),
+                       "actualDays": _r(sum(s["actualDays"] or 0 for s in done), 1)} if done else None,
+        "byMonth": series,
+        "peopleCount": len(people), "peopleShown": min(len(people), MAX_PEOPLE), "people": people[:MAX_PEOPLE],
+        "rule": "1 FTE = 18 man-days a month. Red when a person clocks below 15.3 or above 18 billable days a month "
+                "(clockedDaysAllProjects, their whole month).",
+        "basis": "HC = names on the project (SL x RP and the clocking); plan = SL x RP man-days; actual = days clocked "
+                 + ("to this project in the MSPO clocking export (sandbox: synthetic data)" if roster.get("actualSource")
+                    == "mspo" else "from the UR report, split over their projects by plan days when they are on "
+                    "more than one (split = true)")
+                 + ". planDays 0 with actual days = clocked here without being planned. Months not clocked yet are "
+                   "plan only.",
+    }
+    if not with_names:
+        out["namesHidden"] = "Names are only shown to Finance/HR users."
+    return out

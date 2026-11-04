@@ -3472,11 +3472,9 @@ select.cell-input {
   white-space: nowrap;
 }
 
-.prod-table td.over {
-  color: #9a6700;
-}
-
-.prod-table td.under {
+/* Clocked days per head outside 15.3 to 18 */
+.prod-table td.days-red {
+  font-weight: 600;
   color: var(--error);
 }
 
@@ -3704,11 +3702,18 @@ select.cell-input {
 
 .fte-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   gap: 24px;
 }
 
-@media (max-width: 900px) {
+/* Grid items may shrink below their content, so the input boxes never run under the result panel. */
+.fte-inputs > *,
+.fte-field,
+.fte-field input {
+  min-width: 0;
+}
+
+@media (max-width: 1000px) {
   .fte-layout {
     grid-template-columns: 1fr;
   }
@@ -3716,7 +3721,7 @@ select.cell-input {
 
 .fte-inputs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 14px 16px;
   align-content: start;
 }
@@ -4340,4 +4345,80 @@ select.cell-input {
 .bridge-link {
   stroke: var(--muted);
   stroke-dasharray: 3 3;
+}
+
+/* ---- Management target (Analysis page) ---- */
+.mt-year {
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+/* On the Analysis page the table scrolls sideways inside its card; the page itself scrolls down (one scroll bar). */
+.mt-scroll {
+  overflow-x: auto;
+  border-top: 1px solid var(--line);
+}
+
+.mt-table td {
+  min-width: 76px;
+}
+
+.mt-table thead th {
+  min-width: 76px;
+}
+
+.mt-table .plan-label {
+  min-width: 250px;
+}
+
+.mt-table tr.mt-strong th,
+.mt-table tr.mt-strong td {
+  font-weight: 600;
+}
+
+.mt-table tr.mt-gap th,
+.mt-table tr.mt-gap td {
+  border-top: 10px solid var(--surface);
+}
+
+.mt-table tr.mt-boxed th,
+.mt-table tr.mt-boxed td {
+  background: var(--plan-section-bg);
+}
+
+.mt-table .mt-indent {
+  padding-left: 28px;
+}
+
+.mt-table .mt-italic {
+  font-style: italic;
+  color: var(--muted);
+}
+
+/* A value the files give until someone types over it. */
+.mt-table td.mt-from-file {
+  font-style: italic;
+  color: var(--muted);
+}
+
+.mt-table .mt-input {
+  min-width: 68px;
+}
+
+.mt-table .mt-input::placeholder {
+  font-style: italic;
+  color: var(--muted);
+}
+
+.mt-table td.mt-good {
+  color: var(--success);
+}
+
+.mt-table td.mt-bad {
+  color: var(--flag);
 }

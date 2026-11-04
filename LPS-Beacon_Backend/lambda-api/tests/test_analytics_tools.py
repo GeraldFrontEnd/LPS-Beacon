@@ -120,9 +120,50 @@ class AnalyticsTests(unittest.TestCase):
 
     def test_headcount_today(self):
         org = at.headcount_today(self.inputs, self.values, {})
-        self.assertEqual((org["headcount"], org["fteDemand"], org["benchOrShortage"]), (2, 3.0, -1))
+        self.assertEqual((org["headcount"], org["fteDemand"], org["benchOrShortageFte"]), (2, 3.0, -1))
         agency = at.headcount_today(self.inputs, self.values, {"agency": "red"})
         self.assertEqual((agency["peoplePlanned"], agency["permanent"], agency["billableUr"]), (11, 8, 0.75))
+
+
+def roster():
+    def person(name, plan, clocked, actual, split=False):
+        return {"name": name, "position": "Cloud DBA L2", "band": 7, "employment": "permanent", "planDays": plan,
+                "planFte": round(plan / 18, 2), "clockedDaysAllProjects": clocked, "actualDays": actual,
+                "actualFte": None if actual is None else round(actual / 18, 2), "split": split}
+    return {"projects": {
+        "P-1": {"name": "Helpdesk", "agency": "Agency Red", "byMonth": {
+            "2026-09": {"actual": True, "headcount": 1, "planDays": 18, "planFte": 1, "actualDays": 19, "actualFte": 1.06,
+                        "daysPerHead": 19, "notClocked": 0, "people": [person("Ann", 18, 19, 19)]},
+            "2026-10": {"actual": True, "headcount": 2, "planDays": 27, "planFte": 1.5, "actualDays": 25, "actualFte": 1.39,
+                        "daysPerHead": 16, "notClocked": 0,
+                        "people": [person("Ben", 9, 14, 7, split=True), person("Ann", 18, 18, 18)]},
+            "2026-11": {"actual": False, "headcount": 1, "planDays": 18, "planFte": 1, "actualDays": None,
+                        "actualFte": None, "daysPerHead": None, "notClocked": None, "people": [person("Ann", 18, None, None)]},
+        }},
+        "P-2": {"name": "Help line", "agency": "Agency Red", "byMonth": {}},
+    }}
+
+
+class ProjectResourcesTests(unittest.TestCase):
+    def test_latest_clocked_month_with_names_plan_and_actual(self):
+        r = at.project_resources(roster(), {"project": "P-1"})
+        self.assertEqual((r["project"], r["month"], r["monthHasClocking"]), ("P-1", "2026-10", True))
+        self.assertEqual([p["name"] for p in r["people"]], ["Ann", "Ben"], "most plan days first")
+        self.assertEqual((r["people"][1]["actualDays"], r["people"][1]["split"]), (7, True))
+        self.assertEqual(r["yearToDate"], {"months": 2, "planDays": 45, "actualDays": 44})
+        self.assertEqual([m["month"] for m in r["byMonth"]], ["2026-09", "2026-10", "2026-11"])
+
+    def test_a_forecast_month_is_plan_only(self):
+        r = at.project_resources(roster(), {"project": "helpdesk", "month": "2026-11"})
+        self.assertEqual((r["monthHasClocking"], r["thisMonth"]["actualFte"]), (False, None))
+
+    def test_ambiguous_missing_and_names_hidden(self):
+        self.assertIn("matches", at.project_resources(roster(), {"project": "help"}))
+        self.assertIn("error", at.project_resources(roster(), {"project": "nothing"}))
+        self.assertIn("monthsWithPeople", at.project_resources(roster(), {"project": "P-1", "month": "2025-01"}))
+        hidden = at.project_resources(roster(), {"project": "P-1"}, with_names=False)
+        self.assertEqual([p["name"] for p in hidden["people"]], ["Person 1", "Person 2"])
+        self.assertIn("namesHidden", hidden)
 
 
 class PermissionTests(unittest.TestCase):

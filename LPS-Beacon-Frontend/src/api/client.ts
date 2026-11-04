@@ -4,6 +4,8 @@
 
 // "import type" tells TypeScript these are only types, so they disappear when the app is built.
 import type {
+  ManagementTargetCell,
+  ManagementTargetEdit,
   SendMessageRequest,
   SendMessageResponse,
   PipelineUploadStatus,
@@ -232,7 +234,7 @@ export async function getCapacityPlan(token?: string): Promise<CapacityPlan> {
     await wait(400);
     // Loaded only when needed, so the sample code is not part of a normal build's main file.
     const { buildSampleCapacityPlan } = await import("./sampleCapacityPlan");
-    return buildSampleCapacityPlan(sampleEdits);
+    return { ...buildSampleCapacityPlan(sampleEdits), managementTarget: { ...sampleTarget } };
   }
   return apiRequest<CapacityPlan>("GET", API_ROUTES.analysis, token);
 }
@@ -249,6 +251,25 @@ export async function saveCapacityPlanEdit(edit: CapacityPlanEdit, token?: strin
     return buildSampleCapacityPlan(sampleEdits);
   }
   return apiRequest<CapacityPlan>("PATCH", API_ROUTES.analysis, token, edit);
+}
+
+// Saves one typed line of the management target view (PATCH /analysis {"target": ...}) and returns the plan.
+const sampleTarget: Record<string, ManagementTargetCell> = {};
+const COST_LINES = new Set(["cos", "perm-staff-cost", "secondment-staff-cost", "third-party-cost", "opex",
+  "gross-staff-cost", "avg-staff-cost", "avg-perm-cost", "avg-sec-cost"]);
+export async function saveManagementTarget(edit: ManagementTargetEdit, token?: string): Promise<CapacityPlan> {
+  if (USE_MOCK || USE_SAMPLE_PLAN) {
+    await wait(150);
+    const key = `${edit.fiscalYear}|${edit.period}|${edit.column}|${edit.rowId}`;
+    if (edit.value === null) delete sampleTarget[key];
+    else {
+      const value = COST_LINES.has(edit.rowId) && edit.value > 0 ? -edit.value : edit.value;
+      sampleTarget[key] = { value, mine: true, byName: null, at: new Date().toISOString() };
+    }
+    const { buildSampleCapacityPlan } = await import("./sampleCapacityPlan");
+    return { ...buildSampleCapacityPlan(sampleEdits), managementTarget: { ...sampleTarget } };
+  }
+  return apiRequest<CapacityPlan>("PATCH", API_ROUTES.analysis, token, { target: edit });
 }
 
 // "Clear my edits": removes every cell the signed-in user changed (other people's edits stay). Returns the plan.

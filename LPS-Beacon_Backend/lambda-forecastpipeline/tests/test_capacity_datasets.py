@@ -17,7 +17,7 @@ from test_pipeline import Base, s3_event  # noqa: E402
 
 import pandas as pd  # noqa: E402
 
-from pipeline import capacity, clean, insights, plan_settings  # noqa: E402
+from pipeline import capacity, clean, clocking, insights, plan_settings  # noqa: E402
 from test_review import sfdc_xlsx  # noqa: E402
 
 UR_HEADER = ["BU UR Tgt", "Tier & Grade", "Grade Group", "Grade", "Report Month", "Staff Name", "IT Code", "Tier",
@@ -228,6 +228,125 @@ class BreakdownTests(Base):
         self.assertNotIn("Agency Y", split["agencies"], "Pre Sales is not demand")
         self.assertEqual(split["projects"]["P2"]["byMonth"]["2026-10"]["people"], 0)
         self.assertEqual(split["projects"]["P2"]["agency"], "Agency X")
+
+
+def clocking_fixture(store):
+    """SL x RP (P1, P2, people a1, b1, c1) and the UR report (a1 20 days, b1 14) for October 2026."""
+    sl = pd.DataFrame([
+        # demand type, project, customer, name, IT code, grade, month, man-days
+        ("Project", "P1", "Agency X", "Person A", "a1", 7, "2026-10-01", 18.0),
+        ("Project", "P1", "Agency X", "Person B", "b1", 5, "2026-10-01", 9.0),
+        ("Project", "P2", "Agency X", "Person B", "b1", 5, "2026-10-01", 9.0),     # B is split over P1 and P2
+        ("Project", "P2", "Agency X", "Person C", "c1", 5, "2026-10-01", 18.0),    # C has no clocking
+        ("Project", "P1", "Agency X", "Person A", "a1", 7, "2026-11-01", 18.0),    # a forecast month
+    ], columns=["Demand Type", "ID", "Customer", "Resource", "IT Code", "Grade", "Calendar Date", "MD"])
+    sl["Name"] = sl["ID"].map({"P1": "Helpdesk", "P2": "Network"})
+    sl["Position Name"] = "Engineer"
+    store.write_table("clean/sl_rp/latest.json.gz", sl)
+    store.write_table("clean/bu_ur/latest.json.gz", pd.DataFrame([
+        ("a1", "2026-10", "Tier B", 20.0, 22.0), ("b1", "2026-10", "Tier B", 14.0, 22.0)],
+        columns=["IT Code", "Month", "Tier", "Billable", clean.UR_WORKING_DAYS]))
+
+
+class ClockingTests(Base):
+    """4 Nov 2026: HC from names, FTE from clocking (UR report billable days / 18), red below 15.3 or above 18."""
+
+    def setUp(self):
+        super().setUp()
+        clocking_fixture(self.store)
+
+
+    def test_actual_days_are_split_by_plan_share(self):
+        pm = clocking.person_months(self.store, ["2026-10"]).set_index(["project", "itCode"])
+        self.assertEqual(pm.loc[("P1", "a1"), "actualDays"], 20.0)
+        self.assertEqual(pm.loc[("P1", "b1"), "actualDays"], 7.0, "half of B's 14 clocked days")
+        self.assertEqual(pm.loc[("P2", "b1"), "projectsThatMonth"], 2)
+        self.assertTrue(pd.isna(pm.loc[("P2", "c1"), "clockedDays"]), "not on the UR report")
+
+    def test_roster_plan_vs_actual_with_names(self):
+        pm = clocking.person_months(self.store, ["2026-10", "2026-11"])
+        r = clocking.roster(self.store, pm, {}, {}, {}, {"2026-10"})
+        oct_ = r["projects"]["P1"]["byMonth"]["2026-10"]
+        self.assertEqual((oct_["headcount"], oct_["planDays"], oct_["actualDays"]), (2, 27.0, 27.0))
+        self.assertEqual((oct_["planFte"], oct_["actualFte"], oct_["daysPerHead"]), (1.5, 1.5, 17.0))
+        b = next(p for p in oct_["people"] if p["name"] == "Person B")
+        self.assertEqual((b["planDays"], b["clockedDaysAllProjects"], b["actualDays"], b["split"]), (9.0, 14.0, 7.0, True))
+        nov = r["projects"]["P1"]["byMonth"]["2026-11"]
+        self.assertEqual((nov["actual"], nov["actualDays"], nov["planFte"]), (False, None, 1.0), "forecast: plan only")
+        self.assertEqual(r["projects"]["P2"]["byMonth"]["2026-10"]["notClocked"], 1)
+        self.assertEqual((r["projects"]["P1"]["name"], r["projects"]["P1"]["agency"]), ("Helpdesk", "Agency X"))
+
+    def test_the_15_3_to_18_days_rule(self):
+        rules = plan_settings.PRODUCTIVITY["flags"]["utilisation"]
+        self.assertEqual([clocking.utilisation_flag(d, rules) for d in (15.2, 15.3, 18.0, 18.1, None)],
+                         ["red", "green", "green", "red", None])
+
+    def test_productivity_uses_clocked_fte_and_headcount(self):
+        abcd = pd.DataFrame([("P1", "Helpdesk", "Agency X", "2026-10", 300_000.0, True),
+                             ("P2", "Network", "Agency X", "2026-10", 100_000.0, True)],
+                            columns=["Project_ID", "Project_Name", "End_Customer", "Month", "Revenue", "Actual"])
+        settings = {"FY26": plan_settings.resolve("FY26")}
+        prod, _ = capacity._productivity(self.store, abcd, settings, {"2026-10": 22.0}, {"2026-10"})
+        a = prod["agencies"][0]
+        self.assertEqual((a["headcount"], a["fte"], a["planFte"]), (3.0, 1.89, 3.0))
+        self.assertEqual(a["daysPerHead"], 17.0, "A 20 and B 14 clocked; C has no clocking")
+        p2 = next(p for p in a["projects"] if p["projectId"] == "P2")
+        self.assertEqual((p2["headcount"], p2["daysPerHead"], p2["utilisationFlag"]), (2, 14.0, "red"))
+        self.assertIn("under-utilised", p2["flagReason"])
+
+
+class MspoClockingTests(Base):
+    """4 Nov 2026: FTE actual from the MSPO clocking export (hours by person, project and month), when uploaded."""
+
+    def mspo_xlsx(self) -> bytes:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Timesheet"
+        ws.append(["Timesheet Month", "Resource", "IT Code", "Project ID", "Project Name", "Customer", "Billable",
+                   "Hours", "Man-days"])
+        for row in [
+            (dt.datetime(2026, 10, 1), "Person A", "a1", "P1", "Helpdesk", "Agency X", "Yes", 160, 20),
+            (dt.datetime(2026, 10, 1), "Person B", "b1", "P1", "Helpdesk", "Agency X", "Yes", 40, 5),
+            (dt.datetime(2026, 10, 1), "Person B", "b1", "P2", "Network", "Agency X", "Yes", 72, 9),   # not 7 / 7
+            (dt.datetime(2026, 10, 1), "Person D", "d1", "P2", "Network", "Agency X", "Yes", 144, None),  # unplanned
+            (dt.datetime(2026, 10, 1), "Person B", "b1", "INTERNAL", "Internal", None, "No", 16, 2),
+        ]:
+            ws.append(list(row))
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        return buffer.getvalue()
+
+    def setUp(self):
+        super().setUp()
+        clocking_fixture(self.store)
+
+    def test_detected_and_cleaned(self):
+        import lambda_function
+        result = lambda_function.lambda_handler(s3_event(self.put("MSPO_Clocking.xlsx", self.mspo_xlsx())))
+        self.assertEqual(result["files"][0]["dataset"], "mspo_clocking")
+        rows = self.store.read_table("clean/mspo_clocking/all.json.gz")
+        d1 = rows[rows["IT Code"] == "d1"].iloc[0]
+        self.assertEqual(d1["Days"], 18.0, "no Man-days: hours / 8")
+
+    def test_exact_by_project_and_unplanned_work(self):
+        import lambda_function
+        lambda_function.lambda_handler(s3_event(self.put("MSPO_Clocking.xlsx", self.mspo_xlsx())))
+        self.assertEqual(clocking.source(self.store), "mspo")
+        pm = clocking.person_months(self.store, ["2026-10"]).set_index(["project", "itCode"])
+        self.assertEqual((pm.loc[("P1", "b1"), "actualDays"], pm.loc[("P2", "b1"), "actualDays"]), (5.0, 9.0),
+                         "by project as clocked, not split by plan")
+        self.assertEqual(pm.loc[("P2", "b1"), "clockedDays"], 14.0, "billable days only, all projects")
+        self.assertEqual((pm.loc[("P2", "d1"), "planDays"], pm.loc[("P2", "d1"), "actualDays"]), (0.0, 18.0))
+        self.assertTrue(pd.isna(pm.loc[("P2", "c1"), "clockedDays"]), "planned but not on the export")
+        self.assertEqual(clocking.billable_days_by_month(self.store), {"2026-10": 52.0})
+
+    def test_breakdown_carries_fte_actual(self):
+        import lambda_function
+        lambda_function.lambda_handler(s3_event(self.put("MSPO_Clocking.xlsx", self.mspo_xlsx())))
+        split, _ = capacity._breakdown(self.store, ["2026-10", "2026-11"])
+        self.assertEqual(split["projects"]["P1"]["byMonth"]["2026-10"]["actualFte"], round(25 / 18, 2))
+        self.assertEqual(split["agencies"]["Agency X"]["byMonth"]["2026-10"]["actualFte"], round(52 / 18, 2))
+        self.assertNotIn("actualFte", split["projects"]["P1"]["byMonth"]["2026-11"], "not clocked yet")
 
 
 class CapacityInputsTests(Base):

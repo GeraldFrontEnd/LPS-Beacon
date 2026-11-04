@@ -97,6 +97,7 @@ from boto3.dynamodb.conditions import Key
 import activity
 import analytics_tools
 import capacity_plan
+import management_target
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
@@ -329,9 +330,11 @@ SYSTEM_PROMPT = """You are Beacon, the workforce analysis assistant for LPS. You
 1. Can we meet demand and redeploy? Who is on the bench or rolling off, by standardised position, when they can
    start, who can be redeployed soonest, demand lines on won and ongoing work nobody is matched to yet.
 2. How are we doing today? Headcount (permanent vs secondment), billable UR, FTE demand on won and ongoing work, and
-   whether we have bench or a shortage, for the organisation or one agency or project.
+   whether we have bench or a shortage, for the organisation or one agency or project. For one project: its plan
+   versus actual and the people on it (get_project_resources).
 3. How productive are we, and who needs attention? Revenue per HC, GP per HC, revenue per $1 of HC cost, agencies
-   and projects below the company average, FTE required for a revenue target, and what hiring does to revenue per HC.
+   and projects below the company average, calculated FTE required for a revenue target, and what hiring does to
+   revenue per HC.
 
 Rules:
 - Only state figures and names that come from your tools. If the tools do not have the data, say so plainly.
@@ -344,7 +347,8 @@ Rules:
   chat window, so:
   - List people as bullets, one line each, e.g. "**DBA Backfill** (DBA L2, grade 7): Land Transport Authority,
     available 1 Jun 2026, proposed for SPF Win2019 Upgrade from 1 Sep 2026".
-  - Use a table only for figures with at most 4 short columns, such as counts by role or month.
+  - Use a table only for figures with at most 4 short columns, such as counts by role or month (a project's people:
+    up to 5).
   - Write dates as "1 Nov 2026", not 2026-11-01.
 - When a tool reports more rows than it returned (totalRows > rowsShown), give the total and offer to narrow down by
   role, grade or month. Never present a partial list as complete.
@@ -354,9 +358,18 @@ Rules:
 - Say "standardised position" or "position", not "role" or "skill". Matching is by standardised position and
   availability; band is only a secondary check.
 - Matching is redeployment onto won and ongoing work (quote lines). Do not talk about the SFDC sales pipeline.
-- For FTE required, always state the convention and show the formula steps the tool returns: 1 FTE = 18 man-days a
-  month, and whether the man-days were taken as billable days (UR not applied again) or working days (divided by UR).
-  Mention that this convention is still to be confirmed.
+- HC and FTE are different. HC = people (names). 1 FTE = 18 working days a month. Three FTE figures: FTE demand
+  (planned, SL x RP), FTE actual (clocked, MSPO clocking) and calculated FTE required (from revenue). Say which one. A person
+  clocking below 15.3 or above 18 billable days a month is red (the 85 % UR target). Never call FTE "people".
+- For a project ("list the resources on X", "who works on X", "plan vs actual for X"): call get_project_resources.
+  Give the month, HC, plan FTE vs actual FTE, then a table of the people: name, position, plan days, clocked days,
+  FTE. Mark people whose days are split over several projects, and people over 18 or under 15.3 days. If asked for
+  the plan vs the actual over time, give the byMonth figures as a short table (month, HC, plan FTE, actual FTE).
+  For a list of people the table may have up to 5 short columns.
+- Call it "calculated FTE required", never just "FTE required".
+- For calculated FTE required, always state the convention and show the formula steps the tool returns: 1 FTE = 18
+  working days a month (the company's standard baseline), divided by UR. Say that the formula is being replaced, so
+  the figure is indicative.
 - For productivity, say what the figure is compared with (the company average, and the basis the tool gives) and
   that the red / amber / green thresholds are a draft when the tool says so.
 - Write money as $127.5K or $4.68M (USD), percentages to one decimal place.
@@ -366,7 +379,7 @@ Rules:
 
 ROLE_RULES = {
     RESTRICTED: "- You do not have access to cost, rate, revenue, margin, productivity, FTE-required or salary information,\n"
-                "  nor to the names of people on the bench. If asked, say it is only available to Finance/HR users.",
+                "  nor to people's names (bench or project lists). If asked, say it is only available to Finance/HR users.",
     FINANCE_HR: "- The user is in Finance/HR and may see every figure your tools return.",
 }
 
@@ -689,6 +702,17 @@ def tool_redeployable(args, caller=None):
 tool_redeployable.wants_caller = True
 
 
+ROSTER_KEY = "results/capacity/roster.json"
+
+
+def tool_project_resources(args, caller=None):
+    names = bool(caller and caller.is_finance_hr)
+    return analytics_tools.project_resources(_cached_json(ROSTER_KEY), args, with_names=names)
+
+
+tool_project_resources.wants_caller = True
+
+
 def tool_bench_by_quarter(args):
     return analytics_tools.bench_by_quarter(_cached_json(INSIGHTS_KEY), args)
 
@@ -804,9 +828,19 @@ TOOLS = {
          "quarter": {"type": "string", "description": "'Q1'..'Q4'"},
          "position": {"type": "string"}, "band": {"type": "string"}, "level": {"type": "string"},
          "includeRedeployed": {"type": "boolean"}})),
+    "get_project_resources": (tool_project_resources, _tool(
+        "get_project_resources",
+        "One project's plan versus actual, and the people on it. For a month (default: the latest month with "
+        "clocking): headcount, plan days and FTE, actual clocked days and FTE, days per head, and every person with "
+        "position, band, plan days, plan FTE, clocked days, actual FTE and whether their days are split over several "
+        "projects. Also the plan and actual per month of that fiscal year. Use for 'list the resources on project X', "
+        "'who is working on X', 'plan vs actual for X'.",
+        {"project": {"type": "string", "description": "Project ID (e.g. PROJ-00007233) or part of the project name"},
+         "month": {"type": "string", "description": "YYYY-MM; omit for the latest month with clocking"}})),
     "get_headcount_today": (tool_headcount_today, _tool(
         "get_headcount_today",
-        "Today's position: headcount, permanent vs secondment, billable UR, FTE demand on won and ongoing work, and "
+        "Today's position: headcount, permanent vs secondment, billable UR, FTE demand on won and ongoing work, FTE "
+        "actual (clocked), and "
         "bench or shortage, for the organisation, or for one agency (customer) or project ID: then people planned on "
         "it, their employment types and UR, and its FTE demand. Defaults to the latest month with actual figures.",
         {"agency": {"type": "string", "description": "Agency (customer) name or part of it"},
@@ -816,7 +850,8 @@ TOOLS = {
         "get_productivity_metrics",
         "Productivity: the organisation baseline (revenue per HC, GP per HC, revenue per $1 of HC cost, weighted cost "
         "per FTE per day, this fiscal year vs last), the company average per FTE, and agencies or projects with "
-        "revenue, delivery FTE, revenue and GP per FTE, FTE needed, red/amber/green flag and why. Use for 'which "
+        "revenue, HC, FTE actual (clocked) and planned, clocked days per head, revenue and GP per FTE, calculated FTE "
+        "required, flag (utilisation red/green, productivity red/amber/green) and why. Use for 'which "
         "customers or projects are below the company average'.",
         {"level": {"type": "string", "enum": ["organisation", "agency", "project"]},
          "name": {"type": "string", "description": "Agency name, project ID or project name, or part of it"},
@@ -825,15 +860,15 @@ TOOLS = {
     "calculate_fte_required": (tool_fte_required, _tool(
         "calculate_fte_required",
         "How many FTE a yearly revenue needs, for the organisation or one agency, with the formula steps. Defaults: "
-        "the settings' target ($90M example), 27% GP, UR 85.4%, 18 man-days per FTE per month taken as billable days, "
+        "the settings' target ($90M example), 27% GP, UR 85.4%, 18 working days per FTE per month (UR applied), "
         "the weighted iRate. Also returns today's headcount (or the agency's FTE) and the gap.",
         {"revenueUsd": {"type": "number", "description": "Yearly revenue target in USD, e.g. 90000000"},
          "gpPct": {"type": "number", "description": "Gross profit, e.g. 0.27"},
          "billableUr": {"type": "number", "description": "e.g. 0.854"},
          "manDaysPerFte": {"type": "number", "description": "Man-days per FTE per month, default 18"},
          "manDaysAreBillable": {"type": "boolean",
-                                "description": "true (default): the man-days are billable days; false: working days, "
-                                               "divide by UR"},
+                                "description": "false (default): the man-days are working days, divide by "
+                                               "UR (the company standard); true: billable days"},
          "agency": {"type": "string", "description": "An agency, to calculate for it instead of the organisation"},
          "iRateUsd": {"type": "number", "description": "Override the weighted cost per FTE per day"}})),
     "hiring_what_if": (tool_hiring_what_if, _tool(
@@ -848,7 +883,7 @@ TOOLS = {
 # find_available_resources lists people by name, which the 3 Nov instructions keep to Finance/HR.
 SHARED_TOOLS = {"get_matching_summary", "get_availability_forecast", "find_unfilled_demand",
                 "count_resources", "count_unfilled_demand", "count_demand", "find_redeployable_people",
-                "get_bench_by_quarter", "get_headcount_today"}
+                "get_bench_by_quarter", "get_headcount_today", "get_project_resources"}
 TOOLS_BY_GROUP = {
     RESTRICTED: SHARED_TOOLS,
     FINANCE_HR: SHARED_TOOLS | {"find_available_resources", "get_productivity_metrics", "calculate_fte_required",
@@ -1256,9 +1291,16 @@ def _save_plan_edits(doc):
                   ContentType="application/json")
 
 
+def _management_target():
+    found = _read_s3(management_target.KEY)
+    doc = json.loads(found[0].decode("utf-8")) if found else {}
+    return doc if isinstance(doc.get("cells"), dict) else {"cells": {}}
+
+
 def _plan_reply(inputs, doc, caller, **extra):
+    target = management_target.public(_management_target(), caller.user_id)
     if inputs is None:
-        return reply(200, dict(values={}, months=[], edited={}, currency="USD",
+        return reply(200, dict(values={}, months=[], edited={}, currency="USD", managementTarget=target,
                                notes=["No capacity plan yet: upload a UR report and a staff list"], **extra))
     cells = doc["cells"]
     values = capacity_plan.build(inputs, {k: c["value"] for k, c in cells.items()})
@@ -1274,9 +1316,12 @@ def _plan_reply(inputs, doc, caller, **extra):
                            productivity=inputs.get("productivity"),
                            revenueByMonth=inputs.get("revenue"),
                            demandByMonth=inputs.get("demand"),
+                           # FTE actual (clocked billable days / 18) per month, and where it came from.
+                           actualFteByMonth=inputs.get("actualFte"), actualFteSource=inputs.get("actualFteSource"),
                            workdayMonths=sorted(set((inputs.get("actualFlows") or {}).keys())
                                                 & {m["month"] for m in inputs["months"]}),
                            startingHeadcountSource=(inputs.get("startingHeadcount") or {}).get("source"),
+                           managementTarget=target,
                            notes=inputs.get("notes") or [], generatedAt=inputs.get("generatedAt"), **extra))
 
 
@@ -1285,10 +1330,34 @@ def get_analysis(event, caller):
     return _plan_reply(_capacity_inputs(), _plan_edits(), caller)
 
 
+def edit_management_target(body, caller):
+    """{"target": {"fiscalYear", "period", "column", "rowId", "value"}}: one typed line of the management target view
+    (management_target.py). value null clears it."""
+    try:
+        key, value = management_target.check_edit(body.get("target") or {})
+    except management_target.EditError as e:
+        raise HttpError(400, str(e))
+    doc = _management_target()
+    if value is None:
+        doc["cells"].pop(key, None)
+    else:
+        doc["cells"][key] = {"value": value, "by": caller.user_id, "byName": caller.display_name,
+                             "at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")}
+    s3.put_object(Bucket=BUCKET, Key=management_target.KEY, Body=json.dumps(doc).encode("utf-8"),
+                  ContentType="application/json")
+    print("Management target", key, "changed by user", caller.user_id)
+    activity.record(table, caller.user_id, caller.display_name, "plan_edit", detail=f"Management target {key}",
+                    group="plan", fold_ms=activity.FOLD_MINUTES * 60 * 1000)
+    return _plan_reply(_capacity_inputs(), _plan_edits(), caller)
+
+
 def edit_analysis(event, caller):
-    """One changed cell: {"rowId", "columnKey", "value"}; value null puts the cell back to its worked-out value."""
+    """One changed cell: {"rowId", "columnKey", "value"}; value null puts the cell back to its worked-out value.
+    A management target line comes as {"target": {...}} (edit_management_target)."""
     caller.require_finance_hr()
     body = json_body(event)
+    if isinstance(body.get("target"), dict):
+        return edit_management_target(body, caller)
     row_id, column = str(body.get("rowId") or ""), str(body.get("columnKey") or "")
     if not re.fullmatch(r"[a-z-]{1,40}(:b[3-9])?", row_id) or not re.fullmatch(r"[A-Za-z0-9']{1,10}", column):
         raise HttpError(400, "Send {\"rowId\", \"columnKey\", \"value\"}")

@@ -110,8 +110,28 @@ export interface CapacityPlan {
   productivity?: Productivity | null; // by agency and project, this FY to date (ABCD x SL x RP)
   revenueByMonth?: Record<string, { revenue: number; cost: number; actual: boolean }> | null; // ABCD, Singapore
   demandByMonth?: Record<string, { fte: number; project: number; quoteWon: number }> | null; // SL x RP, won + ongoing
+  actualFteByMonth?: Record<string, number> | null; // FTE actual: all clocked billable days that month ÷ 18
+  actualFteSource?: "mspo" | "ur" | "none"; // MSPO clocking export, or the UR report as a stand-in
   workdayMonths?: string[]; // months whose joiners and leavers come from a Workday report ("2026-09")
   startingHeadcountSource?: "bu_ur" | "staff_list" | null;
+  // Management target view: the typed lines, "<FY>|<period>|<column>|<rowId>" -> value (USD, costs negative; HC)
+  managementTarget?: Record<string, ManagementTargetCell>;
+}
+
+export interface ManagementTargetCell {
+  value: number;
+  mine: boolean;
+  byName: string | null;
+  at: string | null;
+}
+
+// PATCH /analysis {"target": ...}: one typed line of the management target view. value null clears it.
+export interface ManagementTargetEdit {
+  fiscalYear: string; // "FY26"
+  period: "FY" | "Q1" | "Q2" | "Q3" | "Q4";
+  column: "prior" | "mt" | "current";
+  rowId: string;
+  value: number | null;
 }
 
 // ---- Productivity (Analysis page and Dashboard) ----
@@ -121,18 +141,21 @@ export type Flag = "red" | "amber" | "green";
 // Revenue, cost and FTE of one agency or project over the fiscal year to date. Per-FTE figures are annualised.
 export interface ProductivityFigures {
   revenue: number; // USD, the months covered
-  hcCost: number; // delivery FTE x rate card (iRate) x working days
+  hcCost: number; // FTE actual days x rate card (iRate)
   gp: number; // revenue - hcCost
-  fte: number; // average delivery FTE per month (SL x RP man-days / 18)
+  headcount: number; // people on it (distinct names on SL x RP), average a month
+  fte: number; // FTE actual, average a month: clocked billable days / 18 (MSPO clocking, else the UR report split by
+  // plan); planned FTE when nothing is clocked
+  planFte: number; // average planned FTE a month (SL x RP man-days / 18)
+  daysPerHead: number | null; // clocked billable days per person a month; red below 15.3 or above 18
   revenuePerFte: number | null;
   gpPerFte: number | null;
   revenuePerHcCost: number | null;
   requiredFte: number | null; // the FTE its revenue needs (the calculator's formula, default settings)
   ratePerDay: number | null; // weighted rate card (iRate) of its people, USD a day
-  flag: Flag | null; // the worse of the productivity and staffing flags; null = not flagged (too small)
+  flag: Flag | null; // the worse of the productivity and utilisation flags; null = not flagged
   productivityFlag: Flag | null;
-  staffingFlag: Flag | null;
-  staffing: "over" | "under" | "on target" | null;
+  utilisationFlag: Flag | null;
   flagReason: string;
 }
 
@@ -150,13 +173,15 @@ export interface FlagRules {
   draft: boolean;
   metrics: string[]; // which per-FTE figures can turn an agency red or amber
   productivity: { redBelowPct: number; amberBelowPct: number };
-  staffing: { redOffPct: number; amberOffPct: number };
+  utilisation: { fullMonthManDays: number; urTarget: number; redBelowDays: number; redAboveDays: number };
   minFte: number;
 }
 
 export interface Productivity {
   fiscalYear: string;
-  months: string[]; // "2026-04" .. the latest ABCD actual month
+  months: string[]; // "2026-04" .. the latest month with ABCD actuals and clocking
+  latestMonth?: string; // the month the HC is counted in
+  clocked?: boolean; // false: no UR report for these months, so FTE is planned
   companyAverage: { revenuePerFte: number | null; gpPerFte: number | null; revenuePerHcCost: number | null };
   rules: FlagRules;
   agencies: AgencyProductivity[]; // red first, then amber, green, not flagged; by revenue within each
@@ -217,6 +242,7 @@ export interface DashboardMonthCell {
   unknown: number; // on neither the staff list nor the UR report
   billable: number; // UR report billable days of those people
   workingDays: number; // and their standard working days
+  actualFte?: number; // FTE actual: clocked billable days on its projects ÷ 18 (clocked months only)
 }
 
 export interface DashboardView extends Partial<HeadcountBreakdown> {
