@@ -288,11 +288,14 @@ class ClockingTests(Base):
         settings = {"FY26": plan_settings.resolve("FY26")}
         prod, _ = capacity._productivity(self.store, abcd, settings, {"2026-10": 22.0}, {"2026-10"})
         a = prod["agencies"][0]
-        self.assertEqual((a["headcount"], a["fte"], a["planFte"]), (3.0, 1.89, 3.0))
+        self.assertEqual((a["headcount"], a["headcountAverage"], a["fte"], a["planFte"]), (3, 3.0, 1.89, 3.0))
+        oct_ = a["byMonth"]["2026-10"]
+        self.assertEqual((oct_["revenue"], oct_["people"], oct_["actualDays"], oct_["planDays"]), (400_000.0, 3, 34.0, 54.0))
+        self.assertEqual((oct_["clockedDays"], oct_["clockedPeople"]), (34.0, 2), "per person, not per project row")
         self.assertEqual(a["daysPerHead"], 17.0, "A 20 and B 14 clocked; C has no clocking")
         p2 = next(p for p in a["projects"] if p["projectId"] == "P2")
         self.assertEqual((p2["headcount"], p2["daysPerHead"], p2["utilisationFlag"]), (2, 14.0, "red"))
-        self.assertIn("under-utilised", p2["flagReason"])
+        self.assertIn("Under-utilised", p2["flagReason"])
 
 
 class MspoClockingTests(Base):

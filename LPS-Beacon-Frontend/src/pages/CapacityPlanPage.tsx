@@ -418,9 +418,9 @@ function hiresFor(hires: HiringNeeds | null | undefined, month: string | undefin
     .map(([role, n]) => `${n} × ${role}`)
     .join(", ");
   const when = hires?.publishedAt
-    ? ` published ${new Date(hires.publishedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}`
+    ? `, ${new Date(hires.publishedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}`
     : "";
-  return `To hire (hiring gap of the review${when}): ${roles}`;
+  return `Hires needed (latest review${when}): ${roles}`;
 }
 
 // The tooltip of an edited cell: who changed it, and when.

@@ -13,9 +13,7 @@ import type { CapacityPlan, DashboardMonthCell, DashboardView } from "../api/typ
 import { fmt, fteRequired, weightedIRate } from "../analysis/baseline";
 import type { Period } from "./period";
 
-const ACTUAL_HOW =
-  "Clocked billable days ÷ 18 (1 FTE = 18 working days a month), averaged over the period's clocked months. From the MSPO " +
-  "clocking export by project (sandbox: synthetic file); without it, the UR report split by planned days.";
+const ACTUAL_HOW = "FTE actually delivered: billable days clocked in MSPO ÷ 18.";
 
 function average(xs: number[]): number | null {
   return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
@@ -48,17 +46,17 @@ function orgCards(plan: CapacityPlan, view: DashboardView | null, period: Period
   const actual = average(actualMonths);
   return [
     { label: "Headcount", value: fmt.int(hc), sub: `end of ${period.endKey}`,
-      how: "Capacity plan Ending HC: the UR report's staff, rolled forward with the Workday joiners and leavers." },
+      how: "People employed at the end of the month: last month's headcount plus Workday joiners, minus leavers." },
     { label: "Permanent · Secondment", value: permanent === null ? "–" : `${fmt.int(permanent)} · ${fmt.int(view?.secondment)}`,
       sub: other ? `+ ${fmt.int(other)} supplemental · staff list ${view?.asOf ?? ""}` : `staff list ${view?.asOf ?? ""}`,
-      how: "Staff list Employee Type: Regular Employee = permanent; Secondment; the Supplemental types shown apart (open question #12)." },
+      how: "Staff by employment type, from the staff list. Supplemental staff are counted separately." },
     { label: "Billable UR", value: fmt.pct(ur), sub: period.id === "latest" ? undefined : "average of the months",
-      how: "Billable man-days ÷ standard working days (UR report); forecast months use the FY target." },
+      how: "Billable days ÷ working days, from the UR report. Future months show the target." },
     { label: "FTE demand", value: fmt.int(demand), sub: hc !== null && demand !== null ? `planned · HC ${fmt.int(hc)}` : "planned",
-      how: "Planned: SL x RP Project and Quote Won man-days ÷ 18, averaged over the period. Compare with headcount for bench or shortage." },
+      how: "FTE needed for won and ongoing work: planned man-days in the resource plan ÷ 18." },
     { label: "FTE actual", value: fmt.int(actual), sub: actualMonths.length ? "clocked" : "not clocked yet", how: ACTUAL_HOW },
     { label: "Calculated FTE required", value: fmt.int(req?.totalFte), sub: t ? `for ${fmt.usdM(t.revenueUsd)} a year` : undefined,
-      how: "Revenue target ÷ (12 × 18 working days × iRate ÷ (1 − GP %)) ÷ UR. Indicative: this formula is being replaced. Inputs are in the calculator on the Analysis page." },
+      how: "FTE needed to earn the revenue target, from the calculator on the Analysis page. Indicative: the formula is being revised." },
   ];
 }
 
@@ -79,17 +77,17 @@ function selectionCards(plan: CapacityPlan, view: DashboardView, period: Period)
   const actual = average(clocked.map((c) => c.actualFte));
   return [
     { label: "People", value: fmt.int(end?.people), sub: `planned in ${period.endKey}`,
-      how: "People with man-days on its projects that month (SL x RP). Someone on two projects counts in both." },
+      how: "People planned on its projects this month. Someone on two projects counts in both." },
     { label: "Permanent · Secondment", value: end ? `${fmt.int(end.permanent)} · ${fmt.int(end.secondment)}` : "–",
       sub: end && end.other + end.unknown ? `+ ${end.other + end.unknown} other or unknown` : "of those people",
-      how: "Staff list Employee Type by IT Code; people not on it use the UR report's tier (Tier S_ = secondment)." },
+      how: "Those people by employment type, from the staff list." },
     { label: "Billable UR", value: days ? fmt.pct(billable / days) : "–", sub: days ? undefined : "no clocking yet",
-      how: "Those people's billable days ÷ standard working days on the UR report, over the period's actual months." },
+      how: "Those people's billable days ÷ working days, from the UR report." },
     { label: "FTE demand", value: fmt.dec1(demand), sub: "planned",
-      how: "Planned: its SL x RP Project and Quote Won man-days ÷ 18, averaged over the period." },
+      how: "FTE needed for its won and ongoing work: planned man-days ÷ 18." },
     { label: "FTE actual", value: fmt.dec1(actual), sub: clocked.length ? "clocked" : "not clocked yet", how: ACTUAL_HOW },
     { label: "Calculated FTE required", value: fmt.dec1(required), sub: "for its revenue",
-      how: "Its yearly revenue (ABCD) ÷ (12 × 18 working days × its weighted iRate ÷ (1 − 27% GP)) ÷ UR. Indicative: this formula is being replaced." },
+      how: "FTE its revenue would need, by the current formula. Indicative: the formula is being revised." },
   ];
 }
 

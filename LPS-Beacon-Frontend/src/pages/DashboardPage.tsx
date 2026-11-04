@@ -154,7 +154,7 @@ export default function DashboardPage() {
                   {red.map((a) => (
                     <li key={a.agency}>
                       <button type="button" className="attention-name" onClick={() => { setAgency(a.agency); setProjectId(""); }}
-                        title="Filter the Dashboard to this agency">
+                        title="Show only this agency">
                         {a.agency}
                       </button>
                       <span className="attention-why">{a.flagReason}</span>

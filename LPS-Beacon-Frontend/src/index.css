@@ -4439,3 +4439,76 @@ select.cell-input {
   font-size: 0.8rem;
   color: var(--muted);
 }
+
+/* ---- Tooltip bubble (components/TooltipLayer.tsx): every title="..." in the app ---- */
+.tip-bubble {
+  position: fixed;
+  z-index: 1000;
+  max-width: 340px;
+  padding: 8px 12px;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  white-space: pre-line;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.16), 0 1px 3px rgba(15, 23, 42, 0.1);
+  pointer-events: none;
+  animation: tip-in 120ms ease-out;
+}
+
+/* The little arrow pointing at the element: a rotated square that shares the bubble's border. */
+.tip-bubble::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--tip-arrow) - 6px);
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  transform: rotate(45deg);
+}
+
+.tip-bubble.below::after {
+  top: -6px;
+  bottom: auto;
+  transform: rotate(225deg);
+}
+
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tip-bubble {
+    animation: none;
+  }
+}
+
+/* The Analysis page's period picker (agencies and projects). */
+.prod-period {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.prod-period select {
+  padding: 6px 8px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}

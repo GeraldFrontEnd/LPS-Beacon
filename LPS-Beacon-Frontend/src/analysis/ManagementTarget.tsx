@@ -378,20 +378,20 @@ export default function ManagementTarget({
     const current = (period: Period) => {
       const keys = months.filter((c) => period === "FY" || `Q${c.quarter}` === period).map((c) => c.key);
       const actual = keys.filter((k) => monthOfKey[k]?.actual).length;
-      const basis = `${actual} of ${keys.length} months actual, the rest forecast`;
+      const basis = actual === keys.length ? `${actual} months actual` : `${actual} months actual, ${keys.length - actual} forecast`;
       const d: Record<string, { value: number; title: string }> = {};
       const rev = keys.map((k) => values["revenue"]?.[k] ?? null);
       if (rev.every((x) => x !== null)) {
         d["revenue"] = {
           value: rev.reduce<number>((t, x) => t + (x as number), 0),
-          title: `ABCD revenue (${basis})`,
+          title: `From the ABCD report: ${basis}`,
         };
       }
       const hc = keys.map((k) => values["ending-hc"]?.[k] ?? null).filter((x): x is number => x !== null);
       if (hc.length === keys.length && hc.length) {
         d["hc-total"] = {
           value: Math.round(hc.reduce((t, x) => t + x, 0) / hc.length),
-          title: `Average Ending HC on the capacity plan (${basis})`,
+          title: `Average headcount from the capacity plan: ${basis}`,
         };
       }
       return d;
@@ -403,11 +403,11 @@ export default function ManagementTarget({
       if (p) {
         d["hc-total"] = {
           value: p.averageHeadcount,
-          title: `Average HC, ${p.source}`,
+          title: "Average headcount, from the MBR headcount file",
         };
         d["gross-staff-cost"] = {
           value: -p.staffCostUsd,
-          title: `Gross staff cost, ${p.source}`,
+          title: "Staff cost, from the MBR headcount file",
         };
       }
       const byMonth = plan.revenueByMonth ?? {};
@@ -418,7 +418,7 @@ export default function ManagementTarget({
       if (last.every((m) => byMonth[m]?.revenue !== undefined)) {
         d["revenue"] = {
           value: last.reduce((t, m) => t + byMonth[m].revenue, 0),
-          title: "ABCD revenue",
+          title: "From the ABCD report",
         };
       }
       return d;
@@ -463,19 +463,19 @@ export default function ManagementTarget({
           ))}
         </tr>
         <tr>
-          <th scope="col" className="plan-block-start" title="Last fiscal year, actual">
+          <th scope="col" className="plan-block-start" title="Last year's actuals">
             {label(start - 1)}
           </th>
-          <th scope="col" title="Management target, set by management">
+          <th scope="col" title="Management target (typed in)">
             MT
           </th>
-          <th scope="col" title="This fiscal year: actual months, then forecast">
+          <th scope="col" title="This year: actual months so far, forecast for the rest">
             Act + fcst
           </th>
-          <th scope="col" title="Year on year: this year (actual + forecast) minus last year">
+          <th scope="col" title="This year minus last year">
             YoY
           </th>
-          <th scope="col" title="Against the target: this year (actual + forecast) minus the MT. Above zero = above target">
+          <th scope="col" title="This year minus the target. Above zero means above target (for a cost: under budget)">
             vs MT
           </th>
           {QUARTERS.map((q) => [
@@ -485,7 +485,7 @@ export default function ManagementTarget({
             <th key={`${q}-c`} scope="col">
               Act + fcst
             </th>,
-            <th key={`${q}-d`} scope="col" title="This quarter (actual + forecast) minus the quarter's MT">
+            <th key={`${q}-d`} scope="col" title="This quarter minus its target">
               vs MT
             </th>,
           ])}

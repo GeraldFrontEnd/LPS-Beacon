@@ -9,6 +9,7 @@ import AuthProvider from "./auth/AuthProvider";
 import { ANALYSIS_ROLES, DASHBOARD_ROLES, UPLOAD_ROLES } from "./auth/permissions";
 import NavBar from "./components/NavBar";
 import PageErrorBoundary from "./components/PageErrorBoundary";
+import TooltipLayer from "./components/TooltipLayer";
 import RequireAuth from "./components/RequireAuth";
 import AnalysisPage from "./pages/AnalysisPage";
 import CapacityPlanPage from "./pages/CapacityPlanPage";
@@ -32,6 +33,8 @@ export default function App() {
             {/* app-shell stacks the navigation bar on top and the current page below it. */}
             <div className="app-shell">
               <NavBar />
+              {/* Shows every title="..." in the app as a readable bubble. */}
+              <TooltipLayer />
               <PageErrorBoundary>
                 <Routes>
                   {/* The login page is the only page that doesn't need a login. */}

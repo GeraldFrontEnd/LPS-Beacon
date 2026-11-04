@@ -13,6 +13,7 @@ import { Fragment, useMemo, useState } from "react";
 import type { AgencyProductivity, CapacityPlan, Flag, ManagementTargetEdit, ProductivityFigures } from "../api/types";
 import { FISCAL_YEARS } from "./capacityPlanLayout";
 import ManagementTarget from "./ManagementTarget";
+import { periodOptions, periodView } from "./periodFigures";
 import MultiSelect from "../components/MultiSelect";
 import {
   fmt,
@@ -117,10 +118,12 @@ function figures(f: ProductivityFigures) {
   return (
     <>
       <td className="num">{fmt.usdM(f.revenue)}</td>
-      <td className="num">{fmt.dec1(f.headcount)}</td>
-      <td className="num" title={`Planned ${fmt.dec1(f.planFte)} FTE (SL x RP)`}>{fmt.dec1(f.fte)}</td>
+      <td className="num" title={f.headcountAverage != null ? `Average ${fmt.dec1(f.headcountAverage)} a month over the period` : undefined}>
+        {fmt.int(f.headcount)}
+      </td>
+      <td className="num" title={`Planned: ${fmt.dec1(f.planFte)} FTE`}>{fmt.dec1(f.fte)}</td>
       <td className={`num${f.utilisationFlag === "red" ? " days-red" : ""}`}
-        title={f.utilisationFlag === "red" ? (days !== null && days < 15.3 ? "Under-utilised" : "Over-utilised") : undefined}>
+        title={f.utilisationFlag === "red" ? (days !== null && days < 15.3 ? "Under-utilised: below 15.3 days" : "Over-utilised: above 18 days") : undefined}>
         {fmt.dec1(days)}
       </td>
       <td className="num">{fmt.usdK(f.revenuePerFte)}</td>
@@ -133,10 +136,10 @@ function figures(f: ProductivityFigures) {
 function figureHeads() {
   return (
     <>
-      <th scope="col" className="num">Revenue to date</th>
-      <th scope="col" className="num" title="People on it (names on SL x RP), average a month">HC</th>
-      <th scope="col" className="num" title="Clocked billable days ÷ 18 (MSPO clocking), average a month. Planned FTE in the cell's tooltip">FTE actual</th>
-      <th scope="col" className="num" title="Clocked billable days per person a month. Red below 15.3 or above 18">
+      <th scope="col" className="num" title="Revenue in the period picked (ABCD report)">Revenue</th>
+      <th scope="col" className="num" title="People working on it in the last month of the period. Hover a number for the monthly average">HC</th>
+      <th scope="col" className="num" title="Billable days clocked ÷ 18, averaged per month. Hover a number to see the planned FTE">FTE actual</th>
+      <th scope="col" className="num" title="Billable days each person clocks a month, on average. Red below 15.3 or above 18">
         Days / head
       </th>
       <th scope="col" className="num">Revenue per FTE</th>
@@ -148,17 +151,24 @@ function figureHeads() {
 
 function AgencyExplorer({
   plan,
+  fy,
   selected,
   onSelect,
 }: {
   plan: CapacityPlan;
+  fy: string;
   selected: string[];
   onSelect: (v: string[]) => void;
 }) {
   const p = plan.productivity!;
   const [status, setStatus] = useState<StatusFilter>("all");
   const [open, setOpen] = useState<Set<string>>(() => new Set());
-  const agencies = p.agencies;
+  // The period: the fiscal year to date (default), a quarter or a month (4 Nov 2026).
+  const options = useMemo(() => periodOptions(p.months, p.fiscalYear), [p.months, p.fiscalYear]);
+  const [periodId, setPeriodId] = useState("fy");
+  const period = options.find((o) => o.id === periodId) ?? options[0];
+  const view = useMemo(() => periodView(plan, fy, period?.months ?? p.months), [plan, fy, period, p.months]);
+  const agencies = view.agencies;
   const counts = { red: 0, amber: 0, green: 0 } as Record<Flag, number>;
   agencies.forEach((a) => a.flag && (counts[a.flag] += 1));
 
@@ -169,8 +179,8 @@ function AgencyExplorer({
     (t, a) => ({ revenue: t.revenue + a.revenue, fte: t.fte + a.fte, gp: t.gp + a.gp }),
     { revenue: 0, fte: 0, gp: 0 }
   );
-  const annual = 12 / p.months.length;
-  const avg = p.companyAverage;
+  const annual = 12 / view.months.length;
+  const avg = view.companyAverage;
   const revPerFte = total.fte ? (total.revenue * annual) / total.fte : null;
   const toggle = (name: string) =>
     setOpen((prev) => {
@@ -190,13 +200,27 @@ function AgencyExplorer({
         <div>
           <h3 id="agency-title">Agencies and projects</h3>
           <p className="prod-sub">
-            {p.fiscalYear} {monthName(p.months[0])} to {monthName(p.months[p.months.length - 1])}. Revenue from the ABCD
-            report; HC = people on it (names); FTE actual ={" "}
-            {p.clocked === false ? "planned man-days (no clocking yet)" : "clocked billable days"} ÷ 18; both averaged a month. Click an agency to see
-            its projects.
+            {monthName(view.months[0])}
+            {view.months.length > 1 ? ` to ${monthName(view.months[view.months.length - 1])}` : ""}. HC = people on it in{" "}
+            {monthName(view.months[view.months.length - 1])}; FTE actual ={" "}
+            {p.clocked === false ? "planned man-days (no clocking yet)" : "clocked billable days"} ÷ 18, averaged a month;
+            revenue from the ABCD report. Click an agency to see its projects.
+            {view.months.length < 3 && " One month of revenue can be lumpy (milestone billing): judge productivity on the year."}
           </p>
         </div>
         <div className="prod-controls">
+          {!view.fromPipeline && options.length > 1 && (
+            <label className="prod-period">
+              <span>Period</span>
+              <select value={period?.id} onChange={(e) => setPeriodId(e.target.value)}>
+                {options.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <MultiSelect
             label="Agencies"
             allLabel="All agencies"
@@ -231,7 +255,7 @@ function AgencyExplorer({
         </div>
         <div>
           <span className="prod-summary-value">{fmt.usdM(total.revenue)}</span>
-          <span className="prod-summary-label">revenue to date</span>
+          <span className="prod-summary-label">revenue{view.months.length === p.months.length ? " to date" : " in the period"}</span>
         </div>
         <div>
           <span className="prod-summary-value">{fmt.dec1(total.fte)}</span>
@@ -564,7 +588,7 @@ export default function ProductivitySection({
         </button>
         <button type="button" className={scopeKind === "selection" ? "on" : ""} aria-pressed={scopeKind === "selection"}
           disabled={selected.length === 0}
-          title={selected.length === 0 ? "Pick agencies in the Agencies dropdown below first" : undefined}
+          title={selected.length === 0 ? "Pick agencies in the Agencies list below first" : undefined}
           onClick={() => setScopeKind("selection")}>
           {selected.length === 0 ? "Agencies picked below" : `The ${selected.length} agenc${selected.length === 1 ? "y" : "ies"} picked`}
         </button>
@@ -572,7 +596,7 @@ export default function ProductivitySection({
       <FteCalculator key={scope.key} plan={plan} fy={fy} scope={scope} />
       <Baseline plan={plan} fy={fy} />
       {p && p.agencies.length > 0 ? (
-        <AgencyExplorer plan={plan} selected={selected} onSelect={setSelected} />
+        <AgencyExplorer plan={plan} fy={fy} selected={selected} onSelect={setSelected} />
       ) : (
         <p className="note">
           The agencies and projects appear once an ABCD report with actual months and an SL x RP file are uploaded.

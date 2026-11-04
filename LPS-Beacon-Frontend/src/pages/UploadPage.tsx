@@ -161,8 +161,8 @@ export default function UploadPage() {
             disabled={isUploading || pendingCount === 0 || !canStartReview}
             title={
               canStartReview
-                ? "Check and store the files without running the forecast and matching. Review them later from the review panel."
-                : "Finish or clear the review in progress first."
+                ? "Store the files now and review them later from the review panel."
+                : "Finish or clear the current review first."
             }
           >
             Upload without review

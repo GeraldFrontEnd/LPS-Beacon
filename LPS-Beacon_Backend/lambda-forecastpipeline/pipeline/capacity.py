@@ -242,8 +242,8 @@ def _flag(value: float | None, average: float | None, rules: dict) -> str | None
 def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days: dict[str, float],
                   clocked_months: set[str], rp_full_month_mds: float = 18.0) -> tuple[dict | None, list[str]]:
     """This fiscal year to date, per agency and project (4 Nov 2026 rules):
-         headcount     people on it, averaged over the months like the FTE (distinct names on its SL x RP
-                       Project rows each month)
+         headcount     people on it in the latest month (distinct names); headcountAverage = the average a month
+         byMonth       the same building blocks per month, so the page can show any month, quarter or the FY
          fte           FTE actual: clocked billable days / 18 (MSPO clocking, else the UR report; clocking.py), averaged
          planFte       SL x RP man-days / 18, averaged
          daysPerHead   clocked billable days per person per month; red below 15.3 or above 18
@@ -311,7 +311,8 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
         per_person = rows.dropna(subset=["clockedDays"]).drop_duplicates(["itCode", "month"])
         days_per_head = float(per_person["clockedDays"].mean()) if clocked and len(per_person) else None
         return {"revenue": round(revenue, 2), "hcCost": round(hc_cost, 2), "gp": round(gp, 2),
-                "headcount": round(rows.groupby("month")["itCode"].nunique().sum() / n, 1) if len(rows) else 0,
+                "headcount": int(rows.loc[rows["month"] == latest, "itCode"].nunique()) if len(rows) else 0,
+                "headcountAverage": round(rows.groupby("month")["itCode"].nunique().sum() / n, 1) if len(rows) else 0,
                 "fte": round(fte, 2), "planFte": round(plan_fte, 2),
                 "daysPerHead": round(days_per_head, 2) if days_per_head is not None else None,
                 "revenuePerFte": round(revenue * annual / fte, 2) if fte else None,
@@ -321,6 +322,26 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
                 "requiredFte": round(required, 2) if required else None}
 
     rev_by_project = rev.groupby(rev["Project_ID"].astype(str))["Revenue"].sum().to_dict()
+    rev_by_month = {(str(k[0]), str(k[1])): float(v)
+                    for k, v in rev.groupby([rev["Project_ID"].astype(str), rev["Month"].astype(str)])["Revenue"].sum().items()}
+
+    def by_month(rows: pd.DataFrame, pids: list[str]) -> dict[str, dict]:
+        """The month-by-month figures the Analysis page adds up for the period picked (a month, a quarter, the FY):
+        revenue, HC cost, actual and plan days, people (distinct names) and clocked days per person-month."""
+        out: dict[str, dict] = {}
+        for m in months:
+            part = rows[rows["month"] == m]
+            revenue = sum(rev_by_month.get((pid, m), 0.0) for pid in pids)
+            if not len(part) and not revenue:
+                continue
+            heads = part.dropna(subset=["clockedDays"]).drop_duplicates(["itCode"]) if clocked else part.iloc[0:0]
+            out[m] = {"revenue": round(revenue, 2), "hcCost": round(cost_of(part), 2),
+                      "actualDays": round(float(part["fteDays"].sum()), 2),
+                      "planDays": round(float(part["planDays"].sum()), 2),
+                      "people": int(part["itCode"].nunique()),
+                      "clockedDays": round(float(heads["clockedDays"].sum()), 2), "clockedPeople": int(len(heads))}
+        return out
+
     projects = set(rev_by_project) | set(pm["project"].astype(str))
     by_agency: dict[str, dict] = {}
     for pid in projects:
@@ -330,13 +351,15 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
         if not m["revenue"] and not m["fte"] and not m["planFte"]:
             continue
         a = by_agency.setdefault(name, {"agency": name, "projects": [], "_rows": []})
-        a["projects"].append({"projectId": pid, "projectName": names.get(pid) or pid, **m})
+        a["projects"].append({"projectId": pid, "projectName": names.get(pid) or pid, **m,
+                              "byMonth": by_month(rows, [pid])})
         a["_rows"].append(rows)
 
     agencies = []
     for a in by_agency.values():
         rows = pd.concat(a.pop("_rows"), ignore_index=True) if a["_rows"] else pm.iloc[0:0]
         a.update(metrics(sum(p["revenue"] for p in a["projects"]), rows))
+        a["byMonth"] = by_month(rows, [p["projectId"] for p in a["projects"]])
         a["projects"].sort(key=lambda p: -p["revenue"])
         agencies.append(a)
     flagged = [a for a in agencies if a["fte"] >= rules["minFte"] and a["revenue"] > 0]
@@ -359,7 +382,7 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
                 reasons.append(_days_reason(item["daysPerHead"], util))
             item.update(flag=use if use == "red" else None, productivityFlag=None,
                         flagReason="; ".join(reasons) or
-                        "productivity not flagged: less than %g delivery FTE or no revenue" % rules["minFte"])
+                        "Too small to judge productivity (under %g FTE or no revenue)" % rules["minFte"])
             return
         per = [_flag(item[k], average[k], rules["productivity"]) for k in rules["metrics"]]
         order = {"red": 2, "amber": 1, "green": 0}
@@ -370,11 +393,12 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
             reasons.append(_days_reason(item["daysPerHead"], util))
         for k, f in zip(rules["metrics"], per):
             if f in ("red", "amber") and average[k]:
-                reasons.append(f"{'Revenue' if k == 'revenuePerFte' else 'GP'} per FTE "
+                reasons.append(f"{'Revenue' if k == 'revenuePerFte' else 'GP'} per FTE is "
                                f"{(average[k] - item[k]) / average[k]:.0%} below the company average")
         item.update(flag=overall, productivityFlag=prod,
-                    flagReason="; ".join(reasons) or "clocking within %g to %g days a head; at or above the company "
-                                                      "average" % (util["redBelowDays"], util["redAboveDays"]))
+                    flagReason="; ".join(reasons) or "On track: people clock %g to %g days a month, and revenue per "
+                                                      "FTE is at or above the company average"
+                                                      % (util["redBelowDays"], util["redAboveDays"]))
 
     for a in agencies:
         flags_for(a)
@@ -401,8 +425,8 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
 
 def _days_reason(days: float, util: dict) -> str:
     if days < util["redBelowDays"]:
-        return f"under-utilised: {days:.1f} clocked days a head a month (below {util['redBelowDays']:g})"
-    return f"over-utilised: {days:.1f} clocked days a head a month (above {util['redAboveDays']:g})"
+        return f"Under-utilised: people clock {days:.1f} days a month on average (minimum {util['redBelowDays']:g})"
+    return f"Over-utilised: people clock {days:.1f} days a month on average (limit {util['redAboveDays']:g})"
 
 
 DEMAND_TYPES = ("project", "quote won")

@@ -143,7 +143,9 @@ export interface ProductivityFigures {
   revenue: number; // USD, the months covered
   hcCost: number; // FTE actual days x rate card (iRate)
   gp: number; // revenue - hcCost
-  headcount: number; // people on it (distinct names on SL x RP), average a month
+  headcount: number; // people on it in the last month of the period (distinct names)
+  headcountAverage?: number; // people on it, average a month over the period
+  byMonth?: Record<string, ProductivityMonth>; // the building blocks per month (pipeline after 4 Nov 2026)
   fte: number; // FTE actual, average a month: clocked billable days / 18 (MSPO clocking, else the UR report split by
   // plan); planned FTE when nothing is clocked
   planFte: number; // average planned FTE a month (SL x RP man-days / 18)
@@ -157,6 +159,17 @@ export interface ProductivityFigures {
   productivityFlag: Flag | null;
   utilisationFlag: Flag | null;
   flagReason: string;
+}
+
+// One agency's or project's month: what the Analysis page adds up for the period picked.
+export interface ProductivityMonth {
+  revenue: number; // USD (ABCD)
+  hcCost: number; // USD at the rate card
+  actualDays: number; // clocked billable days (FTE actual = ÷ 18)
+  planDays: number; // planned man-days (SL x RP)
+  people: number; // distinct people on it
+  clockedDays: number; // clocked billable days of those people, all their projects (each person once)
+  clockedPeople: number; // how many of them clocked
 }
 
 export interface ProjectProductivity extends ProductivityFigures {
