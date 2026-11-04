@@ -2,16 +2,16 @@
 // The Organisational Dashboard View: one "How are we doing today?" page (3 Nov instructions 9.4 D-G). Finance/HR only
 // (see DASHBOARD_ROLES), because it holds revenue and cost; the route in App.tsx does the check.
 //
-//  Filter bar      agency, project ID and period (latest month or a fiscal quarter), with a jump bar to the groups
-//                  below; the header cards and the people list recalculate. Full window width (4 Nov 2026).
-//  Groups          Today: header cards · who is on it (full width, right under the cards) · demand vs capacity |
-//                         headcount waterfall
-//                  Who needs attention: agencies flagged red | productivity vs the company baseline + hiring what-if
-//                  Can we redeploy: bench by quarter and who can start soonest (full width)
-//                  Capacity plan: the plan's charts over the months (full width, charts side by side)
-//                  "a | b" = side by side, each half the page, on a large screen; one under the other on a smaller one.
+//  Laid out like the Analysis page (4 Nov 2026): plain cards, one under the other, no collapsible boxes, in two parts.
+//  Filter bar      agency, project ID and period. It drives the first part only.
+//  1. For the filter     the header cards · who is on it (people on the agency / project picked) · demand vs capacity
+//  2. Whole organisation not affected by the filter: agencies needing attention | productivity against the company
+//                        baseline (the agency picked is outlined) · bench and who can start soonest | headcount
+//                        waterfall · the capacity plan's charts
+//  "a | b" = side by side, each half the page, on a large screen; one under the other on a smaller one.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { reportingYear } from "../analysis/baseline";
 import { getCapacityPlan, getDashboardInsights, getDashboardView } from "../api/client";
@@ -19,28 +19,30 @@ import type { CapacityPlan, DashboardView } from "../api/types";
 import { useAuth } from "../auth/useAuth";
 import BenchView from "../dashboard/BenchView";
 import CapacityCharts from "../dashboard/CapacityCharts";
-import DashboardSection from "../dashboard/DashboardSection";
 import DemandCapacity from "../dashboard/DemandCapacity";
 import HeaderCards from "../dashboard/HeaderCards";
 import HeadcountBridge from "../dashboard/HeadcountBridge";
 import PeopleTable from "../dashboard/PeopleTable";
 import ProductivityChart from "../dashboard/ProductivityChart";
-import SectionControls from "../dashboard/SectionControls";
 import type { DashboardInsights } from "../dashboard/insightTypes";
 import { periodChoices } from "../dashboard/period";
 
 const RED_SHOWN = 12;
 
-// The page's groups, in order, for the jump bar.
-const GROUPS = [
-  { id: "group-today", label: "Today" },
-  { id: "group-attention", label: "Who needs attention" },
-  { id: "group-redeploy", label: "Can we redeploy" },
-  { id: "group-plan", label: "Capacity plan" },
-];
-
-function jumpTo(id: string) {
-  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+// One card of the page, the same frame as the Analysis page's (prod-card): a title, a line on what it shows, then
+// the content.
+function Card({ id, title, sub, children }: { id?: string; title: ReactNode; sub?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="prod-card" id={id}>
+      <header className="prod-card-head">
+        <div>
+          <h3>{title}</h3>
+          {sub && <p className="prod-sub">{sub}</p>}
+        </div>
+      </header>
+      {children}
+    </section>
+  );
 }
 
 export default function DashboardPage() {
@@ -121,7 +123,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (arrivedWith && view?.people && !scrolled.current) {
       scrolled.current = true;
-      document.getElementById("dashboard-section-people")?.closest("section")?.scrollIntoView({ block: "start" });
+      document.getElementById("dash-people")?.scrollIntoView({ block: "start" });
     }
   }, [arrivedWith, view?.people]);
   const fy = plan ? reportingYear(plan) : "FY26";
@@ -191,18 +193,6 @@ export default function DashboardPage() {
             </button>
           )}
         </div>
-        {hasPlan && (
-          <nav className="dash-jump" aria-label="Sections of this page">
-            <span className="dash-jump-label">Go to</span>
-            {GROUPS.map((g) => (
-              <button key={g.id} type="button" className="dash-jump-link" onClick={() => jumpTo(g.id)}>
-                {g.label}
-              </button>
-            ))}
-            <span className="dash-jump-spacer" />
-            <SectionControls />
-          </nav>
-        )}
       </header>
 
       <div className="dashboard-body">
@@ -215,13 +205,20 @@ export default function DashboardPage() {
           <p className="note">No capacity plan yet. The Dashboard fills in once the uploaded files have been processed.</p>
         ) : (
           <>
-            <h2 className="dash-group" id="group-today">Today</h2>
+            <h2 className="prod-title dash-part">
+              {filterName} · {period?.label ?? "–"}
+              <span className="dash-part-note">Changes with the filter above</span>
+            </h2>
             {period && <HeaderCards plan={plan} view={view} period={period} fy={fy} />}
 
-            <DashboardSection
-              id="people"
+            <Card
+              id="dash-people"
               title={view?.selection ? `Who is on ${view.selection.kind === "project" ? "this project" : "this agency"}` : "Who is on it"}
-              aside={view?.selection ? <span className="dashboard-aside"> · {filterName}</span> : undefined}
+              sub={
+                view?.selection
+                  ? "One row per person and project in the last month of the period: planned and clocked days, and FTE."
+                  : undefined
+              }
             >
               {view?.selection ? (
                 <PeopleTable people={view.people} kind={view.selection.kind} />
@@ -231,22 +228,29 @@ export default function DashboardPage() {
                   project each one is on, their planned and clocked days and their FTE.
                 </p>
               )}
-            </DashboardSection>
+            </Card>
 
-            <div className="dash-pair">
-              <DashboardSection id="demand" title="Demand vs capacity">
-                <div className="chart-grid">
-                  <DemandCapacity plan={plan} view={view} />
-                </div>
-              </DashboardSection>
-              <DashboardSection id="bridge" title="Headcount waterfall by quarter">
-                <HeadcountBridge plan={plan} fy={fy} />
-              </DashboardSection>
-            </div>
+            <Card title="Demand vs capacity" sub="Headcount (or the people planned), FTE demand and FTE actual by month.">
+              <div className="chart-grid dash-chart-capped">
+                <DemandCapacity plan={plan} view={view} />
+              </div>
+            </Card>
 
-            <h2 className="dash-group" id="group-attention">Who needs attention</h2>
+            <h2 className="prod-title dash-part">
+              Whole organisation
+              <span className="dash-part-note">Not affected by the filter</span>
+            </h2>
             <div className="dash-pair">
-              <DashboardSection id="attention" title={`Agencies needing attention (${red.length})`}>
+              <Card
+                title={`Agencies needing attention (${red.length})`}
+                sub={
+                  <>
+                    For management attention and Thomas&apos;s review{plan.productivity?.rules.draft ? " (draft thresholds)" : ""},
+                    fiscal year to date. Click an agency to filter the page to it, or{" "}
+                    <Link to="/analysis">see every agency and its projects</Link>.
+                  </>
+                }
+              >
                 {red.length > 0 ? (
                   <ul className="attention-list">
                     {(allRed ? red : red.slice(0, RED_SHOWN)).map((a) => (
@@ -267,25 +271,31 @@ export default function DashboardPage() {
                     {allRed ? "Show fewer" : `Show all ${red.length}`}
                   </button>
                 )}
-                <p className="note">
-                  For management attention and Thomas&apos;s review{plan.productivity?.rules.draft ? " (draft thresholds)" : ""}. Click an
-                  agency to filter the Dashboard to it, or <Link to="/analysis">see every agency and its projects</Link>.
-                </p>
-              </DashboardSection>
-              <DashboardSection id="productivity" title="How productive are we? Against the company baseline">
+              </Card>
+
+              <Card
+                title="How productive are we? Against the company baseline"
+                sub={agency ? `${agency} is outlined; the what-if below is for it.` : "Pick an agency in the filter to outline it and run the what-if for it."}
+              >
                 <ProductivityChart plan={plan} fy={fy} agency={agency || view?.selection?.agency || null} />
-              </DashboardSection>
+              </Card>
             </div>
 
-            <h2 className="dash-group" id="group-redeploy">Can we redeploy?</h2>
-            <DashboardSection id="bench" title="Bench by quarter and who can start soonest">
-              <BenchView people={insights?.resources?.availability ?? []} asOf={insights?.asOf ?? null} />
-            </DashboardSection>
+            <div className="dash-pair">
+              <Card title="Can we redeploy? Bench by quarter and who can start soonest">
+                <BenchView people={insights?.resources?.availability ?? []} asOf={insights?.asOf ?? null} />
+              </Card>
 
-            <h2 className="dash-group" id="group-plan">Capacity plan</h2>
-            <DashboardSection id="capacity-plan" title="Headcount, joiners and leavers, and utilisation over the months">
-              <CapacityCharts plan={plan} />
-            </DashboardSection>
+              <Card title="Headcount waterfall by quarter">
+                <HeadcountBridge plan={plan} fy={fy} />
+              </Card>
+            </div>
+
+            <Card title="Capacity plan over the months" sub="Headcount by band, joiners and leavers, and billable utilisation by band.">
+              <div className="dash-plan-charts">
+                <CapacityCharts plan={plan} />
+              </div>
+            </Card>
           </>
         )}
       </div>

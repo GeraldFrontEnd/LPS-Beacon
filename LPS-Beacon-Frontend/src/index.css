@@ -4718,12 +4718,12 @@ select.cell-input {
 
 /* The capacity plan's charts: two side by side on a large screen (the utilisation heat map below them spans both),
    one under the other on a smaller screen. */
-#dashboard-section-capacity-plan .chart-grid {
+.dash-plan-charts .chart-grid {
   grid-template-columns: minmax(0, 1fr);
 }
 
 @media (min-width: 1200px) {
-  #dashboard-section-capacity-plan .chart-grid {
+  .dash-plan-charts .chart-grid {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 }
@@ -4776,4 +4776,42 @@ select.cell-input {
   border: 1px solid var(--line);
   border-left: 4px solid var(--accent);
   border-radius: 8px;
+}
+
+/* ---- Dashboard laid out like the Analysis page (4 Nov 2026) ---- */
+.dashboard-page .dashboard-body {
+  gap: 20px;
+}
+
+/* The two parts of the page: what the filter drives, and the whole organisation. */
+.dash-part {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin: 8px 0 0;
+}
+
+.dash-part:first-child {
+  margin-top: 0;
+}
+
+.dash-part-note {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* A full-width chart stays a sensible height on a wide screen. */
+.dash-chart-capped .chart-svg {
+  max-height: 380px;
+}
+
+/* Cards in a pair stretch to the same height. */
+.dash-pair {
+  align-items: stretch;
+}
+
+.dash-pair > .prod-card {
+  min-width: 0;
 }
