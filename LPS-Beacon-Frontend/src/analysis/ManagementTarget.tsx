@@ -2,7 +2,8 @@
 // Management target vs actual (4 Nov 2026 meeting): Finance's P&L summary for one fiscal year, the full year with the
 // four quarters beside it.
 //
-//   Full year   a = last fiscal year, b = management target (MT), c = this fiscal year (actual + forecast), c − a, c − b
+//   Full year   last fiscal year, management target (MT), this fiscal year (actual + forecast), YoY (this year − last
+//               year) and vs MT (this year − MT)
 //   Quarters    MT, actual + forecast, vs MT
 //
 // The MT column (full year and each quarter) is a set figure from management: every line is typed in, nothing is
@@ -37,7 +38,7 @@ interface Row {
   italic?: boolean;
   gapBefore?: boolean;
   boxed?: boolean; // the ratios Finance boxes on its sheet
-  better?: "up"; // c − b above zero is good (green), below is bad (red)
+  better?: "up"; // YoY / vs MT above zero is good (green), below is bad (red)
 }
 
 const ROWS: Row[] = [
@@ -462,25 +463,20 @@ export default function ManagementTarget({
           ))}
         </tr>
         <tr>
-          <th scope="col" className="plan-block-start" title="Last fiscal year">
+          <th scope="col" className="plan-block-start" title="Last fiscal year, actual">
             {label(start - 1)}
-            <span className="plan-col-kind">a</span>
           </th>
-          <th scope="col" title="Management target">
+          <th scope="col" title="Management target, set by management">
             MT
-            <span className="plan-col-kind">b</span>
           </th>
-          <th scope="col" title="Actual months, then forecast">
-            {label(start)}
-            <span className="plan-col-kind">c · act + fcst</span>
+          <th scope="col" title="This fiscal year: actual months, then forecast">
+            Act + fcst
           </th>
-          <th scope="col">
+          <th scope="col" title="Year on year: this year (actual + forecast) minus last year">
             YoY
-            <span className="plan-col-kind">c − a</span>
           </th>
-          <th scope="col">
+          <th scope="col" title="Against the target: this year (actual + forecast) minus the MT. Above zero = above target">
             vs MT
-            <span className="plan-col-kind">c − b</span>
           </th>
           {QUARTERS.map((q) => [
             <th key={`${q}-mt`} scope="col" className="plan-block-start">
@@ -489,7 +485,7 @@ export default function ManagementTarget({
             <th key={`${q}-c`} scope="col">
               Act + fcst
             </th>,
-            <th key={`${q}-d`} scope="col">
+            <th key={`${q}-d`} scope="col" title="This quarter (actual + forecast) minus the quarter's MT">
               vs MT
             </th>,
           ])}
