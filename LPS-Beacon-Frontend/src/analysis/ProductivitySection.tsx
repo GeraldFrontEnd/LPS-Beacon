@@ -322,14 +322,15 @@ function AgencyExplorer({
                           </thead>
                           <tbody>
                             {a.projects.map((pr) => (
-                              <tr key={pr.projectId} className="prod-project-row" onClick={() => openProject(pr.projectId)}>
+                              <tr key={pr.projectId} title={pr.flagReason}>
                                 <th scope="row">
+                                  {/* Only the name opens the project on the Dashboard; the rest of the row is plain. */}
                                   <button type="button" className="prod-project-link"
-                                    title={`${pr.flagReason}.\nClick to open this project on the Dashboard.`}
-                                    onClick={(e) => { e.stopPropagation(); openProject(pr.projectId); }}>
-                                    <span className="prod-project-name">{pr.projectName}</span>
-                                    <span className="prod-project-id">{pr.projectId} · open on the Dashboard ›</span>
+                                    title="Open this project on the Dashboard"
+                                    onClick={() => openProject(pr.projectId)}>
+                                    {pr.projectName}
                                   </button>
+                                  <span className="prod-project-id">{pr.projectId}</span>
                                 </th>
                                 <td>
                                   <FlagPill flag={pr.flag} />

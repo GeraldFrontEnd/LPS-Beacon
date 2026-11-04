@@ -4746,16 +4746,8 @@ select.cell-input {
 }
 
 /* Analysis: a project row opens the project on the Dashboard. */
-.prod-project-row {
-  cursor: pointer;
-}
-
-.prod-project-row:hover {
-  background: var(--hover);
-}
-
 .prod-project-link {
-  display: block;
+  display: inline;
   padding: 0;
   font: inherit;
   text-align: left;
@@ -4765,8 +4757,12 @@ select.cell-input {
   cursor: pointer;
 }
 
-.prod-project-link:hover .prod-project-name {
+.prod-project-link {
+  font-weight: 500;
   color: var(--accent);
+}
+
+.prod-project-link:hover {
   text-decoration: underline;
 }
 
