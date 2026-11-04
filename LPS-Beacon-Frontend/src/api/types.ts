@@ -269,6 +269,28 @@ export interface DashboardView extends Partial<HeadcountBreakdown> {
     projects?: string[];
     byMonth: Record<string, DashboardMonthCell>;
   } | null;
+  people?: DashboardPeople; // with a selection: who is on it in ?month= (Finance/HR only)
+}
+
+// The people on the Dashboard's selection in one month (GET /dashboard ... &month=).
+export interface DashboardPeople {
+  month: string | null; // "2026-10"
+  clocked: boolean; // false: a month with no clocking yet, plan only
+  actualSource?: "mspo" | "ur" | "none";
+  rows: DashboardPerson[];
+}
+
+export interface DashboardPerson {
+  name: string | null;
+  position: string | null;
+  band: number | null;
+  employment: string | null; // permanent, secondment, other, unknown
+  projectId: string;
+  projectName: string | null;
+  planDays: number | null; // planned on this project (SL x RP)
+  actualDays: number | null; // clocked to this project (null: not clocked yet)
+  actualFte: number | null;
+  clockedDaysAllProjects: number | null; // all their projects that month
 }
 
 // One cell a person has changed on the Analysis page.

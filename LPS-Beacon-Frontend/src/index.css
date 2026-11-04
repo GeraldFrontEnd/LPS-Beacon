@@ -1314,9 +1314,11 @@ body {
   --flag: #c62828;
 }
 
-/* The dashboard now holds charts, so it is wider than the other pages. */
+/* The dashboard uses the full window width, like the Analysis and Capacity plan tabs (4 Nov 2026). */
 .dashboard-page {
-  max-width: 1240px;
+  max-width: none;
+  border-left: 0;
+  border-right: 0;
 }
 
 /* Each section is a box (DashboardSection.tsx); closed, only its heading row shows. */
@@ -3855,9 +3857,6 @@ select.cell-input {
 }
 
 /* ---- Dashboard: "How are we doing today?" (filters, header cards, sections) ---- */
-.dashboard-page {
-  max-width: 1280px;
-}
 
 /* The title and the filter stay at the top while the sections scroll under them. */
 .dash-header {
@@ -4511,4 +4510,181 @@ select.cell-input {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+/* ---- Dashboard navigation (4 Nov 2026): jump bar under the filters, a heading per group ---- */
+.dash-jump {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.dash-jump-label {
+  margin-right: 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.dash-jump-link {
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.dash-jump-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.dash-jump-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.dash-jump-spacer {
+  flex: 1;
+}
+
+.dash-jump .dashboard-section-controls {
+  gap: 6px;
+}
+
+/* A group heading: one of the questions the page answers. */
+.dash-group {
+  margin: 12px 0 -6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  scroll-margin-top: 12px;
+}
+
+.dash-group:first-child {
+  margin-top: 0;
+}
+
+.dashboard-aside {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* ---- Who is on it (dashboard/PeopleTable.tsx) ---- */
+.people-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.people-summary {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.people-flag {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.people-search {
+  min-width: 260px;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.people-scroll {
+  overflow-x: auto;
+}
+
+.people-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.people-table th,
+.people-table td {
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+}
+
+.people-table thead th {
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--bg);
+  white-space: nowrap;
+}
+
+.people-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.people-table tbody th {
+  font-weight: 600;
+}
+
+.people-sub {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.people-sort {
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.people-table th.num .people-sort {
+  width: 100%;
+  text-align: right;
+}
+
+.people-table td.people-red {
+  font-weight: 600;
+  color: var(--error);
+}
+
+.people-more {
+  margin-top: 12px;
+}
+
+.people-table td.people-none {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.people-table tbody th {
+  min-width: 190px;
+}
+
+.attention-more {
+  align-self: flex-start;
+  margin-top: 4px;
 }

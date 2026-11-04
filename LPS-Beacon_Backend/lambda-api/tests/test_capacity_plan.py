@@ -234,6 +234,33 @@ class RouteTests(unittest.TestCase):
         with self.assertRaises(L.HttpError):
             L.dashboard_view(data, agency="Nobody")
 
+    def test_dashboard_lists_the_people_of_the_selection(self):
+        import lambda_function as L
+        data = inputs()
+        cell = {"fte": 1, "people": 2, "permanent": 2, "secondment": 0, "other": 0, "unknown": 0, "billable": 0,
+                "workingDays": 0}
+        data["breakdown"] = {"agencies": {"Agency X": {"projects": ["P1", "P2"], "byMonth": {"2026-10": cell}}},
+                             "projects": {"P1": {"name": "One", "agency": "Agency X", "byMonth": {}},
+                                          "P2": {"name": "Two", "agency": "Agency X", "byMonth": {}}}}
+        person = lambda name, days: {"name": name, "position": "DBA", "band": 7, "employment": "permanent",  # noqa: E731
+                                     "planDays": 18, "planFte": 1, "actualDays": days, "actualFte": days / 18,
+                                     "clockedDaysAllProjects": days, "split": False}
+        roster = {"actualMonths": ["2026-09", "2026-10"], "actualSource": "mspo", "projects": {
+            "P1": {"name": "One", "byMonth": {"2026-10": {"people": [person("Zed", 19)]},
+                                              "2026-09": {"people": [person("Old", 18)]}}},
+            "P2": {"name": "Two", "byMonth": {"2026-10": {"people": [person("Amy", 14)]}}}}}
+        view = L.dashboard_view(data, agency="Agency X", roster=roster)
+        self.assertEqual(view["people"]["month"], "2026-10", "latest clocked month by default")
+        self.assertEqual([(r["name"], r["projectId"]) for r in view["people"]["rows"]], [("Amy", "P2"), ("Zed", "P1")])
+        view = L.dashboard_view(data, project_id="P1", roster=roster, month="2026-09")
+        self.assertEqual([r["name"] for r in view["people"]["rows"]], ["Old"])
+        self.assertNotIn("people", L.dashboard_view(data, roster=roster), "no selection, no list")
+        self.objects["results/capacity/inputs.json"] = json.dumps(data).encode()
+        self.objects["results/capacity/roster.json"] = json.dumps(roster).encode()
+        L._results_cache.clear()
+        status, body = self.call("GET /dashboard", None)
+        self.assertEqual(status, 200)
+
     def test_dashboard_204_without_inputs(self):
         del self.objects["results/capacity/inputs.json"]
         self.assertEqual(self.call("GET /dashboard")[0], 204)

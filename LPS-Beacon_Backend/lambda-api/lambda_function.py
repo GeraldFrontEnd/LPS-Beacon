@@ -1397,10 +1397,33 @@ def clear_my_edits(event, caller):
     return _plan_reply(_capacity_inputs(), doc, caller, cleared=len(mine))
 
 
-def dashboard_view(inputs, agency=None, project_id=None):
+def selection_people(roster, project_ids, month=None):
+    """The people on the selected projects in one month (results/capacity/roster.json, pipeline/clocking.py): one row
+    per person and project, with plan and clocked days. month defaults to the latest month with clocking."""
+    projects = (roster or {}).get("projects") or {}
+    month = month or max((roster or {}).get("actualMonths") or [""]) or None
+    rows = []
+    for pid in project_ids:
+        p = projects.get(pid) or {}
+        cell = (p.get("byMonth") or {}).get(month) if month else None
+        if not cell:
+            continue
+        for person in cell.get("people") or []:
+            rows.append({"name": person.get("name"), "position": person.get("position"), "band": person.get("band"),
+                         "employment": person.get("employment"), "projectId": pid, "projectName": p.get("name"),
+                         "planDays": person.get("planDays"), "actualDays": person.get("actualDays"),
+                         "actualFte": person.get("actualFte"),
+                         "clockedDaysAllProjects": person.get("clockedDaysAllProjects")})
+    rows.sort(key=lambda r: (str(r["name"] or ""), str(r["projectId"])))
+    return {"month": month, "clocked": month in ((roster or {}).get("actualMonths") or []),
+            "actualSource": (roster or {}).get("actualSource"), "rows": rows}
+
+
+def dashboard_view(inputs, agency=None, project_id=None, roster=None, month=None):
     """GET /dashboard: today's headcount by employment type (staff list), the agency and project lists for the
     Dashboard's filter, and, with ?agency= or ?projectId=, that selection's figures per month (people, FTE demand,
-    permanent / secondment, UR days). The pipeline precomputes them (pipeline/capacity.py, "breakdown")."""
+    permanent / secondment, UR days). The pipeline precomputes them (pipeline/capacity.py, "breakdown").
+    With a selection and the roster, also its people in ?month= (selection_people)."""
     out = dict(inputs.get("headcountBreakdown") or {})
     split = inputs.get("breakdown") or {}
     agencies, projects = split.get("agencies") or {}, split.get("projects") or {}
@@ -1423,6 +1446,9 @@ def dashboard_view(inputs, agency=None, project_id=None):
         selection = {"kind": "agency", "agency": agency, "projects": found.get("projects") or [],
                      "byMonth": found.get("byMonth") or {}}
     out["selection"] = selection
+    if selection is not None and roster is not None:
+        ids = [project_id] if project_id else list(selection.get("projects") or [])
+        out["people"] = selection_people(roster, ids, month)
     return out
 
 
@@ -1435,7 +1461,11 @@ def get_dashboard(event, caller):
     query = event.get("queryStringParameters") or {}
     agency = str(query.get("agency") or "").strip()[:200] or None
     project_id = str(query.get("projectId") or "").strip()[:60] or None
-    return reply(200, dashboard_view(inputs, agency, project_id))
+    month = str(query.get("month") or "").strip()[:7] or None
+    if month and not re.fullmatch(r"\d{4}-\d{2}", month):
+        raise HttpError(400, "month must look like 2026-10")
+    roster = _cached_json(ROSTER_KEY) if (agency or project_id) else None
+    return reply(200, dashboard_view(inputs, agency, project_id, roster, month))
 
 
 DASHBOARD_INSIGHTS_KEY = "results/dashboard/insights.json"

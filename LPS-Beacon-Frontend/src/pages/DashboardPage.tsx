@@ -2,10 +2,12 @@
 // The Organisational Dashboard View: one "How are we doing today?" page (3 Nov instructions 9.4 D-G). Finance/HR only
 // (see DASHBOARD_ROLES), because it holds revenue and cost; the route in App.tsx does the check.
 //
-//  Filter bar      agency, project ID and period (latest month or a fiscal quarter); the header cards recalculate
-//  Header cards    headcount, permanent vs secondment, billable UR, FTE demand, FTE required, bench or shortage
-//  Sections        demand vs capacity · productivity vs the company baseline + hiring what-if · agencies needing
-//                  attention · bench by quarter and who can start soonest · headcount waterfall · capacity plan trends
+//  Filter bar      agency, project ID and period (latest month or a fiscal quarter), with a jump bar to the groups
+//                  below; the header cards and the people list recalculate. Full window width (4 Nov 2026).
+//  Groups          Today: header cards · demand vs capacity · who is on it (people on the agency / project picked)
+//                  Who needs attention: agencies flagged red · productivity vs the company baseline + hiring what-if
+//                  Can we redeploy: bench by quarter and who can start soonest
+//                  Headcount over time: headcount waterfall · capacity plan trends
 
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -19,10 +21,25 @@ import DashboardSection from "../dashboard/DashboardSection";
 import DemandCapacity from "../dashboard/DemandCapacity";
 import HeaderCards from "../dashboard/HeaderCards";
 import HeadcountBridge from "../dashboard/HeadcountBridge";
+import PeopleTable from "../dashboard/PeopleTable";
 import ProductivityChart from "../dashboard/ProductivityChart";
 import SectionControls from "../dashboard/SectionControls";
 import type { DashboardInsights } from "../dashboard/insightTypes";
 import { periodChoices } from "../dashboard/period";
+
+const RED_SHOWN = 12;
+
+// The page's groups, in order, for the jump bar.
+const GROUPS = [
+  { id: "group-today", label: "Today" },
+  { id: "group-attention", label: "Who needs attention" },
+  { id: "group-redeploy", label: "Can we redeploy" },
+  { id: "group-headcount", label: "Headcount over time" },
+];
+
+function jumpTo(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
 export default function DashboardPage() {
   const { token } = useAuth();
@@ -33,6 +50,7 @@ export default function DashboardPage() {
   const [agency, setAgency] = useState("");
   const [projectId, setProjectId] = useState("");
   const [periodId, setPeriodId] = useState("latest");
+  const [allRed, setAllRed] = useState(false); // the red agencies list starts with the first RED_SHOWN
 
   useEffect(() => {
     let cancelled = false;
@@ -48,19 +66,21 @@ export default function DashboardPage() {
     };
   }, [token]);
 
-  // The filtered figures come from GET /dashboard?agency=&projectId= (the lists come with every answer).
+  const periods = useMemo(() => (plan ? periodChoices(plan) : []), [plan]);
+  const period = periods.find((p) => p.id === periodId) ?? periods[0];
+  // The people list shows the last month of the period (the month the People card counts).
+  const month = period?.months[period.months.length - 1] ?? null;
+
+  // The filtered figures come from GET /dashboard?agency=&projectId=&month= (the lists come with every answer).
   useEffect(() => {
     let cancelled = false;
-    getDashboardView({ agency: projectId ? null : agency || null, projectId: projectId || null }, token ?? undefined)
+    getDashboardView({ agency: projectId ? null : agency || null, projectId: projectId || null, month }, token ?? undefined)
       .then((v) => !cancelled && setView(v))
       .catch((err) => !cancelled && setError(err instanceof Error ? err.message : "Could not load the filter."));
     return () => {
       cancelled = true;
     };
-  }, [token, agency, projectId]);
-
-  const periods = useMemo(() => (plan ? periodChoices(plan) : []), [plan]);
-  const period = periods.find((p) => p.id === periodId) ?? periods[0];
+  }, [token, agency, projectId, month]);
   const fy = plan ? reportingYear(plan) : "FY26";
   const projects = (view?.filters.projects ?? []).filter((p) => !agency || p.agency === agency);
   const filterName = projectId
@@ -128,6 +148,18 @@ export default function DashboardPage() {
             </button>
           )}
         </div>
+        {hasPlan && (
+          <nav className="dash-jump" aria-label="Sections of this page">
+            <span className="dash-jump-label">Go to</span>
+            {GROUPS.map((g) => (
+              <button key={g.id} type="button" className="dash-jump-link" onClick={() => jumpTo(g.id)}>
+                {g.label}
+              </button>
+            ))}
+            <span className="dash-jump-spacer" />
+            <SectionControls />
+          </nav>
+        )}
       </header>
 
       <div className="dashboard-body">
@@ -135,8 +167,8 @@ export default function DashboardPage() {
           <p className="note">No capacity plan yet. The Dashboard fills in once the uploaded files have been processed.</p>
         ) : (
           <>
+            <h2 className="dash-group" id="group-today">Today</h2>
             {period && <HeaderCards plan={plan} view={view} period={period} fy={fy} />}
-            <SectionControls />
 
             <DashboardSection id="demand" title="Demand vs capacity">
               <div className="chart-grid">
@@ -144,14 +176,26 @@ export default function DashboardPage() {
               </div>
             </DashboardSection>
 
-            <DashboardSection id="productivity" title="How productive are we? Against the company baseline">
-              <ProductivityChart plan={plan} fy={fy} agency={agency || view?.selection?.agency || null} />
+            <DashboardSection
+              id="people"
+              title={view?.selection ? `Who is on ${view.selection.kind === "project" ? "this project" : "this agency"}` : "Who is on it"}
+              aside={view?.selection ? <span className="dashboard-aside"> · {filterName}</span> : undefined}
+            >
+              {view?.selection ? (
+                <PeopleTable people={view.people} kind={view.selection.kind} />
+              ) : (
+                <p className="note">
+                  Pick an agency (and a project, to narrow it) in the filter at the top to list the people on it, the
+                  project each one is on, their planned and clocked days and their FTE.
+                </p>
+              )}
             </DashboardSection>
 
+            <h2 className="dash-group" id="group-attention">Who needs attention</h2>
             <DashboardSection id="attention" title={`Agencies needing attention (${red.length})`}>
               {red.length > 0 ? (
                 <ul className="attention-list">
-                  {red.map((a) => (
+                  {(allRed ? red : red.slice(0, RED_SHOWN)).map((a) => (
                     <li key={a.agency}>
                       <button type="button" className="attention-name" onClick={() => { setAgency(a.agency); setProjectId(""); }}
                         title="Show only this agency">
@@ -164,16 +208,27 @@ export default function DashboardPage() {
               ) : (
                 <p className="note">No agency is flagged red.</p>
               )}
+              {red.length > RED_SHOWN && (
+                <button type="button" className="secondary-button attention-more" onClick={() => setAllRed((v) => !v)}>
+                  {allRed ? "Show fewer" : `Show all ${red.length}`}
+                </button>
+              )}
               <p className="note">
                 For management attention and Thomas&apos;s review{plan.productivity?.rules.draft ? " (draft thresholds)" : ""}. Click an
                 agency to filter the Dashboard to it, or <Link to="/analysis">see every agency and its projects</Link>.
               </p>
             </DashboardSection>
 
-            <DashboardSection id="bench" title="Can we redeploy? Bench by quarter and who can start soonest">
+            <DashboardSection id="productivity" title="How productive are we? Against the company baseline">
+              <ProductivityChart plan={plan} fy={fy} agency={agency || view?.selection?.agency || null} />
+            </DashboardSection>
+
+            <h2 className="dash-group" id="group-redeploy">Can we redeploy?</h2>
+            <DashboardSection id="bench" title="Bench by quarter and who can start soonest">
               <BenchView people={insights?.resources?.availability ?? []} asOf={insights?.asOf ?? null} />
             </DashboardSection>
 
+            <h2 className="dash-group" id="group-headcount">Headcount over time</h2>
             <DashboardSection id="bridge" title="Headcount waterfall by quarter">
               <HeadcountBridge plan={plan} fy={fy} />
             </DashboardSection>
