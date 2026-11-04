@@ -3256,6 +3256,7 @@ select.cell-input {
 /* The Analysis tab scrolls as a whole (one scroll bar). The Capacity plan tab does not: its table box fills the page
    and scrolls inside, so its header row and metric column stay in view. */
 .productivity-page {
+  position: relative; /* contains absolutely placed things (e.g. hidden table captions), so only this box scrolls */
   overflow-y: auto;
 }
 
@@ -4814,4 +4815,43 @@ select.cell-input {
 
 .dash-pair > .prod-card {
   min-width: 0;
+}
+
+/* ---- Dashboard in two sections (4 Nov 2026): the filtered one (with the filter at its top) and the whole
+   organisation. Each is a tinted panel holding its cards, so it is clear what the filter reaches. ---- */
+.dashboard-body {
+  position: relative; /* contains absolutely placed things, so only this box scrolls */
+}
+
+.dash-block {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 20px 20px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.dash-block-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.dash-block-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.dash-block-head .dash-part-note {
+  display: block;
+  margin: 4px 0 0;
+}
+
+/* The filtered section's heading row: the title on the left, the filter on the right (below it when narrow). */
+.dash-block-head .dash-filters {
+  justify-content: flex-end;
 }

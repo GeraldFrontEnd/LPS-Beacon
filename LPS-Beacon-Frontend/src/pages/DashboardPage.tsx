@@ -83,7 +83,10 @@ export default function DashboardPage() {
   // The filtered figures come from GET /dashboard?agency=&projectId=&month= (the lists come with every answer).
   useEffect(() => {
     let cancelled = false;
-    getDashboardView({ agency: projectId ? null : agency || null, projectId: projectId || null, month }, token ?? undefined)
+    getDashboardView(
+      { agency: projectId ? null : agency || null, projectId: projectId || null, month },
+      token ?? undefined,
+    )
       .then((v) => {
         if (cancelled) return;
         setView(v);
@@ -98,7 +101,7 @@ export default function DashboardPage() {
         if (projectId || agency) {
           setFilterNote(
             `${projectId || agency} has no people or demand planned in the resource plan, so the Dashboard can't show it. ` +
-              "Showing all agencies instead."
+              "Showing all agencies instead.",
           );
           setProjectId("");
           setAgency("");
@@ -128,9 +131,7 @@ export default function DashboardPage() {
   }, [arrivedWith, view?.people]);
   const fy = plan ? reportingYear(plan) : "FY26";
   const projects = (view?.filters.projects ?? []).filter((p) => !agency || p.agency === agency);
-  const filterName = projectId
-    ? `${view?.selection?.name ?? projectId} (${projectId})`
-    : agency || "All agencies";
+  const filterName = projectId ? `${view?.selection?.name ?? projectId} (${projectId})` : agency || "All agencies";
   const red = (plan?.productivity?.agencies ?? []).filter((a) => a.flag === "red");
 
   if (error)
@@ -141,7 +142,12 @@ export default function DashboardPage() {
         </p>
       </main>
     );
-  if (!plan) return <main className="dashboard-page"><p className="note dashboard-banner">Loading…</p></main>;
+  if (!plan)
+    return (
+      <main className="dashboard-page">
+        <p className="note dashboard-banner">Loading…</p>
+      </main>
+    );
   const hasPlan = Object.keys(plan.values).length > 0;
 
   return (
@@ -150,48 +156,9 @@ export default function DashboardPage() {
         <div className="dash-title">
           <h1>How are we doing today?</h1>
           <p>
-            {filterName} · {period?.label ?? "–"}. All amounts in USD. Hover a figure to see how it is worked out.
+            Two sections: the first follows the agency, project and period you pick; the second is the whole
+            organisation. All amounts in USD. Hover a figure to see how it is worked out.
           </p>
-        </div>
-        <div className="dash-filters">
-          <label>
-            Agency
-            <select className="dash-filter-agency" value={agency}
-              onChange={(e) => { setAgency(e.target.value); setProjectId(""); }}>
-              <option value="">All agencies</option>
-              {(view?.filters.agencies ?? []).map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Project ID
-            <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-              <option value="">{agency ? "All its projects" : "All projects"}</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.id} · {p.name.length > 40 ? `${p.name.slice(0, 39)}…` : p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Period
-            <select value={period?.id ?? "latest"} onChange={(e) => setPeriodId(e.target.value)}>
-              {periods.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.id === "latest" ? `Latest month (${p.label})` : p.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          {(agency || projectId) && (
-            <button type="button" className="secondary-button" onClick={() => { setAgency(""); setProjectId(""); }}>
-              Clear filter
-            </button>
-          )}
         </div>
       </header>
 
@@ -202,100 +169,192 @@ export default function DashboardPage() {
           </p>
         )}
         {!hasPlan ? (
-          <p className="note">No capacity plan yet. The Dashboard fills in once the uploaded files have been processed.</p>
+          <p className="note">
+            No capacity plan yet. The Dashboard fills in once the uploaded files have been processed.
+          </p>
         ) : (
           <>
-            <h2 className="prod-title dash-part">
-              {filterName} · {period?.label ?? "–"}
-              <span className="dash-part-note">Changes with the filter above</span>
-            </h2>
-            {period && <HeaderCards plan={plan} view={view} period={period} fy={fy} />}
-
-            <Card
-              id="dash-people"
-              title={view?.selection ? `Who is on ${view.selection.kind === "project" ? "this project" : "this agency"}` : "Who is on it"}
-              sub={
-                view?.selection
-                  ? "One row per person and project in the last month of the period: planned and clocked days, and FTE."
-                  : undefined
-              }
-            >
-              {view?.selection ? (
-                <PeopleTable people={view.people} kind={view.selection.kind} />
-              ) : (
-                <p className="note">
-                  Pick an agency (and a project, to narrow it) in the filter at the top to list the people on it, the
-                  project each one is on, their planned and clocked days and their FTE.
-                </p>
-              )}
-            </Card>
-
-            <Card title="Demand vs capacity" sub="Headcount (or the people planned), FTE demand and FTE actual by month.">
-              <div className="chart-grid dash-chart-capped">
-                <DemandCapacity plan={plan} view={view} />
+            {/* Section 1: everything here follows the filter, which sits at its top. */}
+            <section className="dash-block" aria-labelledby="dash-filtered-title">
+              <div className="dash-block-head">
+                <div>
+                  <h2 id="dash-filtered-title">
+                    {filterName} · {period?.label ?? "–"}
+                  </h2>
+                  <p className="dash-part-note">Pick an agency, a project and a period: this section follows them.</p>
+                </div>
+                <div className="dash-filters">
+                  <label>
+                    Agency
+                    <select
+                      className="dash-filter-agency"
+                      value={agency}
+                      onChange={(e) => {
+                        setAgency(e.target.value);
+                        setProjectId("");
+                      }}
+                    >
+                      <option value="">All agencies</option>
+                      {(view?.filters.agencies ?? []).map((a) => (
+                        <option key={a} value={a}>
+                          {a}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Project ID
+                    <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+                      <option value="">{agency ? "All its projects" : "All projects"}</option>
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.id} · {p.name.length > 40 ? `${p.name.slice(0, 39)}…` : p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Period
+                    <select value={period?.id ?? "latest"} onChange={(e) => setPeriodId(e.target.value)}>
+                      {periods.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.id === "latest" ? `Latest month (${p.label})` : p.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {(agency || projectId) && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => {
+                        setAgency("");
+                        setProjectId("");
+                      }}
+                    >
+                      Clear filter
+                    </button>
+                  )}
+                </div>
               </div>
-            </Card>
+              {period && <HeaderCards plan={plan} view={view} period={period} fy={fy} />}
 
-            <h2 className="prod-title dash-part">
-              Whole organisation
-              <span className="dash-part-note">Not affected by the filter</span>
-            </h2>
-            <div className="dash-pair">
               <Card
-                title={`Agencies needing attention (${red.length})`}
+                id="dash-people"
+                title={
+                  view?.selection
+                    ? `Who is on ${view.selection.kind === "project" ? "this project" : "this agency"}`
+                    : "Who is on it"
+                }
                 sub={
-                  <>
-                    For management attention and Thomas&apos;s review{plan.productivity?.rules.draft ? " (draft thresholds)" : ""},
-                    fiscal year to date. Click an agency to filter the page to it, or{" "}
-                    <Link to="/analysis">see every agency and its projects</Link>.
-                  </>
+                  view?.selection
+                    ? "One row per person and project in the last month of the period: planned and clocked days, and FTE."
+                    : undefined
                 }
               >
-                {red.length > 0 ? (
-                  <ul className="attention-list">
-                    {(allRed ? red : red.slice(0, RED_SHOWN)).map((a) => (
-                      <li key={a.agency}>
-                        <button type="button" className="attention-name" onClick={() => { setAgency(a.agency); setProjectId(""); }}
-                          title="Show only this agency">
-                          {a.agency}
-                        </button>
-                        <span className="attention-why">{a.flagReason}</span>
-                      </li>
-                    ))}
-                  </ul>
+                {view?.selection ? (
+                  <PeopleTable people={view.people} kind={view.selection.kind} />
                 ) : (
-                  <p className="note">No agency is flagged red.</p>
-                )}
-                {red.length > RED_SHOWN && (
-                  <button type="button" className="secondary-button attention-more" onClick={() => setAllRed((v) => !v)}>
-                    {allRed ? "Show fewer" : `Show all ${red.length}`}
-                  </button>
+                  <p className="note">
+                    Pick an agency (and a project, to narrow it) in the filter above to list the people on it, the
+                    project each one is on, their planned and clocked days and their FTE.
+                  </p>
                 )}
               </Card>
 
               <Card
-                title="How productive are we? Against the company baseline"
-                sub={agency ? `${agency} is outlined; the what-if below is for it.` : "Pick an agency in the filter to outline it and run the what-if for it."}
+                title="Demand vs capacity"
+                sub="Headcount (or the people planned), FTE demand and FTE actual by month."
               >
-                <ProductivityChart plan={plan} fy={fy} agency={agency || view?.selection?.agency || null} />
+                <div className="chart-grid dash-chart-capped">
+                  <DemandCapacity plan={plan} view={view} />
+                </div>
               </Card>
-            </div>
+            </section>
 
-            <div className="dash-pair">
-              <Card title="Can we redeploy? Bench by quarter and who can start soonest">
-                <BenchView people={insights?.resources?.availability ?? []} asOf={insights?.asOf ?? null} />
-              </Card>
-
-              <Card title="Headcount waterfall by quarter">
-                <HeadcountBridge plan={plan} fy={fy} />
-              </Card>
-            </div>
-
-            <Card title="Capacity plan over the months" sub="Headcount by band, joiners and leavers, and billable utilisation by band.">
-              <div className="dash-plan-charts">
-                <CapacityCharts plan={plan} />
+            {/* Section 2: the whole organisation, not filtered. */}
+            <section className="dash-block" aria-labelledby="dash-org-title">
+              <div className="dash-block-head">
+                <div>
+                  <h2 id="dash-org-title">Whole organisation</h2>
+                  <p className="dash-part-note">Every agency, fiscal year to date. Not affected by the filter above.</p>
+                </div>
               </div>
-            </Card>
+              <div className="dash-pair">
+                <Card
+                  title={`Agencies needing attention (${red.length})`}
+                  sub={
+                    <>
+                      For management attention and Thomas&apos;s review
+                      {plan.productivity?.rules.draft ? " (draft thresholds)" : ""}, fiscal year to date. Click an
+                      agency to filter the page to it, or <Link to="/analysis">see every agency and its projects</Link>.
+                    </>
+                  }
+                >
+                  {red.length > 0 ? (
+                    <ul className="attention-list">
+                      {(allRed ? red : red.slice(0, RED_SHOWN)).map((a) => (
+                        <li key={a.agency}>
+                          <button
+                            type="button"
+                            className="attention-name"
+                            onClick={() => {
+                              setAgency(a.agency);
+                              setProjectId("");
+                            }}
+                            title="Show only this agency"
+                          >
+                            {a.agency}
+                          </button>
+                          <span className="attention-why">{a.flagReason}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="note">No agency is flagged red.</p>
+                  )}
+                  {red.length > RED_SHOWN && (
+                    <button
+                      type="button"
+                      className="secondary-button attention-more"
+                      onClick={() => setAllRed((v) => !v)}
+                    >
+                      {allRed ? "Show fewer" : `Show all ${red.length}`}
+                    </button>
+                  )}
+                </Card>
+
+                <Card
+                  title="How productive are we? Against the company baseline"
+                  sub={
+                    agency
+                      ? `${agency} is outlined; the what-if below is for it.`
+                      : "Pick an agency in the filter of the section above to outline it and run the what-if for it."
+                  }
+                >
+                  <ProductivityChart plan={plan} fy={fy} agency={agency || view?.selection?.agency || null} />
+                </Card>
+              </div>
+
+              <div className="dash-pair">
+                <Card title="Can we redeploy? Bench by quarter and who can start soonest">
+                  <BenchView people={insights?.resources?.availability ?? []} asOf={insights?.asOf ?? null} />
+                </Card>
+
+                <Card title="Headcount waterfall by quarter">
+                  <HeadcountBridge plan={plan} fy={fy} />
+                </Card>
+              </div>
+
+              <Card
+                title="Capacity plan over the months"
+                sub="Headcount by band, joiners and leavers, and billable utilisation by band."
+              >
+                <div className="dash-plan-charts">
+                  <CapacityCharts plan={plan} />
+                </div>
+              </Card>
+            </section>
           </>
         )}
       </div>
