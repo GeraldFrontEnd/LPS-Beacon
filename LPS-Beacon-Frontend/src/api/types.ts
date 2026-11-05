@@ -154,6 +154,7 @@ export interface ProductivityFigures {
   gpPerFte: number | null;
   revenuePerHcCost: number | null;
   requiredFte: number | null; // the FTE its revenue needs (the calculator's formula, default settings)
+  adr?: number | null; // average daily revenue: revenue ÷ clocked billable days (= ÷ (FTE actual × 18)); actual only
   ratePerDay: number | null; // weighted rate card (iRate) of its people, USD a day
   flag: Flag | null; // the worse of the productivity and utilisation flags; null = not flagged
   productivityFlag: Flag | null;
@@ -270,6 +271,53 @@ export interface DashboardView extends Partial<HeadcountBreakdown> {
     byMonth: Record<string, DashboardMonthCell>;
   } | null;
   people?: DashboardPeople; // with a selection: who is on it in ?month= (Finance/HR only)
+  agencyPanels?: AgencyPanels; // headcount details by agency in ?month= (every agency, or the one the filter picks)
+}
+
+// GET /dashboard ... agencyPanels: Hwee Yu's "HC (Details)" layout (4 Nov 2026), one panel per agency in one month.
+export interface AgencyPanels {
+  month: string | null;
+  clocked: boolean; // false: a month with no clocking yet, so actual is null
+  fullMonthManDays: number; // 18
+  actualSource?: "mspo" | "ur" | "none";
+  pending: { asSold: string; salaryScale: string }; // why those fields are still empty
+  agencies: AgencyPanel[]; // largest actual FTE first
+}
+
+export interface AgencyPanel {
+  agency: string;
+  headcount: number; // distinct people on its projects that month
+  planDays: number;
+  planFte: number; // as planned: SL x RP man-days ÷ 18
+  actualDays: number | null;
+  actualFte: number | null; // actual: clocked billable days ÷ 18
+  asSoldFte: number | null; // as sold (Bcase): no source yet
+  projects: AgencyPanelProject[];
+  people: AgencyPanelPerson[];
+}
+
+export interface AgencyPanelProject {
+  projectId: string;
+  name: string | null;
+  headcount: number | null;
+  planDays: number;
+  planFte: number;
+  actualDays: number | null;
+  actualFte: number | null;
+  asSoldFte: number | null;
+}
+
+export interface AgencyPanelPerson {
+  name: string | null;
+  skill: string | null; // the standardised position, until a per-person skill source exists
+  band: number | null;
+  employment: string | null;
+  salaryScale: "H" | "M" | "L" | null; // no salary source yet
+  planDays: number;
+  actualDays: number | null;
+  actualFte: number | null;
+  clockedDaysAllProjects: number | null; // all their projects that month: red below 15.3 or above 18
+  projects: number; // how many of the agency's projects they are on
 }
 
 // The people on the Dashboard's selection in one month (GET /dashboard ... &month=).

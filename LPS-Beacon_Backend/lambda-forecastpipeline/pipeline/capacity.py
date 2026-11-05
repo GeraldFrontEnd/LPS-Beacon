@@ -522,7 +522,7 @@ def _breakdown(store: Store, months: list[str], rp_full_month_mds: float = 18.0)
         actual_days = {(str(k[0]), str(k[1])): float(v)
                        for k, v in pm.groupby(["project", "month"])["actualDays"].sum().items()}
 
-    def cells(frame: pd.DataFrame, people: pd.DataFrame) -> dict[str, dict]:
+    def cells(frame: pd.DataFrame, people: pd.DataFrame, clocked_only: frozenset = frozenset()) -> dict[str, dict]:
         out: dict[str, dict] = {}
         fte = frame.groupby("month")["fte"].sum()
         for month, value in fte.items():
@@ -539,7 +539,7 @@ def _breakdown(store: Store, months: list[str], rp_full_month_mds: float = 18.0)
                 cell["billable"] += b
                 cell["workingDays"] += d
             cell["billable"], cell["workingDays"] = round(cell["billable"], 2), round(cell["workingDays"], 2)
-        projects_here = set(frame["project"].astype(str))
+        projects_here = set(frame["project"].astype(str)) | clocked_only   # + projects clocked but not planned
         for month in clocked:
             days = sum(actual_days.get((p, month), 0.0) for p in projects_here)
             if days or month in out:
@@ -548,10 +548,24 @@ def _breakdown(store: Store, months: list[str], rp_full_month_mds: float = 18.0)
                 cell["actualFte"] = round(days / rp_full_month_mds, 2)
         return dict(sorted(out.items()))
 
+    # Projects with clocking but no SL x RP plan count in their agency's FTE actual, as in the HC details panels
+    # (roster.json), so the Actual card and the panel agree.
+    clocked_by_agency: dict[str, set[str]] = {}
+    planned = set(sl["project"].astype(str))
+    if pm is not None and len(pm):
+        for r in pm.drop_duplicates("project").itertuples(index=False):
+            pid = str(r.project)
+            if pid in planned:
+                continue
+            owner = agency.get(pid) or (r.customer.strip() if isinstance(r.customer, str) and r.customer.strip()
+                                        else "(no customer)")
+            clocked_by_agency.setdefault(owner, set()).add(pid)
     agencies: dict[str, dict] = {}
     for name, part in sl.groupby("agency"):
-        projects = sorted(set(part["project"].astype(str)))
-        agencies[str(name)] = {"projects": projects, "byMonth": cells(part, staffed[staffed["agency"] == name])}
+        extra = frozenset(clocked_by_agency.get(str(name), set()))
+        projects = sorted(set(part["project"].astype(str)) | extra)
+        agencies[str(name)] = {"projects": projects,
+                               "byMonth": cells(part, staffed[staffed["agency"] == name], extra)}
     projects: dict[str, dict] = {}
     for pid, part in sl.groupby("project"):
         projects[str(pid)] = {"name": names.get(str(pid)) or str(pid), "agency": agency.get(str(pid), "(no customer)"),

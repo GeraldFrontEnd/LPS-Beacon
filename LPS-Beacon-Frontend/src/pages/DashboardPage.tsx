@@ -4,7 +4,8 @@
 //
 //  Laid out like the Analysis page (4 Nov 2026): plain cards, one under the other, no collapsible boxes, in two parts.
 //  Filter bar      agency, project ID and period. It drives the first part only.
-//  1. For the filter     the header cards · who is on it (people on the agency / project picked) · demand vs capacity
+//  1. For the filter     the header cards · HC details by agency (Hwee Yu's layout: FTE as sold / as planned / actual,
+//                        cost, ADR, projects and people; every agency, or the one picked) · demand vs capacity
 //  2. Whole organisation not affected by the filter: agencies needing attention | productivity against the company
 //                        baseline (the agency picked is outlined) · bench and who can start soonest | headcount
 //                        waterfall · the capacity plan's charts
@@ -20,9 +21,9 @@ import { useAuth } from "../auth/useAuth";
 import BenchView from "../dashboard/BenchView";
 import CapacityCharts from "../dashboard/CapacityCharts";
 import DemandCapacity from "../dashboard/DemandCapacity";
+import AgencyPanels from "../dashboard/AgencyPanels";
 import HeaderCards from "../dashboard/HeaderCards";
 import HeadcountBridge from "../dashboard/HeadcountBridge";
-import PeopleTable from "../dashboard/PeopleTable";
 import ProductivityChart from "../dashboard/ProductivityChart";
 import type { DashboardInsights } from "../dashboard/insightTypes";
 import { periodChoices } from "../dashboard/period";
@@ -77,7 +78,7 @@ export default function DashboardPage() {
 
   const periods = useMemo(() => (plan ? periodChoices(plan) : []), [plan]);
   const period = periods.find((p) => p.id === periodId) ?? periods[0];
-  // The people list shows the last month of the period (the month the People card counts).
+  // The HC details show the last month of the period (the month the People card counts).
   const month = period?.months[period.months.length - 1] ?? null;
 
   // The filtered figures come from GET /dashboard?agency=&projectId=&month= (the lists come with every answer).
@@ -124,11 +125,11 @@ export default function DashboardPage() {
   // Opened on a project: bring its people into view once, when they are loaded.
   const scrolled = useRef(false);
   useEffect(() => {
-    if (arrivedWith && view?.people && !scrolled.current) {
+    if (arrivedWith && view?.agencyPanels && !scrolled.current) {
       scrolled.current = true;
       document.getElementById("dash-people")?.scrollIntoView({ block: "start" });
     }
-  }, [arrivedWith, view?.people]);
+  }, [arrivedWith, view?.agencyPanels]);
   const fy = plan ? reportingYear(plan) : "FY26";
   const projects = (view?.filters.projects ?? []).filter((p) => !agency || p.agency === agency);
   const filterName = projectId ? `${view?.selection?.name ?? projectId} (${projectId})` : agency || "All agencies";
@@ -237,29 +238,17 @@ export default function DashboardPage() {
                   )}
                 </div>
               </div>
-              {period && <HeaderCards plan={plan} view={view} period={period} fy={fy} />}
+              {period && <HeaderCards plan={plan} view={view} period={period} />}
 
               <Card
                 id="dash-people"
-                title={
-                  view?.selection
-                    ? `Who is on ${view.selection.kind === "project" ? "this project" : "this agency"}`
-                    : "Who is on it"
-                }
+                title={`HC details by agency${view?.selection ? "" : " (every agency)"}`}
                 sub={
-                  view?.selection
-                    ? "One row per person and project in the last month of the period: planned and clocked days, and FTE."
-                    : undefined
+                  "Each agency in the last month of the period: FTE as sold, as planned and actual, its total actual " +
+                  "cost and ADR, its projects and the list of its people. Hover a figure to see how it is worked out."
                 }
               >
-                {view?.selection ? (
-                  <PeopleTable people={view.people} kind={view.selection.kind} />
-                ) : (
-                  <p className="note">
-                    Pick an agency (and a project, to narrow it) in the filter above to list the people on it, the
-                    project each one is on, their planned and clocked days and their FTE.
-                  </p>
-                )}
+                <AgencyPanels panels={view?.agencyPanels} plan={plan} />
               </Card>
 
               <Card

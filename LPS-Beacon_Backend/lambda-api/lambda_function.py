@@ -26,7 +26,7 @@ Routes (API Gateway route key -> handler). Unbuilt routes answer 501 so the fron
                                                   removes the edit)
   DELETE /analysis/edits             finance_hr   "Clear my edits": removes the caller's edits, returns the
                                                   whole plan (built)
-  GET    /dashboard                  finance_hr   headcount breakdown (204 before a staff list) (built)
+  GET    /dashboard                  finance_hr   headcount breakdown, filter lists, headcount details by agency (built)
   GET    /dashboard/insights         finance_hr   charts from all uploaded files: sales pipeline, roll-offs,
                                                   utilisation, leavers (204 before the first build) (built)
   GET    /activity                   finance_hr   the bell: who uploaded, reviewed or changed the plan, newest
@@ -1419,11 +1419,80 @@ def selection_people(roster, project_ids, month=None):
             "actualSource": (roster or {}).get("actualSource"), "rows": rows}
 
 
+def agency_panels(roster, groups=None, month=None):
+    """The Dashboard's headcount details by agency (Hwee Yu's layout, 4 Nov 2026): one panel per agency in one month,
+    with its FTE as sold, as planned and actual, its projects, and the list of its people (name, skill, band, salary
+    scale). groups: {agency: [project ids]} for the filter; None = every agency on the roster.
+        as planned   SL x RP man-days ÷ 18 (the PM's plan)
+        actual       billable days clocked to its projects ÷ 18 (MSPO clocking); None in a month not clocked yet
+        as sold      the business case (Bcase): no source file yet, so None
+        skill        the person's standardised position (the files carry no per-person skill yet)
+        salary scale H / M / L: no salary source yet, so None
+    A person on two of the agency's projects is listed once, with the days added up."""
+    projects = (roster or {}).get("projects") or {}
+    actual_months = (roster or {}).get("actualMonths") or []
+    month = month or max(actual_months or [""]) or None
+    full = float((roster or {}).get("fullMonthManDays") or 18)
+    clocked = month in actual_months
+    if groups is None:
+        groups = {}
+        for pid, p in projects.items():
+            groups.setdefault(p.get("agency") or "(no customer)", []).append(pid)
+    panels = []
+    for agency, ids in groups.items():
+        rows, people = [], {}
+        for pid in ids:
+            p = projects.get(pid) or {}
+            cell = (p.get("byMonth") or {}).get(month) if month else None
+            if not cell:
+                continue
+            plan_days = float(cell.get("planDays") or 0)
+            actual_days = cell.get("actualDays") if clocked else None
+            rows.append({"projectId": pid, "name": p.get("name"), "headcount": cell.get("headcount"),
+                         "planDays": round(plan_days, 2), "planFte": round(plan_days / full, 2),
+                         "actualDays": actual_days,
+                         "actualFte": None if actual_days is None else round(float(actual_days) / full, 2),
+                         "asSoldFte": None})
+            for i, person in enumerate(cell.get("people") or []):
+                key = person.get("name") or f"{pid}#{i}"
+                row = people.get(key)
+                if row is None:
+                    row = people[key] = {"name": person.get("name"), "skill": person.get("position"),
+                                         "band": person.get("band"), "employment": person.get("employment"),
+                                         "salaryScale": None, "planDays": 0.0, "actualDays": None,
+                                         "clockedDaysAllProjects": person.get("clockedDaysAllProjects"),
+                                         "projects": 0}
+                row["planDays"] = round(row["planDays"] + float(person.get("planDays") or 0), 2)
+                if clocked and person.get("actualDays") is not None:
+                    row["actualDays"] = round((row["actualDays"] or 0) + float(person["actualDays"]), 2)
+                row["projects"] += 1
+        if not rows:
+            continue
+        for row in people.values():
+            row["actualFte"] = None if row["actualDays"] is None else round(row["actualDays"] / full, 2)
+        plan_days = sum(r["planDays"] for r in rows)
+        actual_days = sum(float(r["actualDays"] or 0) for r in rows) if clocked else None
+        rows.sort(key=lambda r: -(r["actualDays"] or r["planDays"] or 0))
+        panels.append({"agency": agency, "headcount": len(people),
+                       "planDays": round(plan_days, 2), "planFte": round(plan_days / full, 2),
+                       "actualDays": None if actual_days is None else round(actual_days, 2),
+                       "actualFte": None if actual_days is None else round(actual_days / full, 2),
+                       "asSoldFte": None, "projects": rows,
+                       "people": sorted(people.values(), key=lambda r: str(r["name"] or "~"))})
+    panels.sort(key=lambda a: (-(a["actualDays"] if a["actualDays"] is not None else a["planDays"]), a["agency"]))
+    return {"month": month, "clocked": clocked, "fullMonthManDays": full,
+            "actualSource": (roster or {}).get("actualSource"),
+            "pending": {"asSold": "Bcase (business case) file not supplied yet",
+                        "salaryScale": "no salary source yet"},
+            "agencies": panels}
+
+
 def dashboard_view(inputs, agency=None, project_id=None, roster=None, month=None):
     """GET /dashboard: today's headcount by employment type (staff list), the agency and project lists for the
     Dashboard's filter, and, with ?agency= or ?projectId=, that selection's figures per month (people, FTE demand,
     permanent / secondment, UR days). The pipeline precomputes them (pipeline/capacity.py, "breakdown").
-    With a selection and the roster, also its people in ?month= (selection_people)."""
+    With a selection and the roster, also its people in ?month= (selection_people). With the roster, the headcount
+    details by agency in ?month= (agency_panels): every agency, or the one the filter picks."""
     out = dict(inputs.get("headcountBreakdown") or {})
     split = inputs.get("breakdown") or {}
     agencies, projects = split.get("agencies") or {}, split.get("projects") or {}
@@ -1446,9 +1515,14 @@ def dashboard_view(inputs, agency=None, project_id=None, roster=None, month=None
         selection = {"kind": "agency", "agency": agency, "projects": found.get("projects") or [],
                      "byMonth": found.get("byMonth") or {}}
     out["selection"] = selection
-    if selection is not None and roster is not None:
-        ids = [project_id] if project_id else list(selection.get("projects") or [])
-        out["people"] = selection_people(roster, ids, month)
+    if roster is not None:
+        if selection is not None:
+            ids = [project_id] if project_id else list(selection.get("projects") or [])
+            out["people"] = selection_people(roster, ids, month)
+            groups = {selection.get("agency") or "(no customer)": ids}
+        else:
+            groups = None
+        out["agencyPanels"] = agency_panels(roster, groups, month)
     return out
 
 
@@ -1464,7 +1538,7 @@ def get_dashboard(event, caller):
     month = str(query.get("month") or "").strip()[:7] or None
     if month and not re.fullmatch(r"\d{4}-\d{2}", month):
         raise HttpError(400, "month must look like 2026-10")
-    roster = _cached_json(ROSTER_KEY) if (agency or project_id) else None
+    roster = _cached_json(ROSTER_KEY)
     return reply(200, dashboard_view(inputs, agency, project_id, roster, month))
 
 

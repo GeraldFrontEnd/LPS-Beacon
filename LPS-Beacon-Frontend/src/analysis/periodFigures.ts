@@ -7,7 +7,9 @@
 //   FTE actual         clocked billable days ÷ 18, averaged over the period's months
 //   Days / head        clocked billable days per person a month (each person counted once a month)
 //   Revenue / GP per FTE   annualised (× 12 ÷ months in the period)
-//   Calculated FTE required   the calculator's formula (baseline.ts) on the period's annualised revenue
+//   Calculated FTE required   the calculator's formula (baseline.ts) on the period's annualised revenue (kept for the chat
+//                      and the calculator; the table shows ADR instead)
+//   ADR                average daily revenue: revenue ÷ billable days clocked (baseline.ts adr), actual only
 //   Flags              red when days per head is below 15.3 or above 18; productivity against the company average of
 //                      the same period (draft thresholds); agencies under the minimum FTE or without revenue are not
 //                      flagged on productivity
@@ -74,6 +76,7 @@ export function periodView(plan: CapacityPlan, fy: string, months: string[]): Pe
   const fullDays = p.rules.utilisation?.fullMonthManDays ?? 18;
   const util = p.rules.utilisation ?? { fullMonthManDays: 18, urTarget: 0.85, redBelowDays: 15.3, redAboveDays: 18 };
   const target = plan.settings?.[fy]?.target;
+  const clocked = p.clocked !== false; // without clocking, actualDays holds the plan: no ADR
 
   const sum = (byMonth: Record<string, ProductivityMonth> | undefined) => {
     const t = { revenue: 0, hcCost: 0, actualDays: 0, planDays: 0, people: 0, clockedDays: 0, clockedPeople: 0 };
@@ -122,6 +125,7 @@ export function periodView(plan: CapacityPlan, fy: string, months: string[]): Pe
       revenuePerHcCost: t.hcCost ? t.revenue / t.hcCost : null,
       ratePerDay: rate,
       requiredFte: required,
+      adr: clocked && t.actualDays ? t.revenue / t.actualDays : null,
     };
   };
 

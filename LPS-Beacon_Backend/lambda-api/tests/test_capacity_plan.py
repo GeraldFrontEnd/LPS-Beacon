@@ -261,6 +261,42 @@ class RouteTests(unittest.TestCase):
         status, body = self.call("GET /dashboard", None)
         self.assertEqual(status, 200)
 
+    def test_dashboard_headcount_details_by_agency(self):
+        import lambda_function as L
+        person = lambda name, plan, days, pos="DBA": {"name": name, "position": pos, "band": 7,  # noqa: E731
+                                                     "employment": "permanent", "planDays": plan, "planFte": plan / 18,
+                                                     "actualDays": days, "actualFte": days / 18,
+                                                     "clockedDaysAllProjects": 18, "split": False}
+        roster = {"actualMonths": ["2026-10"], "fullMonthManDays": 18, "actualSource": "mspo", "projects": {
+            "P1": {"name": "One", "agency": "Agency X", "byMonth": {"2026-10": {
+                "headcount": 2, "planDays": 36, "actualDays": 27, "people": [person("Zed", 18, 18), person("Amy", 18, 9)]}}},
+            "P2": {"name": "Two", "agency": "Agency X", "byMonth": {"2026-10": {
+                "headcount": 1, "planDays": 9, "actualDays": 9, "people": [person("Amy", 9, 9)]}}},
+            "P3": {"name": "Three", "agency": "Agency Y", "byMonth": {"2026-10": {
+                "headcount": 1, "planDays": 18, "actualDays": 18, "people": [person("Bob", 18, 18, "PM")]},
+                "2026-11": {"headcount": 1, "planDays": 18, "actualDays": None, "people": [person("Bob", 18, 0, "PM")]}}}}}
+        out = L.agency_panels(roster)
+        self.assertEqual(out["month"], "2026-10")
+        self.assertEqual([a["agency"] for a in out["agencies"]], ["Agency X", "Agency Y"], "largest actual first")
+        x = out["agencies"][0]
+        self.assertEqual((x["planFte"], x["actualFte"], x["headcount"]), (2.5, 2.0, 2))
+        self.assertIsNone(x["asSoldFte"], "no Bcase source yet")
+        amy = next(r for r in x["people"] if r["name"] == "Amy")
+        self.assertEqual((amy["planDays"], amy["actualDays"], amy["projects"], amy["skill"]), (27.0, 18.0, 2, "DBA"))
+        self.assertIsNone(amy["salaryScale"])
+        self.assertEqual([p["projectId"] for p in x["projects"]], ["P1", "P2"])
+        fc = L.agency_panels(roster, {"Agency Y": ["P3"]}, "2026-11")
+        self.assertFalse(fc["clocked"])
+        self.assertEqual((fc["agencies"][0]["planFte"], fc["agencies"][0]["actualFte"]), (1.0, None), "forecast: plan only")
+        data = inputs()
+        data["breakdown"] = {"agencies": {"Agency X": {"projects": ["P1", "P2"], "byMonth": {}}},
+                             "projects": {"P1": {"name": "One", "agency": "Agency X", "byMonth": {}}}}
+        view = L.dashboard_view(data, agency="Agency X", roster=roster)
+        self.assertEqual([a["agency"] for a in view["agencyPanels"]["agencies"]], ["Agency X"])
+        view = L.dashboard_view(data, project_id="P1", roster=roster)
+        self.assertEqual([p["projectId"] for p in view["agencyPanels"]["agencies"][0]["projects"]], ["P1"])
+        self.assertEqual(len(L.dashboard_view(data, roster=roster)["agencyPanels"]["agencies"]), 2)
+
     def test_dashboard_204_without_inputs(self):
         del self.objects["results/capacity/inputs.json"]
         self.assertEqual(self.call("GET /dashboard")[0], 204)

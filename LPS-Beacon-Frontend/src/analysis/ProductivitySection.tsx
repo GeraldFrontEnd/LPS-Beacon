@@ -130,7 +130,7 @@ function figures(f: ProductivityFigures) {
       </td>
       <td className="num">{fmt.usdK(f.revenuePerFte)}</td>
       <td className="num">{fmt.usdK(f.gpPerFte)}</td>
-      <td className="num">{fmt.dec1(f.requiredFte)}</td>
+      <td className="num">{fmt.usd(f.adr)}</td>
     </>
   );
 }
@@ -146,7 +146,9 @@ function figureHeads() {
       </th>
       <th scope="col" className="num">Revenue per FTE</th>
       <th scope="col" className="num">GP per FTE</th>
-      <th scope="col" className="num">Calculated FTE required</th>
+      <th scope="col" className="num" title="Average daily revenue: revenue ÷ billable days clocked, i.e. monthly revenue ÷ (FTE actual × 18). Actual only">
+        ADR
+      </th>
     </>
   );
 }

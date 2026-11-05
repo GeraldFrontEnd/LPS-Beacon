@@ -108,6 +108,23 @@ export function fteRequired(i: FteInputs): FteResult | null {
   return { pricePerDay, revenuePerFteYear, billableFte, totalFte: i.manDaysAreBillable ? billableFte : billableFte / i.ur };
 }
 
+// ---- ADR, average daily revenue (Hwee Yu, 4 Nov 2026): "the calculated one", by project, all actual ----
+// Her formula reads "monthly revenue / (FTE/18)". Taken as revenue per man-day: monthly revenue ÷ (FTE actual × 18),
+// which is revenue ÷ the billable days clocked. (Read literally, revenue ÷ (FTE ÷ 18) = 18 × revenue per FTE, which
+// is not a daily figure.) Months are added up before dividing, so a quarter's ADR = its revenue ÷ its clocked days.
+// Only months with both ABCD revenue and clocking count; null when nothing was clocked.
+export function adr(byMonth: Record<string, { revenue: number; actualDays: number }> | undefined, months: string[]): number | null {
+  let revenue = 0;
+  let days = 0;
+  for (const m of months) {
+    const c = byMonth?.[m];
+    if (!c) continue;
+    revenue += c.revenue;
+    days += c.actualDays;
+  }
+  return days > 0 ? revenue / days : null;
+}
+
 // ---- Money and number formats used across the Analysis page and the Dashboard ("$", never "US$") ----
 const grouped0 = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const grouped1 = new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
