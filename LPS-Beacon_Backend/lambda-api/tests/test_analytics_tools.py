@@ -77,16 +77,18 @@ class AnalyticsTests(unittest.TestCase):
         self.assertEqual(b["revenuePerDollarOfHcCost"], 2000.0)
         self.assertEqual(b["weightedCostPerFtePerDayUsd"], 100)
 
-    def test_fte_required_shows_its_steps_and_convention(self):
-        r = at.fte_required(self.inputs, self.values, {})
-        price = 100 / (1 - 0.27)
-        self.assertAlmostEqual(r["billableFteRequired"], round(90_000_000 / (12 * 18 * price), 1))
-        self.assertEqual(r["totalFteRequired"], r["billableFteRequired"], "18 billable days: UR not applied again")
+    def test_fte_calculator_both_ways_on_adr(self):
+        r = at.fte_required(self.inputs, self.values, {"billableUr": 87})
+        adr = 250_000 / (25 * 18)                     # both agencies: revenue / (FTE x 18 x 1 month)
+        self.assertEqual(r["adrUsdPerDay"], round(adr))
+        per_fte = adr * 18 * 12
+        self.assertAlmostEqual(r["totalFteRequired"], round(90_000_000 / per_fte / 0.87, 1))
         self.assertEqual(len(r["formulaSteps"]), 4)
-        working = at.fte_required(self.inputs, self.values, {"manDaysAreBillable": False, "billableUr": 85.4})
-        self.assertAlmostEqual(working["totalFteRequired"], round(working["billableFteRequired"] / 0.854, 1), places=0)
+        back = at.fte_required(self.inputs, self.values, {"fte": r["totalFteRequired"], "billableUr": 0.87})
+        self.assertEqual(back["mode"], "revenue from FTE")
+        self.assertAlmostEqual(back["revenueUsd"] / 90_000_000, 1, places=3)
         agency = at.fte_required(self.inputs, self.values, {"agency": "agency red"})
-        self.assertEqual((agency["scope"], agency["current"]), ("Agency Red", 10))
+        self.assertEqual((agency["scope"], agency["adrUsdPerDay"]), ("Agency Red", round(50_000 / 180)))
         self.assertIn("error", at.fte_required(self.inputs, self.values, {"agency": "Nobody"}))
 
     def test_productivity_filters(self):

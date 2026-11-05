@@ -180,6 +180,12 @@ const ROWS: Row[] = [
 
 const QUARTERS: Period[] = ["Q1", "Q2", "Q3", "Q4"];
 
+// Remark on the actual columns (5 Nov 2026 review): the P&L lines will come from David's P&L agent once the four
+// projects share one agent; until then only revenue comes from a file (ABCD) and the rest is typed in. Our side keeps
+// working out the KPIs (GP %, per-HC figures, ADR) from those numbers.
+export const DAVID_REMARK =
+  "To come from David's P&L agent; until then revenue is from the ABCD report and the other lines are typed in.";
+
 type Values = Record<string, number | null>;
 interface Resolved {
   value: number | null;
@@ -524,14 +530,14 @@ export default function ManagementTarget({
           ))}
         </tr>
         <tr>
-          <th scope="col" className="plan-block-start" title="Last year's actuals">
-            {label(start - 1)}
+          <th scope="col" className="plan-block-start" title={`Last year's actuals. ${DAVID_REMARK}`}>
+            {label(start - 1)} *
           </th>
           <th scope="col" title="Management target (typed in)">
             MT
           </th>
-          <th scope="col" title="This year: actual months so far, forecast for the rest">
-            Act + fcst
+          <th scope="col" title={`This year: actual months so far, forecast for the rest. ${DAVID_REMARK}`}>
+            Act + fcst *
           </th>
           <th scope="col" title="This year minus last year">
             YoY
@@ -550,8 +556,8 @@ export default function ManagementTarget({
             <th key={`${q}-mt`} scope="col" className="plan-block-start">
               MT
             </th>,
-            <th key={`${q}-c`} scope="col">
-              Act + fcst
+            <th key={`${q}-c`} scope="col" title={DAVID_REMARK}>
+              Act + fcst *
             </th>,
             ...(showVariance
               ? [

@@ -2,7 +2,7 @@
 // The Dashboard's headline figures for the filter. Two groups (Hwee Yu, 4 Nov 2026):
 //   Headcount       headcount, permanent vs secondment, billable UR
 //   FTE             the three FTE figures she needs to see side by side, then the calculated one:
-//     As sold       FTE in the business case (Bcase). No source file yet, so "–".
+//     As sold       quote line man-days ÷ 18 (pipeline/capacity.py _as_sold), averaged over the period's months
 //     As planned    FTE the PM planned (SL x RP man-days ÷ 18), averaged over the period's months
 //     Actual        billable days clocked in MSPO ÷ 18, averaged over the period's clocked months
 //     ADR           average daily revenue: revenue ÷ billable days clocked (= monthly revenue ÷ (FTE actual × 18)),
@@ -17,7 +17,7 @@ import type { CapacityPlan, DashboardMonthCell, DashboardView } from "../api/typ
 import { adr, fmt } from "../analysis/baseline";
 import type { Period } from "./period";
 
-const SOLD_HOW = "FTE sold in the business case (Bcase). Waiting for the Bcase file, so not shown yet.";
+const SOLD_HOW = "FTE sold: the quote line man-days of its projects ÷ 18 (MSPO quote line export).";
 const PLAN_HOW = "FTE the project managers planned (MSPO resource plan, SL x RP): planned man-days ÷ 18.";
 const ACTUAL_HOW = "FTE actually delivered: billable days clocked in MSPO ÷ 18.";
 const ADR_HOW =
@@ -58,6 +58,7 @@ function orgCards(plan: CapacityPlan, view: DashboardView | null, period: Period
   const other = p ? p.supplementalOther + p.supplementalRetiree : 0;
   const actualMonths = period.months.map((m) => plan.actualFteByMonth?.[m]).filter((x): x is number => x !== undefined);
   const actual = average(actualMonths);
+  const sold = average(period.months.map((m) => plan.asSoldByMonth?.[m]).filter((x): x is number => x !== undefined));
   // ADR of the whole organisation: every agency's revenue and clocked days added up, then divided.
   const months = adrMonths(plan, period);
   const totals: Record<string, { revenue: number; actualDays: number }> = {};
@@ -77,7 +78,7 @@ function orgCards(plan: CapacityPlan, view: DashboardView | null, period: Period
       how: "Staff by employment type, from the staff list. Supplemental staff are counted separately." },
     { label: "Billable UR", value: fmt.pct(ur), sub: period.id === "latest" ? undefined : "average of the months",
       how: "Billable days ÷ working days, from the UR report. Future months show the target." },
-    { label: "As sold (FTE)", value: "–", sub: "Bcase file not supplied yet", how: SOLD_HOW },
+    { label: "As sold (FTE)", value: fmt.int(sold), sub: sold === null ? "no quote line export yet" : "quote line", how: SOLD_HOW },
     { label: "As planned (FTE)", value: fmt.int(demand), sub: "PM's plan (SL x RP)", how: PLAN_HOW },
     { label: "Actual (FTE)", value: fmt.int(actual), sub: actualMonths.length ? "clocked (MSPO)" : "not clocked yet", how: ACTUAL_HOW },
     { label: "ADR", value: fmt.usd(adr(totals, months)), sub: adrSub(months, period), how: ADR_HOW },
@@ -99,6 +100,7 @@ function selectionCards(plan: CapacityPlan, view: DashboardView, period: Period)
   const months = adrMonths(plan, period);
   const clocked = cells.filter((c): c is DashboardMonthCell & { actualFte: number } => c.actualFte != null);
   const actual = average(clocked.map((c) => c.actualFte));
+  const sold = average(cells.map((c) => c.soldFte).filter((x): x is number => x !== undefined));
   return [
     { label: "People", value: fmt.int(end?.people), sub: `planned in ${period.endKey}`,
       how: "People planned on its projects this month. Someone on two projects counts in both." },
@@ -107,7 +109,7 @@ function selectionCards(plan: CapacityPlan, view: DashboardView, period: Period)
       how: "Those people by employment type, from the staff list." },
     { label: "Billable UR", value: days ? fmt.pct(billable / days) : "–", sub: days ? undefined : "no clocking yet",
       how: "Those people's billable days ÷ working days, from the UR report." },
-    { label: "As sold (FTE)", value: "–", sub: "Bcase file not supplied yet", how: SOLD_HOW },
+    { label: "As sold (FTE)", value: fmt.dec1(sold), sub: sold === null ? "no quote line for it" : "quote line", how: SOLD_HOW },
     { label: "As planned (FTE)", value: fmt.dec1(demand), sub: "PM's plan (SL x RP)", how: PLAN_HOW },
     { label: "Actual (FTE)", value: fmt.dec1(actual), sub: clocked.length ? "clocked (MSPO)" : "not clocked yet", how: ACTUAL_HOW },
     { label: "ADR", value: fmt.usd(adr(figures?.byMonth, months)), sub: adrSub(months, period),

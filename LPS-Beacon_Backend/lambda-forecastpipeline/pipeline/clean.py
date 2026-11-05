@@ -284,6 +284,7 @@ def to_long(wide: pd.DataFrame, dataset: str, full_month_mds: float) -> pd.DataF
         "Customer": "customer", project_name: "project_name", "Project Type": "project_type",
         "Resource": "resource", "Position Name": "position_name", "Grade": "grade",
         "Skill": "skill", "Fiscal Year": "fiscal_year", "Working City": "working_city",
+        "Contract Number": "contract",   # the work order number (ORD-...), links a quote line to its project
     }
     base = wide[[c for c in keep if c in wide.columns] + months].rename(columns=keep)
     long = base.melt(id_vars=[keep[c] for c in keep if c in wide.columns],

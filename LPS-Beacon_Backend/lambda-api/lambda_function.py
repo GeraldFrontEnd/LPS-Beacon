@@ -359,7 +359,8 @@ Rules:
   availability; band is only a secondary check.
 - Matching is redeployment onto won and ongoing work (quote lines). Do not talk about the SFDC sales pipeline.
 - HC and FTE are different. HC = people (names). 1 FTE = 18 working days a month. Three FTE figures: FTE demand
-  (planned, SL x RP), FTE actual (clocked, MSPO clocking) and calculated FTE required (from revenue). Say which one. A person
+  (planned, SL x RP), FTE actual (clocked, MSPO clocking), As sold (quote line) and calculated FTE required (from
+  revenue and ADR). Say which one. A person
   clocking below 15.3 or above 18 billable days a month is red (the 85 % UR target). Never call FTE "people".
 - For a project ("list the resources on X", "who works on X", "plan vs actual for X"): call get_project_resources.
   Give the month, HC, plan FTE vs actual FTE, then a table of the people: name, position, plan days, clocked days,
@@ -367,9 +368,8 @@ Rules:
   the plan vs the actual over time, give the byMonth figures as a short table (month, HC, plan FTE, actual FTE).
   For a list of people the table may have up to 5 short columns.
 - Call it "calculated FTE required", never just "FTE required".
-- For calculated FTE required, always state the convention and show the formula steps the tool returns: 1 FTE = 18
-  working days a month (the company's standard baseline), divided by UR. Say that the formula is being replaced, so
-  the figure is indicative.
+- For calculated FTE required (or the revenue an FTE count brings), always show the formula steps the tool returns:
+  revenue per FTE-day = ADR, x 18 working days x 12 months, divided by (or multiplied by) UR.
 - For productivity, say what the figure is compared with (the company average, and the basis the tool gives) and
   that the red / amber / green thresholds are a draft when the tool says so.
 - Write money as $127.5K or $4.68M (USD), percentages to one decimal place.
@@ -859,18 +859,15 @@ TOOLS = {
          "belowAverageOnly": {"type": "boolean", "description": "Only those below the company revenue per FTE"}})),
     "calculate_fte_required": (tool_fte_required, _tool(
         "calculate_fte_required",
-        "How many FTE a yearly revenue needs, for the organisation or one agency, with the formula steps. Defaults: "
-        "the settings' target ($90M example), 27% GP, UR 85.4%, 18 working days per FTE per month (UR applied), "
-        "the weighted iRate. Also returns today's headcount (or the agency's FTE) and the gap.",
+        "Calculated FTE required for a yearly revenue (give revenueUsd), or the yearly revenue an FTE count brings "
+        "(give fte), for the organisation or one agency, with the formula steps. Revenue per FTE-day = ADR (revenue / "
+        "billable days clocked, fiscal year to date); 1 FTE = 18 working days a month; UR 87% by default.",
         {"revenueUsd": {"type": "number", "description": "Yearly revenue target in USD, e.g. 90000000"},
-         "gpPct": {"type": "number", "description": "Gross profit, e.g. 0.27"},
-         "billableUr": {"type": "number", "description": "e.g. 0.854"},
+         "fte": {"type": "number", "description": "An FTE count, to get the yearly revenue it brings"},
+         "billableUr": {"type": "number", "description": "e.g. 0.87"},
          "manDaysPerFte": {"type": "number", "description": "Man-days per FTE per month, default 18"},
-         "manDaysAreBillable": {"type": "boolean",
-                                "description": "false (default): the man-days are working days, divide by "
-                                               "UR (the company standard); true: billable days"},
-         "agency": {"type": "string", "description": "An agency, to calculate for it instead of the organisation"},
-         "iRateUsd": {"type": "number", "description": "Override the weighted cost per FTE per day"}})),
+         "adrUsd": {"type": "number", "description": "Override the ADR (USD a day)"},
+         "agency": {"type": "string", "description": "An agency, to calculate for it instead of the organisation"}})),
     "hiring_what_if": (tool_hiring_what_if, _tool(
         "hiring_what_if",
         "What hiring N more people does to revenue per HC (organisation) or per FTE (one agency): now, if the hires "
@@ -1297,6 +1294,13 @@ def _management_target():
     return doc if isinstance(doc.get("cells"), dict) else {"cells": {}}
 
 
+def _sold_fte_by_month(sold):
+    if not sold or not sold.get("byMonth"):
+        return None
+    full = float(sold.get("fullMonthManDays") or 18)
+    return {m: round(float(d) / full, 1) for m, d in sold["byMonth"].items()}
+
+
 def _plan_reply(inputs, doc, caller, **extra):
     target = management_target.public(_management_target(), caller.user_id)
     if inputs is None:
@@ -1318,6 +1322,8 @@ def _plan_reply(inputs, doc, caller, **extra):
                            demandByMonth=inputs.get("demand"),
                            # FTE actual (clocked billable days / 18) per month, and where it came from.
                            actualFteByMonth=inputs.get("actualFte"), actualFteSource=inputs.get("actualFteSource"),
+                           # As sold for the organisation: quote line man-days / 18 per month (5 Nov 2026).
+                           asSoldByMonth=_sold_fte_by_month(inputs.get("asSold")),
                            workdayMonths=sorted(set((inputs.get("actualFlows") or {}).keys())
                                                 & {m["month"] for m in inputs["months"]}),
                            startingHeadcountSource=(inputs.get("startingHeadcount") or {}).get("source"),
@@ -1419,28 +1425,34 @@ def selection_people(roster, project_ids, month=None):
             "actualSource": (roster or {}).get("actualSource"), "rows": rows}
 
 
-def agency_panels(roster, groups=None, month=None):
-    """The Dashboard's headcount details by agency (Hwee Yu's layout, 4 Nov 2026): one panel per agency in one month,
-    with its FTE as sold, as planned and actual, its projects, and the list of its people (name, skill, band, salary
-    scale). groups: {agency: [project ids]} for the filter; None = every agency on the roster.
-        as planned   SL x RP man-days ÷ 18 (the PM's plan)
-        actual       billable days clocked to its projects ÷ 18 (MSPO clocking); None in a month not clocked yet
-        as sold      the business case (Bcase): no source file yet, so None
-        skill        the person's standardised position (the files carry no per-person skill yet)
-        salary scale H / M / L: no salary source yet, so None
-    A person on two of the agency's projects is listed once, with the days added up."""
+def agency_panels(roster, groups=None, month=None, sold=None, with_people=False):
+    """Headcount details by agency and project in one month (5 Nov 2026: the Dashboard shows the summary, the
+    Analysis page the people). groups: {agency: [project ids]} for the filter; None = every agency on the roster.
+        headcount    distinct people on its projects that month
+        as sold      quote line man-days / 18 (inputs.json asSold, pipeline/capacity.py _as_sold); None without it
+        as planned   SL x RP man-days / 18 (the PM's plan)
+        actual       billable days clocked to its projects / 18 (MSPO clocking); None in a month not clocked yet
+    with_people: each project also lists its people (name, skill = standardised position, band, employment, salary
+    scale (no source yet: None), planned and actual FTE, and the days they clocked on all their projects)."""
     projects = (roster or {}).get("projects") or {}
     actual_months = (roster or {}).get("actualMonths") or []
     month = month or max(actual_months or [""]) or None
     full = float((roster or {}).get("fullMonthManDays") or 18)
     clocked = month in actual_months
+    sold_by = (sold or {}).get("byProject") or {}
+    sold_full = float((sold or {}).get("fullMonthManDays") or 18)
     if groups is None:
         groups = {}
         for pid, p in projects.items():
             groups.setdefault(p.get("agency") or "(no customer)", []).append(pid)
+
+    def sold_fte(pid):
+        days = (sold_by.get(pid) or {}).get(month) if month else None
+        return None if days is None else round(float(days) / sold_full, 2)
+
     panels = []
     for agency, ids in groups.items():
-        rows, people = [], {}
+        rows, names = [], set()
         for pid in ids:
             p = projects.get(pid) or {}
             cell = (p.get("byMonth") or {}).get(month) if month else None
@@ -1448,46 +1460,43 @@ def agency_panels(roster, groups=None, month=None):
                 continue
             plan_days = float(cell.get("planDays") or 0)
             actual_days = cell.get("actualDays") if clocked else None
-            rows.append({"projectId": pid, "name": p.get("name"), "headcount": cell.get("headcount"),
-                         "planDays": round(plan_days, 2), "planFte": round(plan_days / full, 2),
-                         "actualDays": actual_days,
-                         "actualFte": None if actual_days is None else round(float(actual_days) / full, 2),
-                         "asSoldFte": None})
-            for i, person in enumerate(cell.get("people") or []):
-                key = person.get("name") or f"{pid}#{i}"
-                row = people.get(key)
-                if row is None:
-                    row = people[key] = {"name": person.get("name"), "skill": person.get("position"),
-                                         "band": person.get("band"), "employment": person.get("employment"),
-                                         "salaryScale": None, "planDays": 0.0, "actualDays": None,
-                                         "clockedDaysAllProjects": person.get("clockedDaysAllProjects"),
-                                         "projects": 0}
-                row["planDays"] = round(row["planDays"] + float(person.get("planDays") or 0), 2)
-                if clocked and person.get("actualDays") is not None:
-                    row["actualDays"] = round((row["actualDays"] or 0) + float(person["actualDays"]), 2)
-                row["projects"] += 1
+            people = cell.get("people") or []
+            names.update(person.get("name") or f"{pid}#{i}" for i, person in enumerate(people))
+            row = {"projectId": pid, "name": p.get("name"), "headcount": cell.get("headcount"),
+                   "planDays": round(plan_days, 2), "planFte": round(plan_days / full, 2),
+                   "actualDays": actual_days,
+                   "actualFte": None if actual_days is None else round(float(actual_days) / full, 2),
+                   "asSoldFte": sold_fte(pid)}
+            if with_people:
+                row["people"] = sorted(({
+                    "name": person.get("name"), "skill": person.get("position"), "band": person.get("band"),
+                    "employment": person.get("employment"), "salaryScale": None,
+                    "planFte": round(float(person.get("planDays") or 0) / full, 2),
+                    "actualFte": (round(float(person["actualDays"]) / full, 2)
+                                  if clocked and person.get("actualDays") is not None else None),
+                    "clockedDaysAllProjects": person.get("clockedDaysAllProjects"),
+                } for person in people), key=lambda r: str(r["name"] or "~"))
+            rows.append(row)
         if not rows:
             continue
-        for row in people.values():
-            row["actualFte"] = None if row["actualDays"] is None else round(row["actualDays"] / full, 2)
         plan_days = sum(r["planDays"] for r in rows)
         actual_days = sum(float(r["actualDays"] or 0) for r in rows) if clocked else None
+        sold_values = [r["asSoldFte"] for r in rows if r["asSoldFte"] is not None]
         rows.sort(key=lambda r: -(r["actualDays"] or r["planDays"] or 0))
-        panels.append({"agency": agency, "headcount": len(people),
+        panels.append({"agency": agency, "headcount": len(names),
                        "planDays": round(plan_days, 2), "planFte": round(plan_days / full, 2),
                        "actualDays": None if actual_days is None else round(actual_days, 2),
                        "actualFte": None if actual_days is None else round(actual_days / full, 2),
-                       "asSoldFte": None, "projects": rows,
-                       "people": sorted(people.values(), key=lambda r: str(r["name"] or "~"))})
+                       "asSoldFte": round(sum(sold_values), 2) if sold_values else None, "projects": rows})
     panels.sort(key=lambda a: (-(a["actualDays"] if a["actualDays"] is not None else a["planDays"]), a["agency"]))
     return {"month": month, "clocked": clocked, "fullMonthManDays": full,
             "actualSource": (roster or {}).get("actualSource"),
-            "pending": {"asSold": "Bcase (business case) file not supplied yet",
+            "pending": {"asSold": "" if sold_by else "no quote line export uploaded yet",
                         "salaryScale": "no salary source yet"},
             "agencies": panels}
 
 
-def dashboard_view(inputs, agency=None, project_id=None, roster=None, month=None):
+def dashboard_view(inputs, agency=None, project_id=None, roster=None, month=None, with_people=False):
     """GET /dashboard: today's headcount by employment type (staff list), the agency and project lists for the
     Dashboard's filter, and, with ?agency= or ?projectId=, that selection's figures per month (people, FTE demand,
     permanent / secondment, UR days). The pipeline precomputes them (pipeline/capacity.py, "breakdown").
@@ -1514,6 +1523,18 @@ def dashboard_view(inputs, agency=None, project_id=None, roster=None, month=None
             raise HttpError(404, "No agency with that name in the uploaded files")
         selection = {"kind": "agency", "agency": agency, "projects": found.get("projects") or [],
                      "byMonth": found.get("byMonth") or {}}
+    sold = inputs.get("asSold") or {}
+    if selection is not None and sold.get("byProject"):
+        # As sold per month for the selection (quote line man-days / 18), beside its planned and actual FTE.
+        ids = [project_id] if project_id else list(selection.get("projects") or [])
+        full = float(sold.get("fullMonthManDays") or 18)
+        cells = {m: dict(c) for m, c in (selection.get("byMonth") or {}).items()}
+        for pid in ids:
+            for m, days in (sold["byProject"].get(pid) or {}).items():
+                cell = cells.setdefault(m, {"fte": 0.0, "people": 0, "permanent": 0, "secondment": 0, "other": 0,
+                                            "unknown": 0, "billable": 0.0, "workingDays": 0.0})
+                cell["soldFte"] = round(cell.get("soldFte", 0.0) + float(days) / full, 2)
+        selection["byMonth"] = cells
     out["selection"] = selection
     if roster is not None:
         if selection is not None:
@@ -1522,7 +1543,7 @@ def dashboard_view(inputs, agency=None, project_id=None, roster=None, month=None
             groups = {selection.get("agency") or "(no customer)": ids}
         else:
             groups = None
-        out["agencyPanels"] = agency_panels(roster, groups, month)
+        out["agencyPanels"] = agency_panels(roster, groups, month, sold, with_people and selection is not None)
     return out
 
 
@@ -1538,8 +1559,9 @@ def get_dashboard(event, caller):
     month = str(query.get("month") or "").strip()[:7] or None
     if month and not re.fullmatch(r"\d{4}-\d{2}", month):
         raise HttpError(400, "month must look like 2026-10")
+    people = str(query.get("people") or "") in ("1", "true")   # the Analysis page's resource lists
     roster = _cached_json(ROSTER_KEY)
-    return reply(200, dashboard_view(inputs, agency, project_id, roster, month))
+    return reply(200, dashboard_view(inputs, agency, project_id, roster, month, people))
 
 
 DASHBOARD_INSIGHTS_KEY = "results/dashboard/insights.json"

@@ -13,8 +13,9 @@ pipeline's (pipeline/capacity.py), so the chat, the pages and the pipeline give 
   GP per HC              (revenue - HC cost at the rate card) annualised / average delivery HC
   Revenue per $ HC cost  revenue / HC cost at the rate card
   Weighted iRate         sum(HC in each band x the band's iRate) / sum(HC), the latest actual month
-  FTE required           revenue per FTE-day = iRate / (1 - GP %); billable FTE = revenue / (12 x man-days x that);
-                         total FTE = billable FTE, or billable FTE / UR when the man-days are working days
+  FTE / revenue calculator (5 Nov 2026 review): revenue per FTE-day = ADR (revenue / billable days clocked);
+                         revenue one FTE brings a year = ADR x 18 x 12; FTE needed = revenue / that / UR, or the
+                         revenue an FTE count brings = FTE x UR x that
 """
 from __future__ import annotations
 
@@ -176,27 +177,48 @@ def _agency(inputs, name):
     return (exact or found)[:1], found
 
 
-# ---------------------------------------------------------------- FTE required
+# ---------------------------------------------------------------- FTE / revenue calculator
+def _adr(agencies, months):
+    """Average daily revenue: revenue / billable days clocked over the months (pipeline byMonth); for inputs without
+    byMonth, revenue / (FTE actual x 18 x months)."""
+    revenue = days = 0.0
+    for a in agencies:
+        by_month = a.get("byMonth")
+        if by_month:
+            for m in months:
+                c = by_month.get(m)
+                if c:
+                    revenue += c.get("revenue") or 0
+                    days += c.get("actualDays") or 0
+        else:
+            revenue += a.get("revenue") or 0
+            days += (a.get("fte") or 0) * 18 * len(months)
+    return revenue / days if days else None
+
+
 def fte_required(inputs, values, args):
-    """The Analysis page's calculator, for the organisation or one agency."""
+    """The Analysis page's calculator (5 Nov 2026), for the organisation or one agency, either way round:
+    give revenueUsd to get the FTE it needs, or fte to get the revenue that many FTE bring."""
     fy = reporting_year(inputs)
     target = ((inputs.get("settings") or {}).get(fy) or {}).get("target") or {}
-    last = _latest_actual(inputs)
+    prod = inputs.get("productivity") or {}
+    months = prod.get("months") or []
+    agencies = prod.get("agencies") or []
     agency = str(args.get("agency") or "").strip()
-    scope, current, current_label = "organisation", None, "headcount today"
-    rate = weighted_irate(inputs, values, last["month"]) if last else None
+    scope, picked = "organisation", agencies
+    # The FTE here apply UR, so they are people at the target UR: they compare with headcount, not clocked FTE.
+    last = _latest_actual(inputs)
+    current = (values.get("ending-hc") or {}).get(_key(last["month"])) if last else None
+    current_label = "headcount today"
     default_revenue = target.get("revenueUsd")
     if agency:
-        picked, found = _agency(inputs, agency)
-        if not picked:
+        found_one, found = _agency(inputs, agency)
+        if not found_one:
             return {"error": f"No agency matches {agency!r}.", "agenciesFound": [a["agency"] for a in found[:10]]}
-        a = picked[0]
-        prod = inputs["productivity"]
-        scope, current, current_label = a["agency"], a.get("fte"), "delivery FTE today"
-        rate = a.get("ratePerDay")
-        default_revenue = a.get("revenue", 0) * 12 / len(prod["months"])
-    elif last:
-        current = (values.get("ending-hc") or {}).get(_key(last["month"]))
+        a = found_one[0]
+        scope, picked = a["agency"], [a]
+        current, current_label = a.get("headcount"), "headcount on its projects (latest month)"
+        default_revenue = (a.get("revenue") or 0) * 12 / max(len(months), 1)
 
     def number(name, default):
         try:
@@ -204,39 +226,44 @@ def fte_required(inputs, values, args):
         except (TypeError, ValueError):
             return default
 
-    revenue = number("revenueUsd", default_revenue)
-    gp = number("gpPct", target.get("gpPct", 0.27))
-    ur = number("billableUr", target.get("billableUr", 0.854))
+    adr = number("adrUsd", _adr(picked, months))
+    ur = number("billableUr", target.get("billableUr", 0.87))
     days = number("manDaysPerFte", target.get("manDaysPerFte", 18))
-    rate = number("iRateUsd", rate)
-    billable_days = args.get("manDaysAreBillable")
-    billable_days = target.get("manDaysAreBillable", False) if billable_days is None else bool(billable_days)
-    if gp > 1:
-        gp /= 100            # "27" means 27 %
     if ur > 1.5:
-        ur /= 100
-    if not (revenue and rate and 0 <= gp < 1 and ur > 0 and days > 0):
-        return {"error": "Need a revenue target, a GP % below 100, a UR, the man-days per FTE and a daily cost."}
-    price = rate / (1 - gp)
-    per_fte = 12 * days * price
+        ur /= 100            # "87" means 87 %
+    if not (adr and ur > 0 and days > 0):
+        return {"error": "Need an ADR (no revenue and clocking yet?), a UR and the man-days per FTE."}
+    per_fte = adr * days * 12
+    common = {"scope": scope, "adrUsdPerDay": _r(adr), "revenuePerFteYearUsd": _r(per_fte),
+              "current": _r(current, 1), "currentIs": current_label,
+              "convention": "Revenue per FTE-day = ADR (revenue / billable days clocked, fiscal year to date); "
+                            "1 FTE = 18 working days a month; UR applied, so the FTE are people at that UR and "
+                            "compare with headcount."}
+    fte = number("fte", None)
+    if fte is not None and args.get("revenueUsd") in (None, ""):
+        billable = fte * ur
+        revenue = billable * per_fte
+        return {**common, "mode": "revenue from FTE",
+                "inputs": {"fte": fte, "billableUr": ur, "manDaysPerFtePerMonth": days, "adrUsdPerDay": _r(adr)},
+                "revenueUsd": _r(revenue),
+                "formulaSteps": [f"Revenue per FTE-day = ADR ${adr:,.0f}",
+                                 f"Revenue one FTE brings a year = ${adr:,.0f} x {days:g} days x 12 = ${per_fte:,.0f}",
+                                 f"Billable FTE = {fte:,.1f} x UR {ur:.1%} = {billable:,.1f}",
+                                 f"Revenue = {billable:,.1f} x ${per_fte:,.0f} = ${revenue:,.0f}"]}
+    revenue = number("revenueUsd", default_revenue)
+    if not revenue:
+        return {"error": "Need a yearly revenue target (revenueUsd) or an FTE count (fte)."}
     billable = revenue / per_fte
-    total = billable if billable_days else billable / ur
-    steps = [f"Revenue per FTE-day = iRate ${rate:,.0f} / (1 - {gp:.0%}) = ${price:,.0f}",
-             f"Revenue one FTE brings a year = 12 x {days:g} man-days x ${price:,.0f} = ${per_fte:,.0f}",
-             f"Billable FTE = ${revenue:,.0f} / ${per_fte:,.0f} = {billable:,.1f}",
-             (f"Total FTE = billable FTE = {total:,.1f} (the {days:g} man-days are billable days, so UR is not applied "
-              "again)") if billable_days else f"Total FTE = {billable:,.1f} / UR {ur:.1%} = {total:,.1f}"]
-    out = {"scope": scope, "inputs": {"revenueTargetUsd": _r(revenue), "gpPct": gp, "billableUr": ur,
-                                      "manDaysPerFtePerMonth": days, "manDaysAreBillableDays": billable_days,
-                                      "weightedIRateUsdPerDay": _r(rate)},
-           "revenuePerFteDayUsd": _r(price), "revenuePerFteYearUsd": _r(per_fte),
-           "billableFteRequired": _r(billable, 1), "totalFteRequired": _r(total, 1), "formulaSteps": steps,
-           "current": _r(current, 1), "currentIs": current_label,
-           "gap": _r(total - current, 1) if current is not None else None,
-           "convention": "1 FTE = 18 working days a month, the company's standard baseline; UR is applied.",
-           "openQuestion": "This formula is agreed to be incorrect and is being replaced; treat the figure as "
-                           "indicative. Whether $90M is the country target is also still open."}
-    return out
+    total = billable / ur
+    return {**common, "mode": "FTE from revenue",
+            "inputs": {"revenueTargetUsd": _r(revenue), "billableUr": ur, "manDaysPerFtePerMonth": days,
+                       "adrUsdPerDay": _r(adr)},
+            "billableFteRequired": _r(billable, 1), "totalFteRequired": _r(total, 1),
+            "gap": _r(total - current, 1) if current is not None else None,
+            "formulaSteps": [f"Revenue per FTE-day = ADR ${adr:,.0f}",
+                             f"Revenue one FTE brings a year = ${adr:,.0f} x {days:g} days x 12 = ${per_fte:,.0f}",
+                             f"Billable FTE = ${revenue:,.0f} / ${per_fte:,.0f} = {billable:,.1f}",
+                             f"Total FTE = {billable:,.1f} / UR {ur:.1%} = {total:,.1f}"]}
 
 
 def hiring_what_if(inputs, values, args):

@@ -4,8 +4,8 @@
 //
 //  Laid out like the Analysis page (4 Nov 2026): plain cards, one under the other, no collapsible boxes, in two parts.
 //  Filter bar      agency, project ID and period. It drives the first part only.
-//  1. For the filter     the header cards · HC details by agency (Hwee Yu's layout: FTE as sold / as planned / actual,
-//                        cost, ADR, projects and people; every agency, or the one picked) · demand vs capacity
+//  1. For the filter     the header cards · agencies and projects (a summary: HC, FTE as sold / as planned / actual,
+//                        cost, ADR, status; names open the Analysis page with the people) · demand vs capacity
 //  2. Whole organisation not affected by the filter: agencies needing attention | productivity against the company
 //                        baseline (the agency picked is outlined) · bench and who can start soonest | headcount
 //                        waterfall · the capacity plan's charts
@@ -21,7 +21,7 @@ import { useAuth } from "../auth/useAuth";
 import BenchView from "../dashboard/BenchView";
 import CapacityCharts from "../dashboard/CapacityCharts";
 import DemandCapacity from "../dashboard/DemandCapacity";
-import AgencyPanels from "../dashboard/AgencyPanels";
+import AgencySummary from "../dashboard/AgencyPanels";
 import HeaderCards from "../dashboard/HeaderCards";
 import HeadcountBridge from "../dashboard/HeadcountBridge";
 import ProductivityChart from "../dashboard/ProductivityChart";
@@ -242,13 +242,13 @@ export default function DashboardPage() {
 
               <Card
                 id="dash-people"
-                title={`HC details by agency${view?.selection ? "" : " (every agency)"}`}
+                title="Agencies and projects"
                 sub={
-                  "Each agency in the last month of the period: FTE as sold, as planned and actual, its total actual " +
-                  "cost and ADR, its projects and the list of its people. Hover a figure to see how it is worked out."
+                  "Each agency and its projects in the last month of the period: headcount, FTE as sold, as planned " +
+                  "and actual, total actual cost and ADR. Click a name to see its people on the Analysis page."
                 }
               >
-                <AgencyPanels panels={view?.agencyPanels} plan={plan} />
+                <AgencySummary panels={view?.agencyPanels} plan={plan} fy={fy} periodMonths={period?.months ?? []} />
               </Card>
 
               <Card
@@ -314,7 +314,7 @@ export default function DashboardPage() {
                 </Card>
 
                 <Card
-                  title="How productive are we? Against the company baseline"
+                  title="How productive are we? Against the company average"
                   sub={
                     agency
                       ? `${agency} is outlined; the what-if below is for it.`

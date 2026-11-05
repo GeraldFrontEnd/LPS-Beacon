@@ -40,7 +40,7 @@ FISCAL_YEARS: dict[str, dict] = {
         # Calculated-FTE-required calculator defaults: $90M is Ethan's example. 1 FTE = 18 man-days a month, and the 18
         # are WORKING days: the company's standard baseline (4 Nov 2026), so UR is applied. The formula itself is being
         # replaced (4 Nov 2026: agreed to be incorrect).
-        "target": {"revenueUsd": 90_000_000, "gpPct": 0.27, "billableUr": 0.854, "manDaysPerFte": 18,
+        "target": {"revenueUsd": 90_000_000, "gpPct": 0.27, "billableUr": 0.87, "manDaysPerFte": 18,
                    "manDaysAreBillable": False},
         # FY25 (Apr 2025 - Mar 2026), from HeadCount_File-MBR File.xlsx "FY25/26 HC phasing": FY average headcount
         # and gross staff cost (billable + non-billable, USD).

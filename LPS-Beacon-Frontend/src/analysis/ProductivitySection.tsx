@@ -1,25 +1,27 @@
 // src/analysis/ProductivitySection.tsx
 // "How productive are we, and who needs attention?", the Analysis page, top to bottom (order from 4 Nov 2026):
-//  1. Calculated FTE required: the calculator (1 FTE = 18 man-days a month), for the organisation or the agencies
+//  1. The FTE / revenue calculator (FTE from a revenue target, or revenue from FTE; ADR-based), for the organisation or the agencies
 //     picked in the agencies dropdown, with its formula printed beside the result.
-//  2. Organisation baseline: Revenue per HC, GP per HC, Revenue per $ of HC cost and the weighted cost per FTE per day,
+//  2. Organisation actuals (fiscal year to date): Revenue per HC, GP per HC, Revenue per $ of HC cost and the weighted cost per FTE per day,
 //     this fiscal year to date (annualised) against last fiscal year. Each shows how it is worked out.
 //  3. Agencies and projects: every agency at a glance; a dropdown narrows it to the agencies picked; a row opens to
 //     show its projects (the Project View), with HC, FTE actual (clocked) and days per head.
 //  4. Management target: Finance's P&L summary, full year and quarters (ManagementTarget.tsx).
 // Naming: HC = people (names); FTE = clocked days / 18 (MSPO clocking via the UR report).
 
-import { Fragment, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { Fragment, useEffect, useMemo, useRef } from "react";
+import type { ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { usePageState } from "../lib/pageState";
 import type { AgencyProductivity, CapacityPlan, Flag, ManagementTargetEdit, ProductivityFigures } from "../api/types";
 import { FISCAL_YEARS } from "./capacityPlanLayout";
 import ManagementTarget from "./ManagementTarget";
+import ProjectResources from "./ProjectResources";
 import { periodOptions, periodView } from "./periodFigures";
 import MultiSelect from "../components/MultiSelect";
 import {
+  adr,
   fmt,
-  fteRequired,
   lastYearBaseline,
   latestActual,
   monthName,
@@ -38,7 +40,7 @@ function FlagDot({ flag }: { flag: Flag | null }) {
   return <span className={`flag-dot ${flag ?? "none"}`} aria-hidden="true" />;
 }
 
-// ---- 1. Organisation baseline ----
+// ---- 1. Organisation actuals, fiscal year to date (renamed from "baseline" on 5 Nov 2026: it is not a benchmark) ----
 function Baseline({ plan, fy }: { plan: CapacityPlan; fy: string }) {
   const now = thisYearBaseline(plan, fy);
   const before = lastYearBaseline(plan, fy);
@@ -65,10 +67,10 @@ function Baseline({ plan, fy }: { plan: CapacityPlan; fy: string }) {
     <section className="prod-card" aria-labelledby="baseline-title">
       <header className="prod-card-head">
         <div>
-          <h3 id="baseline-title">Organisation baseline</h3>
+          <h3 id="baseline-title">Organisation actuals, {fy} to date</h3>
           <p className="prod-sub">
-            {fy} to date, {monthName(now.months[0])} to {monthName(now.months[now.months.length - 1])}, as a yearly rate.
-            The company figure every agency is compared with.
+            Actual figures, {monthName(now.months[0])} to {monthName(now.months[now.months.length - 1])}, as a yearly
+            rate, against last fiscal year. Actual months only: no forecast.
           </p>
         </div>
       </header>
@@ -142,7 +144,7 @@ function figureHeads() {
       <th scope="col" className="num" title="People working on it in the last month of the period. Hover a number for the monthly average">HC</th>
       <th scope="col" className="num" title="Billable days clocked ÷ 18, averaged per month. Hover a number to see the planned FTE">FTE actual</th>
       <th scope="col" className="num" title="Billable days each person clocks a month, on average. Red below 15.3 or above 18">
-        Days / head
+        Utilization rate
       </th>
       <th scope="col" className="num">Revenue per FTE</th>
       <th scope="col" className="num">GP per FTE</th>
@@ -174,16 +176,32 @@ function AgencyExplorer({
   const [periodId, setPeriodId] = usePageState("analysis.period", "fy");
   const period = options.find((o) => o.id === periodId) ?? options[0];
   const view = useMemo(() => periodView(plan, fy, period?.months ?? p.months), [plan, fy, period, p.months]);
-  // A project opens on the Dashboard, filtered to it (4 Nov 2026). The Dashboard's periods are the latest month and
-  // the fiscal quarters, so a quarter or the latest month carries over; another month or the year opens the latest.
-  const navigate = useNavigate();
-  const openProject = (projectId: string) => {
-    const q = new URLSearchParams({ projectId });
-    const last = p.months[p.months.length - 1];
-    if (period?.id.startsWith("Q")) q.set("period", `${period.id}'${p.fiscalYear.slice(2)}`);
-    else if (period?.id === last) q.set("period", "latest");
-    navigate(`/dashboard?${q}`);
-  };
+  // A project's people open under its row (5 Nov 2026: the resource list moved here from the Dashboard).
+  const [openProjects, setOpenProjects] = usePageState<string[]>("analysis.openProjects", []);
+  const toggleProject = (id: string) =>
+    setOpenProjects((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  // Opened from the Dashboard (?agency=&project=&period=): show that agency, open it (and the project), scroll to it.
+  const [params, setParams] = useSearchParams();
+  const arrived = useRef(false);
+  useEffect(() => {
+    if (arrived.current) return;
+    const agency = params.get("agency");
+    if (!agency) return;
+    arrived.current = true;
+    const project = params.get("project");
+    const wanted = params.get("period");
+    if (wanted && options.some((o) => o.id === wanted)) setPeriodId(wanted);
+    setStatus("all");
+    onSelect([agency]);
+    setOpenList((prev) => (prev.includes(agency) ? prev : [...prev, agency]));
+    if (project) setOpenProjects((prev) => (prev.includes(project) ? prev : [...prev, project]));
+    setParams({}, { replace: true });
+    window.setTimeout(() => {
+      const el = document.getElementById(project ? `prod-project-${project}` : `prod-agency-${agency}`);
+      el?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }, 150);
+  }, [params, setParams, options, setPeriodId, setStatus, onSelect, setOpenList, setOpenProjects]);
+  const lastMonth = view.months[view.months.length - 1];
   const agencies = view.agencies;
   const counts = { red: 0, amber: 0, green: 0 } as Record<Flag, number>;
   agencies.forEach((a) => a.flag && (counts[a.flag] += 1));
@@ -215,7 +233,7 @@ function AgencyExplorer({
             {view.months.length > 1 ? ` to ${monthName(view.months[view.months.length - 1])}` : ""}. HC = people on it in{" "}
             {monthName(view.months[view.months.length - 1])}; FTE actual ={" "}
             {p.clocked === false ? "planned man-days (no clocking yet)" : "clocked billable days"} ÷ 18, averaged a month;
-            revenue from the ABCD report. Click an agency to see its projects.
+            revenue from the ABCD report. Click an agency to see its projects, and a project to see its people.
             {view.months.length < 3 && " One month of revenue can be lumpy (milestone billing): judge productivity on the year."}
           </p>
         </div>
@@ -292,7 +310,7 @@ function AgencyExplorer({
               const isOpen = open.has(a.agency);
               return (
                 <Fragment key={a.agency}>
-                  <tr className={`prod-row${isOpen ? " open" : ""}`} onClick={() => toggle(a.agency)}>
+                  <tr id={`prod-agency-${a.agency}`} className={`prod-row${isOpen ? " open" : ""}`} onClick={() => toggle(a.agency)}>
                     <th scope="row">
                       <button type="button" className="prod-expand" aria-expanded={isOpen}
                         onClick={(e) => { e.stopPropagation(); toggle(a.agency); }}>
@@ -323,23 +341,36 @@ function AgencyExplorer({
                             </tr>
                           </thead>
                           <tbody>
-                            {a.projects.map((pr) => (
-                              <tr key={pr.projectId} title={pr.flagReason}>
-                                <th scope="row">
-                                  {/* Only the name opens the project on the Dashboard; the rest of the row is plain. */}
-                                  <button type="button" className="prod-project-link"
-                                    title="Open this project on the Dashboard"
-                                    onClick={() => openProject(pr.projectId)}>
-                                    {pr.projectName}
-                                  </button>
-                                  <span className="prod-project-id">{pr.projectId}</span>
-                                </th>
-                                <td>
-                                  <FlagPill flag={pr.flag} />
-                                </td>
-                                {figures(pr)}
-                              </tr>
-                            ))}
+                            {a.projects.map((pr) => {
+                              const projectOpen = openProjects.includes(pr.projectId);
+                              return (
+                                <Fragment key={pr.projectId}>
+                                  <tr id={`prod-project-${pr.projectId}`} title={pr.flagReason}>
+                                    <th scope="row">
+                                      {/* The name opens the project's people below it. */}
+                                      <button type="button" className="prod-project-link" aria-expanded={projectOpen}
+                                        title={projectOpen ? "Hide its people" : "Show its people"}
+                                        onClick={() => toggleProject(pr.projectId)}>
+                                        <span aria-hidden="true" className="prod-chevron">{projectOpen ? "▾" : "▸"}</span>{" "}
+                                        {pr.projectName}
+                                      </button>
+                                      <span className="prod-project-id">{pr.projectId}</span>
+                                    </th>
+                                    <td>
+                                      <FlagPill flag={pr.flag} />
+                                    </td>
+                                    {figures(pr)}
+                                  </tr>
+                                  {projectOpen && lastMonth && (
+                                    <tr className="prod-resources">
+                                      <td colSpan={9}>
+                                        <ProjectResources agency={a.agency} projectId={pr.projectId} month={lastMonth} />
+                                      </td>
+                                    </tr>
+                                  )}
+                                </Fragment>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </td>
@@ -381,165 +412,187 @@ function AgencyExplorer({
   );
 }
 
-// ---- 3. FTE required ----
+// ---- 3. FTE and revenue calculator (5 Nov 2026 review) ----
+// Two ways round, picked with the switch at its top:
+//   Calculate FTE       revenue target a year → FTE needed
+//   Calculate revenue   FTE → the revenue they bring a year
+// Revenue per FTE-day = ADR (average daily revenue: revenue ÷ billable days clocked, fiscal year to date);
+// revenue one FTE brings a year = ADR × man-days a month (18) × 12; UR (87 %) is applied: FTE needed = revenue ÷ that
+// ÷ UR, revenue = FTE × UR × that. The same formula as the chat's tool (lambda-api analytics_tools.fte_required).
 interface Scope {
   key: string;
   label: string;
-  annualRevenue: number; // the default target
-  iRate: number | null;
-  current: number | null;
+  annualRevenue: number; // the default revenue target
+  adr: number | null; // the default ADR, fiscal year to date
+  current: number | null; // people today (HC): the calculator's FTE apply UR, so they are people at the target UR
   currentLabel: string;
 }
+
+type CalcMode = "fte" | "revenue";
 
 function FteCalculator({ plan, fy, scope }: { plan: CapacityPlan; fy: string; scope: Scope }) {
   const t = plan.settings?.[fy]?.target;
   // The inputs are remembered for 30 minutes per scope (lib/pageState.ts).
-  const k = `analysis.fte.${scope.key}.`;
+  const k = `analysis.calc.${scope.key}.`;
+  const [mode, setMode] = usePageState<CalcMode>("analysis.calc.mode", "fte");
   const [revenueM, setRevenueM] = usePageState(k + "revenue", (scope.annualRevenue / 1_000_000).toFixed(scope.key === "org" ? 0 : 2));
-  const [gp, setGp] = usePageState(k + "gp", String(((t?.gpPct ?? 0.27) * 100).toFixed(0)));
-  const [ur, setUr] = usePageState(k + "ur", String(Number(((t?.billableUr ?? 0.854) * 100).toFixed(1))));
+  const [fteText, setFteText] = usePageState(k + "fte", scope.current !== null ? scope.current.toFixed(0) : "");
+  const [adrText, setAdrText] = usePageState(k + "adr", scope.adr ? scope.adr.toFixed(0) : "");
+  const [ur, setUr] = usePageState(k + "ur", String(Number(((t?.billableUr ?? 0.87) * 100).toFixed(1))));
   const [manDays, setManDays] = usePageState(k + "manDays", String(t?.manDaysPerFte ?? 18));
-  const [rate, setRate] = usePageState(k + "rate", scope.iRate ? scope.iRate.toFixed(0) : "");
-  const [billableDays, setBillableDays] = usePageState(k + "billable", t?.manDaysAreBillable ?? false);
 
-  const inputs = {
-    annualRevenue: Number(revenueM) * 1_000_000,
-    gpPct: Number(gp) / 100,
-    ur: Number(ur) / 100,
-    manDaysPerFte: Number(manDays),
-    manDaysAreBillable: billableDays,
-    iRate: Number(rate),
-  };
-  const result = fteRequired(inputs);
-  const gap = result && scope.current !== null ? result.totalFte - scope.current : null;
+  const adrValue = Number(adrText);
+  const urValue = Number(ur) / 100;
+  const days = Number(manDays);
+  const valid = adrValue > 0 && urValue > 0 && days > 0;
+  const perFteYear = valid ? adrValue * days * 12 : null;
+  const revenue = Number(revenueM) * 1_000_000;
+  const fteIn = Number(fteText);
+  const billableFte = perFteYear && mode === "fte" && revenue > 0 ? revenue / perFteYear : perFteYear && fteIn > 0 ? fteIn * urValue : null;
+  const totalFte = mode === "fte" && billableFte !== null ? billableFte / urValue : null;
+  const revenueOut = mode === "revenue" && billableFte !== null && perFteYear ? billableFte * perFteYear : null;
+  const gap = totalFte !== null && scope.current !== null ? totalFte - scope.current : null;
+  const target = t?.revenueUsd ?? null;
+
+  const field = (label: string, value: string, set: (v: string) => void, unit: string, prefix?: string, extra?: ReactNode) => (
+    <label>
+      <span>
+        {label}
+        {extra}
+      </span>
+      <span className="fte-field">
+        {prefix && <span className="fte-unit">{prefix}</span>}
+        <input inputMode="decimal" value={value} onChange={(e) => set(e.target.value)} />
+        <span className="fte-unit">{unit}</span>
+      </span>
+    </label>
+  );
 
   return (
     <section className="prod-card" aria-labelledby="fte-title">
       <header className="prod-card-head">
         <div>
-          <h3 id="fte-title">Calculated FTE required for a revenue target</h3>
+          <h3 id="fte-title">{mode === "fte" ? "Calculated FTE required for a revenue target" : "Revenue an FTE count brings"}</h3>
           <p className="prod-sub">For {scope.label}. Change any input; the formula on the right updates with it.</p>
+        </div>
+        <div className="segmented" role="group" aria-label="Calculate">
+          <button type="button" className={mode === "fte" ? "on" : ""} aria-pressed={mode === "fte"} onClick={() => setMode("fte")}>
+            Calculate FTE
+          </button>
+          <button type="button" className={mode === "revenue" ? "on" : ""} aria-pressed={mode === "revenue"}
+            onClick={() => setMode("revenue")}>
+            Calculate revenue
+          </button>
         </div>
       </header>
       <div className="fte-layout">
         <div className="fte-inputs">
-          <label>
-            <span>Revenue target a year</span>
-            <span className="fte-field">
-              <span className="fte-unit">$</span>
-              <input inputMode="decimal" value={revenueM} onChange={(e) => setRevenueM(e.target.value)} />
-              <span className="fte-unit">M</span>
-            </span>
-          </label>
-          <label>
-            <span>Gross profit</span>
-            <span className="fte-field">
-              <input inputMode="decimal" value={gp} onChange={(e) => setGp(e.target.value)} />
-              <span className="fte-unit">%</span>
-            </span>
-          </label>
-          <label>
-            <span>Billable UR</span>
-            <span className="fte-field">
-              <input inputMode="decimal" value={ur} onChange={(e) => setUr(e.target.value)} />
-              <span className="fte-unit">%</span>
-            </span>
-          </label>
-          <label>
-            <span>Man-days per FTE a month</span>
-            <span className="fte-field">
-              <input inputMode="decimal" value={manDays} onChange={(e) => setManDays(e.target.value)} />
-              <span className="fte-unit">days</span>
-            </span>
-          </label>
-          <label className="fte-wide">
-            <span>
-              Weighted cost per FTE per day (iRate)
-              {scope.iRate !== null && Number(rate).toFixed(0) !== scope.iRate.toFixed(0) && (
-                <button type="button" className="link-button" onClick={() => setRate(scope.iRate!.toFixed(0))}>
-                  reset to {fmt.usd(scope.iRate)}
-                </button>
-              )}
-            </span>
-            <span className="fte-field">
-              <span className="fte-unit">$</span>
-              <input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} />
-              <span className="fte-unit">a day</span>
-            </span>
-          </label>
-          <fieldset className="fte-wide fte-convention">
-            <legend>The {manDays || "18"} man-days are…</legend>
-            <label>
-              <input type="radio" checked={billableDays} onChange={() => setBillableDays(true)} />
-              billable days (UR already allowed for)
-            </label>
-            <label>
-              <input type="radio" checked={!billableDays} onChange={() => setBillableDays(false)} />
-              working days (divide by UR, the company standard)
-            </label>
-          </fieldset>
+          {mode === "fte"
+            ? field("Revenue target a year", revenueM, setRevenueM, "M", "$")
+            : field("FTE (people)", fteText, setFteText, "FTE", undefined,
+                scope.current !== null && Number(fteText).toFixed(0) !== scope.current.toFixed(0) ? (
+                  <button type="button" className="link-button" onClick={() => setFteText(scope.current!.toFixed(0))}>
+                    reset to {fmt.int(scope.current)}
+                  </button>
+                ) : undefined)}
+          {field("ADR (revenue per FTE-day)", adrText, setAdrText, "a day", "$",
+            scope.adr !== null && Number(adrText).toFixed(0) !== scope.adr.toFixed(0) ? (
+              <button type="button" className="link-button" onClick={() => setAdrText(scope.adr!.toFixed(0))}>
+                reset to {fmt.usd(scope.adr)}
+              </button>
+            ) : undefined)}
+          {field("Billable UR", ur, setUr, "%")}
+          {field("Man-days per FTE a month", manDays, setManDays, "days")}
         </div>
 
         <div className="fte-result">
-          {result ? (
+          {valid && billableFte !== null && perFteYear ? (
             <>
               <div className="fte-numbers">
-                <div>
-                  <span className="fte-big">{fmt.int(result.totalFte)}</span>
-                  <span className="fte-cap">Calculated FTE required</span>
-                </div>
-                <div>
-                  <span className="fte-big">{fmt.int(scope.current)}</span>
-                  <span className="fte-cap">{scope.currentLabel}</span>
-                </div>
-                <div className={gap !== null && gap > 0 ? "short" : "spare"}>
-                  <span className="fte-big">
-                    {gap === null ? "–" : fmt.int(Math.abs(gap))}
-                  </span>
-                  <span className="fte-cap">{gap !== null && gap > 0 ? "FTE short" : "FTE to spare"}</span>
-                </div>
+                {mode === "fte" ? (
+                  <>
+                    <div>
+                      <span className="fte-big">{fmt.int(totalFte)}</span>
+                      <span className="fte-cap">Calculated FTE required</span>
+                    </div>
+                    <div>
+                      <span className="fte-big">{fmt.int(scope.current)}</span>
+                      <span className="fte-cap">{scope.currentLabel}</span>
+                    </div>
+                    <div className={gap !== null && gap > 0 ? "short" : "spare"}>
+                      <span className="fte-big">{gap === null ? "–" : fmt.int(Math.abs(gap))}</span>
+                      <span className="fte-cap">{gap !== null && gap > 0 ? "FTE short" : "FTE to spare"}</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <span className="fte-big">{fmt.usdM(revenueOut)}</span>
+                      <span className="fte-cap">Revenue a year</span>
+                    </div>
+                    {scope.key === "org" && target !== null && revenueOut !== null && (
+                      <div className={revenueOut < target ? "short" : "spare"}>
+                        <span className="fte-big">{fmt.usdM(Math.abs(revenueOut - target))}</span>
+                        <span className="fte-cap">{revenueOut < target ? "below" : "above"} the {fmt.usdM(target)} target</span>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
               <ol className="fte-steps">
                 <li>
                   <span>Revenue per FTE-day</span>
                   <span>
-                    {fmt.usd(inputs.iRate)} ÷ (1 − {gp}%) = <strong>{fmt.usd(result.pricePerDay)}</strong>
+                    ADR = <strong>{fmt.usd(adrValue)}</strong>
                   </span>
                 </li>
                 <li>
                   <span>Revenue one FTE brings a year</span>
                   <span>
-                    12 × {manDays} × {fmt.usd(result.pricePerDay)} = <strong>{fmt.usd(result.revenuePerFteYear)}</strong>
+                    {fmt.usd(adrValue)} × {manDays} days × 12 = <strong>{fmt.usd(perFteYear)}</strong>
                   </span>
                 </li>
-                <li>
-                  <span>Billable FTE</span>
-                  <span>
-                    {fmt.usdM(inputs.annualRevenue)} ÷ {fmt.usd(result.revenuePerFteYear)} = <strong>{fmt.dec1(result.billableFte)}</strong>
-                  </span>
-                </li>
-                <li>
-                  <span>Total FTE</span>
-                  <span>
-                    {billableDays ? (
-                      <>
-                        = billable FTE = <strong>{fmt.dec1(result.totalFte)}</strong> (UR not applied again)
-                      </>
-                    ) : (
-                      <>
-                        {fmt.dec1(result.billableFte)} ÷ {ur}% = <strong>{fmt.dec1(result.totalFte)}</strong>
-                      </>
-                    )}
-                  </span>
-                </li>
+                {mode === "fte" ? (
+                  <>
+                    <li>
+                      <span>Billable FTE</span>
+                      <span>
+                        {fmt.usdM(revenue)} ÷ {fmt.usd(perFteYear)} = <strong>{fmt.dec1(billableFte)}</strong>
+                      </span>
+                    </li>
+                    <li>
+                      <span>Total FTE</span>
+                      <span>
+                        {fmt.dec1(billableFte)} ÷ {ur}% = <strong>{fmt.dec1(totalFte)}</strong>
+                      </span>
+                    </li>
+                  </>
+                ) : (
+                  <>
+                    <li>
+                      <span>Billable FTE</span>
+                      <span>
+                        {fteText} × {ur}% = <strong>{fmt.dec1(billableFte)}</strong>
+                      </span>
+                    </li>
+                    <li>
+                      <span>Revenue</span>
+                      <span>
+                        {fmt.dec1(billableFte)} × {fmt.usd(perFteYear)} = <strong>{fmt.usdM(revenueOut)}</strong>
+                      </span>
+                    </li>
+                  </>
+                )}
               </ol>
               <p className="fte-note">
-                1 FTE = 18 working days a month, the company&apos;s standard baseline, so UR is applied. This formula is
-                being replaced (agreed to be incorrect on 4 Nov), so treat the figure as indicative.
+                ADR is revenue ÷ billable days clocked, {fy} to date. 1 FTE = {manDays || 18} working days a month, the
+                company&apos;s standard month; with UR applied the FTE are people at that UR, so they compare with HC.
               </p>
             </>
           ) : (
-            <p className="note">Enter a revenue target, a GP below 100%, a UR, the man-days and a daily cost.</p>
+            <p className="note">
+              Enter {mode === "fte" ? "a revenue target" : "an FTE count"}, an ADR, a UR and the man-days per FTE.
+            </p>
           )}
         </div>
       </div>
@@ -571,26 +624,38 @@ export default function ProductivitySection({
   const p = plan.productivity;
 
   const scope: Scope = useMemo(() => {
-    const last = latestActual(plan);
+    const months = p?.clocked === false ? [] : p?.months ?? [];
+    // ADR over the agencies picked (or all): their revenue and clocked days added up, then divided.
+    const adrOf = (list: AgencyProductivity[]) => {
+      const totals: Record<string, { revenue: number; actualDays: number }> = {};
+      for (const a of list)
+        for (const m of months) {
+          const c = a.byMonth?.[m];
+          if (!c) continue;
+          const t = (totals[m] ??= { revenue: 0, actualDays: 0 });
+          t.revenue += c.revenue;
+          t.actualDays += c.actualDays;
+        }
+      return adr(totals, months);
+    };
     if (scopeKind === "selection" && p && selected.length > 0) {
       const picked = p.agencies.filter((a) => selected.includes(a.agency));
       const annual = 12 / p.months.length;
-      const fte = picked.reduce((s, a) => s + a.fte, 0);
-      const weighted = picked.reduce((s, a) => s + (a.ratePerDay ?? 0) * a.fte, 0);
       return {
         key: `sel:${selected.join("|")}`,
         label: picked.length === 1 ? picked[0].agency : `the ${picked.length} agencies picked`,
         annualRevenue: picked.reduce((s, a) => s + a.revenue, 0) * annual,
-        iRate: fte ? weighted / fte : null,
-        current: fte,
-        currentLabel: "FTE actual today",
+        adr: adrOf(picked),
+        current: picked.reduce((s, a) => s + a.headcount, 0),
+        currentLabel: "HC on their projects (latest month)",
       };
     }
+    const last = latestActual(plan);
     return {
       key: "org",
       label: "the organisation (Singapore delivery)",
       annualRevenue: plan.settings?.[fy]?.target?.revenueUsd ?? 90_000_000,
-      iRate: last ? weightedIRate(plan, last.key, fy) : null,
+      adr: p ? adrOf(p.agencies) : null,
       current: last ? plan.values["ending-hc"]?.[last.key] ?? null : null,
       currentLabel: `HC today (${last?.key ?? "–"})`,
     };
@@ -632,6 +697,11 @@ export default function ProductivitySection({
               shared with everyone (costs negative, as on Finance&apos;s sheet); grey italics come from the uploaded
               files until someone types over them; the other lines are worked out. Per-HC figures are for the
               period (a quarter's is the quarter's), as on Finance's sheet.
+            </p>
+            <p className="prod-sub mt-remark">
+              <strong>* Remark:</strong> the {"\u201c"}Act + fcst{"\u201d"} and last-year columns will come from David&apos;s P&amp;L
+              agent. Until then, revenue is from the ABCD report and the other lines are typed in; the KPIs (GP %,
+              per-HC figures, ADR) are worked out here from those numbers.
             </p>
           </div>
           <div className="prod-controls">

@@ -442,3 +442,29 @@ class InsightsTests(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AsSoldTests(Base):
+    """5 Nov 2026: As sold = quote line man-days / 18 per project and month, linked by Project ID or work order."""
+
+    def test_linked_by_project_id_or_work_order(self):
+        from pipeline import capacity
+        ql = pd.DataFrame({
+            "project_id": ["P1", None, None, "P2"],
+            "contract": ["ORD-1", "ORD-2", "ORD-9", None],
+            "month": pd.to_datetime(["2026-10-01", "2026-10-01", "2026-10-01", "2026-11-01"]),
+            "mds": [36.0, 18.0, 90.0, 9.0],
+        })
+        rp = pd.DataFrame({"project_id": ["P3", "P4"], "contract": ["ORD-2", "32804814"],
+                           "month": pd.to_datetime(["2026-10-01"] * 2), "mds": [1.0, 1.0]})
+        self.store.write_table(capacity.QL_LONG_KEY, ql)
+        self.store.write_table(capacity.RP_LONG_KEY, rp)
+        sold, notes = capacity._as_sold(self.store, ["2026-10", "2026-11"])
+        self.assertEqual(sold["byProject"], {"P1": {"2026-10": 36.0}, "P3": {"2026-10": 18.0}, "P2": {"2026-11": 9.0}})
+        self.assertEqual(sold["byMonth"], {"2026-10": 54.0, "2026-11": 9.0})
+        self.assertTrue(any("link to no project" in n for n in notes), "ORD-9 is a quote not won yet")
+
+    def test_without_a_quote_line_export(self):
+        from pipeline import capacity
+        sold, notes = capacity._as_sold(self.store, ["2026-10"])
+        self.assertIsNone(sold)

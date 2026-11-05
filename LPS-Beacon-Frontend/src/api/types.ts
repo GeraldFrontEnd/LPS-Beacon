@@ -111,7 +111,8 @@ export interface CapacityPlan {
   revenueByMonth?: Record<string, { revenue: number; cost: number; actual: boolean }> | null; // ABCD, Singapore
   demandByMonth?: Record<string, { fte: number; project: number; quoteWon: number }> | null; // SL x RP, won + ongoing
   actualFteByMonth?: Record<string, number> | null; // FTE actual: all clocked billable days that month ÷ 18
-  actualFteSource?: "mspo" | "ur" | "none"; // MSPO clocking export, or the UR report as a stand-in
+  actualFteSource?: "mspo" | "ur" | "none";
+  asSoldByMonth?: Record<string, number> | null; // As sold: quote line man-days ÷ 18 per month (organisation) // MSPO clocking export, or the UR report as a stand-in
   workdayMonths?: string[]; // months whose joiners and leavers come from a Workday report ("2026-09")
   startingHeadcountSource?: "bu_ur" | "staff_list" | null;
   // Management target view: the typed lines, "<FY>|<period>|<column>|<rowId>" -> value (USD, costs negative; HC)
@@ -258,6 +259,7 @@ export interface DashboardMonthCell {
   billable: number; // UR report billable days of those people
   workingDays: number; // and their standard working days
   actualFte?: number; // FTE actual: clocked billable days on its projects ÷ 18 (clocked months only)
+  soldFte?: number; // As sold: quote line man-days on its projects ÷ 18
 }
 
 export interface DashboardView extends Partial<HeadcountBreakdown> {
@@ -274,13 +276,14 @@ export interface DashboardView extends Partial<HeadcountBreakdown> {
   agencyPanels?: AgencyPanels; // headcount details by agency in ?month= (every agency, or the one the filter picks)
 }
 
-// GET /dashboard ... agencyPanels: Hwee Yu's "HC (Details)" layout (4 Nov 2026), one panel per agency in one month.
+// GET /dashboard ... agencyPanels: agencies and their projects in one month (5 Nov 2026). The Dashboard shows them as a
+// summary; the Analysis page asks with &people=1 for one project's people (its resource list).
 export interface AgencyPanels {
   month: string | null;
   clocked: boolean; // false: a month with no clocking yet, so actual is null
   fullMonthManDays: number; // 18
   actualSource?: "mspo" | "ur" | "none";
-  pending: { asSold: string; salaryScale: string }; // why those fields are still empty
+  pending: { asSold: string; salaryScale: string }; // why those fields are empty, if they are
   agencies: AgencyPanel[]; // largest actual FTE first
 }
 
@@ -291,9 +294,8 @@ export interface AgencyPanel {
   planFte: number; // as planned: SL x RP man-days ÷ 18
   actualDays: number | null;
   actualFte: number | null; // actual: clocked billable days ÷ 18
-  asSoldFte: number | null; // as sold (Bcase): no source yet
+  asSoldFte: number | null; // as sold: quote line man-days ÷ 18
   projects: AgencyPanelProject[];
-  people: AgencyPanelPerson[];
 }
 
 export interface AgencyPanelProject {
@@ -305,6 +307,7 @@ export interface AgencyPanelProject {
   actualDays: number | null;
   actualFte: number | null;
   asSoldFte: number | null;
+  people?: AgencyPanelPerson[]; // only with &people=1
 }
 
 export interface AgencyPanelPerson {
@@ -313,11 +316,9 @@ export interface AgencyPanelPerson {
   band: number | null;
   employment: string | null;
   salaryScale: "H" | "M" | "L" | null; // no salary source yet
-  planDays: number;
-  actualDays: number | null;
+  planFte: number;
   actualFte: number | null;
   clockedDaysAllProjects: number | null; // all their projects that month: red below 15.3 or above 18
-  projects: number; // how many of the agency's projects they are on
 }
 
 // The people on the Dashboard's selection in one month (GET /dashboard ... &month=).

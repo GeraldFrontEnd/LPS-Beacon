@@ -473,6 +473,52 @@ def _people_types(store: Store) -> dict[str, str]:
     return out
 
 
+QL_LONG_KEY = "clean/quoteline/latest_long.json.gz"
+RP_LONG_KEY = "clean/resource_plan/latest_long.json.gz"
+
+
+def _as_sold(store: Store, months: list[str], full_month_mds: float = 18.0) -> tuple[dict | None, list[str]]:
+    """As sold (5 Nov 2026, Finance): the FTE sold on each project = its quote line man-days per month / 18 (the
+    same 18-day month as As planned and Actual). The quote line export carries the project's ID once the quote is
+    won and becomes a project; a line without one is linked through its work order number (Contract Number,
+    ORD-...), which the project resource plan also carries. Work order numbers starting 32 / 36 are old and are
+    not used. Lines that link to no project are quotes not won yet and are left out.
+    Returns {"byProject": {project: {month: man-days}}, "byMonth": {month: man-days}} over the plan's months."""
+    if not store.exists(QL_LONG_KEY):
+        return None, ["no quote line export uploaded: As sold is empty"]
+    ql = store.read_table(QL_LONG_KEY)
+    if "project_id" not in ql.columns:
+        return None, ["the quote line export has no Project ID column, so As sold can't be linked to projects"]
+    ql = ql.copy()
+    ql["month"] = pd.to_datetime(ql["month"]).dt.strftime("%Y-%m")
+    ql = ql[ql["month"].isin(months)]
+    ql["mds"] = pd.to_numeric(ql["mds"], errors="coerce").fillna(0.0)
+    pid = ql["project_id"].astype("string").str.strip()
+    if "contract" in ql.columns and store.exists(RP_LONG_KEY):
+        rp = store.read_table(RP_LONG_KEY)
+        if {"contract", "project_id"} <= set(rp.columns):
+            rp = rp.dropna(subset=["contract", "project_id"])
+            rp = rp[rp["contract"].astype(str).str.upper().str.startswith("ORD-")]
+            rp = rp.drop_duplicates("contract")
+            by_order = pd.Series(rp["project_id"].astype(str).to_numpy(), index=rp["contract"].astype(str).to_numpy())
+            pid = pid.fillna(ql["contract"].astype("string").map(by_order))
+    ql["project"] = pid
+    linked = ql.dropna(subset=["project"])
+    notes = []
+    unlinked = float(ql.loc[ql["project"].isna(), "mds"].sum())
+    if unlinked:
+        notes.append(f"As sold leaves out {round(unlinked):,} quote line man-days that link to no project (quotes "
+                     "not won yet)")
+    by_project: dict[str, dict[str, float]] = {}
+    for (p, m), v in linked.groupby(["project", "month"])["mds"].sum().items():
+        if v:
+            by_project.setdefault(str(p), {})[str(m)] = round(float(v), 2)
+    by_month = {str(m): round(float(v), 2) for m, v in linked.groupby("month")["mds"].sum().items()}
+    notes.append(f"As sold = quote line man-days / {full_month_mds:g} per project and month (quote line export, "
+                 "linked by Project ID or work order number)")
+    return {"byProject": by_project, "byMonth": by_month, "fullMonthManDays": full_month_mds}, notes
+
+
 def _breakdown(store: Store, months: list[str], rp_full_month_mds: float = 18.0) -> tuple[dict | None, list[str]]:
     """Per agency and per project, per month, for the Dashboard's agency / project / quarter filter:
          fte          demand on won and ongoing work: SL x RP "Project" + "Quote Won" man-days / 18
@@ -682,6 +728,8 @@ def build(store: Store, today: dt.date | None = None) -> dict:
     notes.extend(demand_notes)
     split, split_notes = _breakdown(store, months)
     notes.extend(split_notes)
+    as_sold, sold_notes = _as_sold(store, months)
+    notes.extend(sold_notes)
     # FTE actual for the organisation: every clocked billable day that month / 18.
     actual_fte = {m: round(d / 18.0, 1) for m, d in clocking.billable_days_by_month(store).items() if m in months}
     actual_source = clocking.source(store)
@@ -710,6 +758,7 @@ def build(store: Store, today: dt.date | None = None) -> dict:
         "actualFlows": flows,
         "revenue": revenue,
         "productivity": productivity,
+        "asSold": as_sold,
         "demand": demand,
         "breakdown": split,
         "actualFte": actual_fte or None,

@@ -272,30 +272,38 @@ class RouteTests(unittest.TestCase):
                 "headcount": 2, "planDays": 36, "actualDays": 27, "people": [person("Zed", 18, 18), person("Amy", 18, 9)]}}},
             "P2": {"name": "Two", "agency": "Agency X", "byMonth": {"2026-10": {
                 "headcount": 1, "planDays": 9, "actualDays": 9, "people": [person("Amy", 9, 9)]}}},
-            "P3": {"name": "Three", "agency": "Agency Y", "byMonth": {"2026-10": {
-                "headcount": 1, "planDays": 18, "actualDays": 18, "people": [person("Bob", 18, 18, "PM")]},
+            "P3": {"name": "Three", "agency": "Agency Y", "byMonth": {
+                "2026-10": {"headcount": 1, "planDays": 18, "actualDays": 18, "people": [person("Bob", 18, 18, "PM")]},
                 "2026-11": {"headcount": 1, "planDays": 18, "actualDays": None, "people": [person("Bob", 18, 0, "PM")]}}}}}
-        out = L.agency_panels(roster)
+        sold = {"fullMonthManDays": 18, "byProject": {"P1": {"2026-10": 54}, "P3": {"2026-10": 18}}}
+        out = L.agency_panels(roster, sold=sold)
         self.assertEqual(out["month"], "2026-10")
         self.assertEqual([a["agency"] for a in out["agencies"]], ["Agency X", "Agency Y"], "largest actual first")
         x = out["agencies"][0]
-        self.assertEqual((x["planFte"], x["actualFte"], x["headcount"]), (2.5, 2.0, 2))
-        self.assertIsNone(x["asSoldFte"], "no Bcase source yet")
-        amy = next(r for r in x["people"] if r["name"] == "Amy")
-        self.assertEqual((amy["planDays"], amy["actualDays"], amy["projects"], amy["skill"]), (27.0, 18.0, 2, "DBA"))
-        self.assertIsNone(amy["salaryScale"])
-        self.assertEqual([p["projectId"] for p in x["projects"]], ["P1", "P2"])
+        self.assertEqual((x["planFte"], x["actualFte"], x["headcount"], x["asSoldFte"]), (2.5, 2.0, 2, 3.0))
+        self.assertEqual([p["asSoldFte"] for p in x["projects"]], [3.0, None], "P2 has no quote line")
+        self.assertNotIn("people", x["projects"][0], "the Dashboard summary carries no people")
+        with_people = L.agency_panels(roster, {"Agency X": ["P1"]}, sold=sold, with_people=True)
+        amy = next(r for r in with_people["agencies"][0]["projects"][0]["people"] if r["name"] == "Amy")
+        self.assertEqual((amy["planFte"], amy["actualFte"], amy["skill"], amy["salaryScale"]), (1.0, 0.5, "DBA", None))
         fc = L.agency_panels(roster, {"Agency Y": ["P3"]}, "2026-11")
         self.assertFalse(fc["clocked"])
         self.assertEqual((fc["agencies"][0]["planFte"], fc["agencies"][0]["actualFte"]), (1.0, None), "forecast: plan only")
         data = inputs()
-        data["breakdown"] = {"agencies": {"Agency X": {"projects": ["P1", "P2"], "byMonth": {}}},
-                             "projects": {"P1": {"name": "One", "agency": "Agency X", "byMonth": {}}}}
+        data["asSold"] = sold
+        cell = {"fte": 2.5, "people": 2, "permanent": 2, "secondment": 0, "other": 0, "unknown": 0, "billable": 0,
+                "workingDays": 0}
+        data["breakdown"] = {"agencies": {"Agency X": {"projects": ["P1", "P2"], "byMonth": {"2026-10": cell}}},
+                             "projects": {"P1": {"name": "One", "agency": "Agency X", "byMonth": {"2026-10": cell}}}}
         view = L.dashboard_view(data, agency="Agency X", roster=roster)
         self.assertEqual([a["agency"] for a in view["agencyPanels"]["agencies"]], ["Agency X"])
-        view = L.dashboard_view(data, project_id="P1", roster=roster)
+        self.assertEqual(view["selection"]["byMonth"]["2026-10"]["soldFte"], 3.0)
+        self.assertNotIn("soldFte", data["breakdown"]["agencies"]["Agency X"]["byMonth"]["2026-10"], "inputs untouched")
+        view = L.dashboard_view(data, project_id="P1", roster=roster, with_people=True)
         self.assertEqual([p["projectId"] for p in view["agencyPanels"]["agencies"][0]["projects"]], ["P1"])
+        self.assertIn("people", view["agencyPanels"]["agencies"][0]["projects"][0])
         self.assertEqual(len(L.dashboard_view(data, roster=roster)["agencyPanels"]["agencies"]), 2)
+        self.assertEqual(L._sold_fte_by_month({"fullMonthManDays": 18, "byMonth": {"2026-10": 36}}), {"2026-10": 2.0})
 
     def test_dashboard_204_without_inputs(self):
         del self.objects["results/capacity/inputs.json"]

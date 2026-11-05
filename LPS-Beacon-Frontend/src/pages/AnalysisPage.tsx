@@ -1,5 +1,5 @@
 // src/pages/AnalysisPage.tsx
-// The Analysis tab: "How productive are we, and who needs attention?" (organisation baseline, agencies and projects,
+// The Analysis tab: "How productive are we, and who needs attention?" (organisation actuals, agencies and projects,
 // calculated FTE required, management target). The capacity plan table moved to its own tab on 3 Nov 2026
 // (CapacityPlanPage.tsx).
 // The whole page scrolls as one, so there is one vertical scroll bar.
@@ -61,8 +61,8 @@ export default function AnalysisPage() {
       <header className="page-header">
         <h1>Analysis</h1>
         <p>
-          How many FTE a revenue target needs, how productive we are against the company baseline, which agencies and
-          projects need attention, and where we stand against the management target. All amounts in USD. The month-by-month numbers are on the{" "}
+          How many FTE a revenue target needs (or the revenue an FTE count brings), the organisation's actuals so far,
+          which agencies and projects need attention and who works on them, and where we stand against the management target. All amounts in USD. The month-by-month numbers are on the{" "}
           <Link to="/capacity-plan">Capacity plan</Link> tab.
         </p>
       </header>
