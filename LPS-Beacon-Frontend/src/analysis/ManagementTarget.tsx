@@ -328,7 +328,8 @@ function Cell({
   ]
     .filter(Boolean)
     .join(" ");
-  const who = edit ? `Typed by ${edit.mine ? "you" : edit.byName || "another user"}` : cell.title;
+  // Hover text only explains where a figure comes from (a file or a formula); typed cells say nothing (5 Nov 2026).
+  const who = cell.source === "typed" ? undefined : cell.title;
   if (!editable) {
     return (
       <td className={cls || undefined} title={who}>
