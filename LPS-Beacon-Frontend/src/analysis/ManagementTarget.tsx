@@ -19,14 +19,19 @@
 // italics): revenue (ABCD, actual + forecast) and average delivery HC (capacity plan) for this year; average HC and
 // gross staff cost for last year (MBR headcount file, plan_settings.priorYear). Typed values are shared
 // (plan/management_target.json on the backend) and override what the files give.
+//   ADR (5 Nov 2026, Finance): average daily revenue = revenue ÷ billable days clocked (= monthly revenue ÷
+//               (FTE actual × 18)), from the period's ACTUAL months only (ABCD revenue and clocking; forecast months
+//               have no clocking). The months are added up, then divided (baseline.ts adr). Last year has no clocking,
+//               so its column stays blank. The MT column is typed, like every MT line.
 
 import { useMemo } from "react";
 import { PLAN_COLUMNS } from "./capacityPlanLayout";
+import { adr } from "./baseline";
 import type { CapacityPlan, ManagementTargetCell, ManagementTargetEdit } from "../api/types";
 
 type Period = "FY" | "Q1" | "Q2" | "Q3" | "Q4";
 type Column = "prior" | "mt" | "current";
-type Unit = "usdM" | "usdK" | "int" | "pct" | "ratio";
+type Unit = "usdM" | "usdK" | "usd" | "int" | "pct" | "ratio";
 
 interface Row {
   id: string;
@@ -149,6 +154,13 @@ const ROWS: Row[] = [
     unit: "ratio",
     boxed: true,
   },
+  {
+    id: "adr",
+    label: "ADR (average daily revenue, USD)",
+    unit: "usd",
+    boxed: true,
+    better: "up",
+  },
   { id: "opex", label: "Opex", unit: "usdM", input: true, gapBefore: true },
   {
     id: "pcon",
@@ -224,6 +236,7 @@ function show(value: number | null, unit: Unit, signed = false): string {
       return sign + m2.format(a / 1e6);
     case "usdK":
       return sign + k1.format(a / 1e3);
+    case "usd":
     case "int":
       return sign + i0.format(a);
     case "pct":
@@ -260,6 +273,8 @@ function parse(text: string, unit: Unit): number | null | "bad" {
       return Math.round(n * 1e6);
     case "usdK":
       return Math.round(n * 1e3);
+    case "usd":
+      return Math.round(n);
     case "pct":
       return n / 100;
     case "ratio":
@@ -396,6 +411,31 @@ export default function ManagementTarget({
       }
       return d;
     };
+    // ADR of the period's actual months: every agency's revenue and clocked days added up, then divided.
+    const prod = plan.productivity;
+    const adrTotals: Record<string, { revenue: number; actualDays: number }> = {};
+    if (prod && prod.clocked !== false)
+      for (const a of prod.agencies)
+        for (const [m, c] of Object.entries(a.byMonth ?? {})) {
+          const t = (adrTotals[m] ??= { revenue: 0, actualDays: 0 });
+          t.revenue += c.revenue;
+          t.actualDays += c.actualDays;
+        }
+    const MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const adrOf = (period: Period): Resolved => {
+      const ms = months
+        .filter((c) => period === "FY" || `Q${c.quarter}` === period)
+        .map((c) => monthOfKey[c.key]?.month)
+        .filter((m): m is string => !!m && !!adrTotals[m]);
+      const value = adr(adrTotals, ms);
+      if (value === null) return { value: null, source: null };
+      const names = ms.map((m) => MONTH[Number(m.slice(5, 7)) - 1]).join(", ");
+      return {
+        value,
+        source: "formula",
+        title: `Revenue ÷ billable days clocked, actual months only (${names}): monthly revenue ÷ (FTE actual × 18)`,
+      };
+    };
     // Last year: the MBR headcount file's average HC and gross staff cost (full year only), ABCD revenue if complete.
     const prior = () => {
       const d: Record<string, { value: number; title: string }> = {};
@@ -428,7 +468,11 @@ export default function ManagementTarget({
       const annualise = period === "FY" ? 1 : 4;
       out[`${period}|mt`] = typedOnly(typed(period, "mt"));
       out[`${period}|current`] = resolveColumn(typed(period, "current"), current(period), annualise);
-      if (period === "FY") out[`FY|prior`] = resolveColumn(typed("FY", "prior"), prior(), 1);
+      out[`${period}|current`]["adr"] = adrOf(period);
+      if (period === "FY") {
+        out[`FY|prior`] = resolveColumn(typed("FY", "prior"), prior(), 1);
+        out[`FY|prior`]["adr"] = { value: null, source: null, title: "No clocking for last year" };
+      }
     }
     return out;
   }, [plan, cells, fiscalYear, fy, start]);
