@@ -32,7 +32,7 @@
 import { useMemo } from "react";
 import { PLAN_COLUMNS } from "./capacityPlanLayout";
 import { adr } from "./baseline";
-import type { CapacityPlan, ManagementTargetCell, ManagementTargetEdit } from "../api/types";
+import type { CapacityPlan, ManagementTargetEdit } from "../api/types";
 
 type Period = "FY" | "Q1" | "Q2" | "Q3" | "Q4";
 type Column = "prior" | "mt" | "current";
@@ -308,7 +308,6 @@ function Cell({
   editable,
   disabled,
   label,
-  edit,
   onSave,
   first,
 }: {
@@ -318,13 +317,11 @@ function Cell({
   editable: boolean;
   disabled: boolean;
   label: string;
-  edit?: ManagementTargetCell;
   onSave: (value: number | null) => void;
 }) {
   const cls = [
     first ? "plan-block-start" : undefined,
     cell.source === "file" ? "mt-from-file" : undefined,
-    edit ? "plan-edited" : undefined,
   ]
     .filter(Boolean)
     .join(" ");
@@ -592,7 +589,6 @@ export default function ManagementTarget({
               editable={column === "mt" || !!row.input}
               disabled={saving}
               label={`${row.label}, ${period === "FY" ? "full year" : period}, ${column === "mt" ? "MT" : column === "prior" ? "last year" : "actual and forecast"}`}
-              edit={cells[`${fy}|${period}|${column}|${row.id}`]}
               onSave={save(period, column, row.id)}
             />
           );
