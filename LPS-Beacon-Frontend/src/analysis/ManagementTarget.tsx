@@ -3,17 +3,22 @@
 // four quarters beside it.
 //
 //   Full year   last fiscal year, management target (MT), this fiscal year (actual + forecast), YoY (this year − last
-//               year) and vs MT (this year − MT)
-//   Quarters    MT, actual + forecast, vs MT
+//               year), vs MT (this year − MT) and vs MT % (vs MT ÷ MT, as on Finance's sheet: a cost under budget shows
+//               a negative %)
+//   Quarters    MT, actual + forecast, vs MT, vs MT %
+// The full year stays first so a small screen sees it without scrolling (5 Nov 2026). The vs MT and vs MT % columns
+// can be hidden (showVariance) to keep the table narrow.
 //
 // The MT column (full year and each quarter) is a set figure from management: every line is typed in, nothing is
 // worked out or filled from the files, and it starts blank (4 Nov 2026).
 // In the other columns people type the lines no file has (cost of sales, staff cost, opex); the page works out the
 // formula lines the same way Finance's sheet does:
 //   Gross staff cost  = perm + secondment staff cost          Net staff cost = gross staff cost + staff cost transfer
-//   GP                = revenue + COS + net staff cost        GP %           = GP ÷ revenue
+//   GP                = revenue + COS (staff cost and third party cost are part of COS; Finance's sheet, 5 Nov 2026)
+//   GP %              = GP ÷ revenue
 //   Total delivery HC = secondment + permanent                avg staff cost = staff cost ÷ HC (and per perm / sec)
-//   Revenue per HC, GP per HC (quarters annualised x 4)       Revenue ÷ gross staff cost
+//   Revenue per HC, GP per HC: per period, so a quarter's is the quarter's (as on Finance's sheet, not annualised)
+//   Revenue ÷ gross staff cost (staff cost taken as a positive amount)
 //   PCON              = GP + opex                             PCON %         = PCON ÷ revenue
 // Costs are negative, as on the sheet. What the files give is filled in when nobody typed a value (shown in grey
 // italics): revenue (ABCD, actual + forecast) and average delivery HC (capacity plan) for this year; average HC and
@@ -202,7 +207,7 @@ function resolveColumn(typed: Values, defaults: Record<string, { value: number; 
   const v = (id: string) => out[id]?.value ?? null;
   out["gross-staff-cost"] = formula("gross-staff-cost", sum(v("perm-staff-cost"), v("secondment-staff-cost")));
   out["net-staff-cost"] = formula("net-staff-cost", sum(v("gross-staff-cost"), v("staff-cost-transfer")));
-  out["gp"] = formula("gp", sum(v("revenue"), v("cos"), v("net-staff-cost")));
+  out["gp"] = formula("gp", sum(v("revenue"), v("cos")));
   out["gp-pct"] = formula("gp-pct", div(v("gp"), v("revenue")));
   out["hc-total"] = formula("hc-total", sum(v("hc-secondment"), v("hc-permanent")));
   const yearly = (x: number | null) => (x === null ? null : x * annualise);
@@ -211,7 +216,8 @@ function resolveColumn(typed: Values, defaults: Record<string, { value: number; 
   out["avg-sec-cost"] = formula("avg-sec-cost", yearly(div(v("secondment-staff-cost"), v("hc-secondment"))));
   out["revenue-per-hc"] = formula("revenue-per-hc", yearly(div(v("revenue"), v("hc-total"))));
   out["gp-per-hc"] = formula("gp-per-hc", yearly(div(v("gp"), v("hc-total"))));
-  out["revenue-per-staff-cost"] = formula("revenue-per-staff-cost", div(v("revenue"), v("gross-staff-cost")));
+  const gross = v("gross-staff-cost");
+  out["revenue-per-staff-cost"] = formula("revenue-per-staff-cost", div(v("revenue"), gross === null ? null : Math.abs(gross)));
   out["pcon"] = formula("pcon", sum(v("gp"), v("opex")));
   out["pcon-pct"] = formula("pcon-pct", div(v("pcon"), v("revenue")));
   return out;
@@ -253,9 +259,13 @@ function inputText(value: number | null, unit: Unit): string {
     case "usdM":
       return String(Number((value / 1e6).toFixed(4)));
     case "usdK":
-      return String(Number((value / 1e3).toFixed(3)));
+      return String(Number((value / 1e3).toFixed(1)));
     case "pct":
-      return String(Number((value * 100).toFixed(3)));
+      return String(Number((value * 100).toFixed(1)));
+    case "ratio":
+      return String(Number(value.toFixed(2)));
+    case "usd":
+      return String(Math.round(value));
     default:
       return String(value);
   }
@@ -366,11 +376,13 @@ export default function ManagementTarget({
   fiscalYear,
   saving,
   onSave,
+  showVariance = true,
 }: {
   plan: CapacityPlan;
   fiscalYear: string; // "FY'26", as the plan's columns name it
   saving: boolean;
   onSave: (edit: ManagementTargetEdit) => void;
+  showVariance?: boolean; // false hides the vs MT and vs MT % columns
 }) {
   const fy = fiscalYear.replace("'", ""); // "FY26"
   const start = 2000 + Number(fy.slice(2)); // FY26 starts in April 2026
@@ -465,7 +477,7 @@ export default function ManagementTarget({
     };
     const out: Record<string, Record<string, Resolved>> = {};
     for (const period of ["FY", ...QUARTERS] as Period[]) {
-      const annualise = period === "FY" ? 1 : 4;
+      const annualise = 1; // per period, as on Finance's sheet (5 Nov 2026)
       out[`${period}|mt`] = typedOnly(typed(period, "mt"));
       out[`${period}|current`] = resolveColumn(typed(period, "current"), current(period), annualise);
       out[`${period}|current`]["adr"] = adrOf(period);
@@ -484,6 +496,13 @@ export default function ManagementTarget({
   const tone = (row: Row, d: number | null) =>
     row.better && d !== null && Math.abs(d) > 1e-9 ? (d > 0 ? "mt-good" : "mt-bad") : undefined;
 
+  // vs MT % = vs MT ÷ MT (Finance's sheet: a cost under budget shows a negative %).
+  const pctOf = (d: number | null, mt: Resolved | undefined) =>
+    d === null || mt?.value === null || mt?.value === undefined || mt.value === 0 ? null : d / mt.value;
+  const showPct = (x: number | null) => (x === null || !Number.isFinite(x) ? "" : show(x, "pct"));
+  const fySpan = showVariance ? 6 : 4;
+  const qSpan = showVariance ? 4 : 2;
+
   const save = (period: Period, column: Column, rowId: string) => (value: number | null) =>
     onSave({ fiscalYear: fy, period, column, rowId, value });
 
@@ -497,11 +516,11 @@ export default function ManagementTarget({
           <th scope="col" rowSpan={2} className="plan-label">
             USD M · HC in people · per-HC in USD K
           </th>
-          <th scope="colgroup" colSpan={5} className="plan-fy plan-block-start">
+          <th scope="colgroup" colSpan={fySpan} className="plan-fy plan-block-start">
             Full year {label(start)}
           </th>
           {QUARTERS.map((q) => (
-            <th key={q} scope="colgroup" colSpan={3} className="plan-fy plan-block-start">
+            <th key={q} scope="colgroup" colSpan={qSpan} className="plan-fy plan-block-start">
               {q} {label(start)}
             </th>
           ))}
@@ -519,9 +538,16 @@ export default function ManagementTarget({
           <th scope="col" title="This year minus last year">
             YoY
           </th>
-          <th scope="col" title="This year minus the target. Above zero means above target (for a cost: under budget)">
-            vs MT
-          </th>
+          {showVariance && (
+            <>
+              <th scope="col" title="This year minus the target. Above zero means above target (for a cost: under budget)">
+                vs MT
+              </th>
+              <th scope="col" title="vs MT ÷ MT, as on Finance's sheet. For a cost, negative means under budget">
+                vs MT %
+              </th>
+            </>
+          )}
           {QUARTERS.map((q) => [
             <th key={`${q}-mt`} scope="col" className="plan-block-start">
               MT
@@ -529,9 +555,16 @@ export default function ManagementTarget({
             <th key={`${q}-c`} scope="col">
               Act + fcst
             </th>,
-            <th key={`${q}-d`} scope="col" title="This quarter minus its target">
-              vs MT
-            </th>,
+            ...(showVariance
+              ? [
+                  <th key={`${q}-d`} scope="col" title="This quarter minus its target">
+                    vs MT
+                  </th>,
+                  <th key={`${q}-p`} scope="col" title="vs MT ÷ MT. For a cost, negative means under budget">
+                    vs MT %
+                  </th>,
+                ]
+              : []),
           ])}
         </tr>
       </thead>
@@ -574,15 +607,28 @@ export default function ManagementTarget({
               {cellFor("FY", "mt")}
               {cellFor("FY", "current")}
               <td className={tone(row, yoy)}>{show(yoy, row.unit, true)}</td>
-              <td className={tone(row, vsMt)}>{show(vsMt, row.unit, true)}</td>
+              {showVariance && (
+                <>
+                  <td className={tone(row, vsMt)}>{show(vsMt, row.unit, true)}</td>
+                  <td className={tone(row, vsMt)}>{showPct(pctOf(vsMt, fyMt))}</td>
+                </>
+              )}
               {QUARTERS.map((q) => {
-                const d = diff(resolved[`${q}|current`][row.id], resolved[`${q}|mt`][row.id]);
+                const mt = resolved[`${q}|mt`][row.id];
+                const d = diff(resolved[`${q}|current`][row.id], mt);
                 return [
                   cellFor(q, "mt", true),
                   cellFor(q, "current"),
-                  <td key={`${q}-d`} className={tone(row, d)}>
-                    {show(d, row.unit, true)}
-                  </td>,
+                  ...(showVariance
+                    ? [
+                        <td key={`${q}-d`} className={tone(row, d)}>
+                          {show(d, row.unit, true)}
+                        </td>,
+                        <td key={`${q}-p`} className={tone(row, d)}>
+                          {showPct(pctOf(d, mt))}
+                        </td>,
+                      ]
+                    : []),
                 ];
               })}
             </tr>

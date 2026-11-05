@@ -52,6 +52,7 @@ MT_ONLY_ROWS = {
     "revenue-per-staff-cost": (-1_000, 1_000, 1),
     "pcon": (-MONEY_LIMIT, MONEY_LIMIT, 1),
     "pcon-pct": (-10, 10, 1),
+    "adr": (0, 1_000_000, 1),   # average daily revenue, USD a day (5 Nov 2026)
 }
 
 

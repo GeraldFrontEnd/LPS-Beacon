@@ -558,6 +558,8 @@ export default function ProductivitySection({
 }) {
   const fy = reportingYear(plan);
   // The management target's fiscal year: the one we are in, else the plan's first.
+  // The vs MT and vs MT % columns can be hidden to keep the table narrow (remembered like the other page settings).
+  const [showVariance, setShowVariance] = usePageState<boolean>("analysis.mtVariance", true);
   const [targetYear, setTargetYear] = usePageState<string>("analysis.targetYear", () => {
     const now = new Date();
     const start = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
@@ -628,12 +630,21 @@ export default function ProductivitySection({
               Finance&apos;s P&amp;L summary against the management target (MT): the full year, with the four quarters
               beside it. The MT is set by management, so every MT line is typed in and starts blank. Blue boxes are
               shared with everyone (costs negative, as on Finance&apos;s sheet); grey italics come from the uploaded
-              files until someone types over them; the other lines are worked out. Quarter per-HC figures are
-              annualised.
+              files until someone types over them; the other lines are worked out. Per-HC figures are for the
+              period (a quarter's is the quarter's), as on Finance's sheet.
             </p>
           </div>
           <div className="prod-controls">
             {savingTarget && <span className="analysis-status">Saving…</span>}
+            <button
+              type="button"
+              className="secondary-button"
+              aria-pressed={showVariance}
+              onClick={() => setShowVariance((v) => !v)}
+              title="Show or hide the vs MT and vs MT % columns"
+            >
+              {showVariance ? "Hide vs MT" : "Show vs MT"}
+            </button>
             <select className="mt-year" aria-label="Fiscal year" value={targetYear}
               onChange={(e) => setTargetYear(e.target.value)}>
               {FISCAL_YEARS.map((y) => (
@@ -645,7 +656,13 @@ export default function ProductivitySection({
           </div>
         </header>
         <div className="mt-scroll">
-          <ManagementTarget plan={plan} fiscalYear={targetYear} saving={savingTarget} onSave={onSaveTarget} />
+          <ManagementTarget
+            plan={plan}
+            fiscalYear={targetYear}
+            saving={savingTarget}
+            onSave={onSaveTarget}
+            showVariance={showVariance}
+          />
         </div>
       </section>
     </div>

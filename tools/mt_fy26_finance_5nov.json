@@ -1,0 +1,634 @@
+{
+ "cells": {
+  "FY26|Q1|mt|revenue": {
+   "value": 21880000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|cos": {
+   "value": -17610000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|gross-staff-cost": {
+   "value": -13600000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|perm-staff-cost": {
+   "value": -11400000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|secondment-staff-cost": {
+   "value": -2210000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|staff-cost-transfer": {
+   "value": 12580000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|net-staff-cost": {
+   "value": -1020000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|third-party-cost": {
+   "value": -5030000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|gp": {
+   "value": 4270000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|pcon": {
+   "value": 3800000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|hc-secondment": {
+   "value": 140,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|hc-permanent": {
+   "value": 580,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|hc-total": {
+   "value": 720,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|gp-pct": {
+   "value": 0.195155,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|avg-staff-cost": {
+   "value": -18888.888889,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|avg-perm-cost": {
+   "value": -19655.172414,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|avg-sec-cost": {
+   "value": -15785.714286,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|revenue-per-hc": {
+   "value": 30388.888889,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|gp-per-hc": {
+   "value": 5930.555556,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|revenue-per-staff-cost": {
+   "value": 1.608824,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q1|mt|pcon-pct": {
+   "value": 0.173675,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|revenue": {
+   "value": 22360000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|cos": {
+   "value": -17840000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|gross-staff-cost": {
+   "value": -14210000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|perm-staff-cost": {
+   "value": -12000000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|secondment-staff-cost": {
+   "value": -2210000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|staff-cost-transfer": {
+   "value": 12820000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|net-staff-cost": {
+   "value": -1390000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|third-party-cost": {
+   "value": -5020000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|gp": {
+   "value": 4530000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|pcon": {
+   "value": 3700000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|hc-secondment": {
+   "value": 140,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|hc-permanent": {
+   "value": 600,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|hc-total": {
+   "value": 740,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|gp-pct": {
+   "value": 0.202594,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|avg-staff-cost": {
+   "value": -19202.702703,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|avg-perm-cost": {
+   "value": -20000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|avg-sec-cost": {
+   "value": -15785.714286,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|revenue-per-hc": {
+   "value": 30216.216216,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|gp-per-hc": {
+   "value": 6121.621622,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|revenue-per-staff-cost": {
+   "value": 1.57354,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q2|mt|pcon-pct": {
+   "value": 0.165474,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|revenue": {
+   "value": 23700000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|cos": {
+   "value": -18960000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|gross-staff-cost": {
+   "value": -14740000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|perm-staff-cost": {
+   "value": -12530000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|secondment-staff-cost": {
+   "value": -2210000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|staff-cost-transfer": {
+   "value": 13890000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|net-staff-cost": {
+   "value": -840000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|third-party-cost": {
+   "value": -5070000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|gp": {
+   "value": 4740000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|pcon": {
+   "value": 4200000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|hc-secondment": {
+   "value": 140,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|hc-permanent": {
+   "value": 620,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|hc-total": {
+   "value": 760,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|gp-pct": {
+   "value": 0.2,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|avg-staff-cost": {
+   "value": -19394.736842,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|avg-perm-cost": {
+   "value": -20209.677419,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|avg-sec-cost": {
+   "value": -15785.714286,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|revenue-per-hc": {
+   "value": 31184.210526,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|gp-per-hc": {
+   "value": 6236.842105,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|revenue-per-staff-cost": {
+   "value": 1.60787,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q3|mt|pcon-pct": {
+   "value": 0.177215,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|revenue": {
+   "value": 22050000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|cos": {
+   "value": -17560000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|gross-staff-cost": {
+   "value": -15150000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|perm-staff-cost": {
+   "value": -12940000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|secondment-staff-cost": {
+   "value": -2210000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|staff-cost-transfer": {
+   "value": 12850000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|net-staff-cost": {
+   "value": -2300000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|third-party-cost": {
+   "value": -4710000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|gp": {
+   "value": 4490000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|pcon": {
+   "value": 2400000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|hc-secondment": {
+   "value": 140,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|hc-permanent": {
+   "value": 630,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|hc-total": {
+   "value": 770,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|gp-pct": {
+   "value": 0.203628,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|avg-staff-cost": {
+   "value": -19675.324675,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|avg-perm-cost": {
+   "value": -20539.68254,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|avg-sec-cost": {
+   "value": -15785.714286,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|revenue-per-hc": {
+   "value": 28636.363636,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|gp-per-hc": {
+   "value": 5831.168831,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|revenue-per-staff-cost": {
+   "value": 1.455446,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|Q4|mt|pcon-pct": {
+   "value": 0.108844,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|revenue": {
+   "value": 89990000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|cos": {
+   "value": -71960000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|gross-staff-cost": {
+   "value": -57690000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|perm-staff-cost": {
+   "value": -48870000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|secondment-staff-cost": {
+   "value": -8820000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|staff-cost-transfer": {
+   "value": 52140000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|net-staff-cost": {
+   "value": -5550000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|third-party-cost": {
+   "value": -19830000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|gp": {
+   "value": 18030000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|pcon": {
+   "value": 14100000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|hc-secondment": {
+   "value": 140,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|hc-permanent": {
+   "value": 608,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|hc-total": {
+   "value": 748,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|gp-pct": {
+   "value": 0.200356,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|avg-staff-cost": {
+   "value": -77125.668449,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|avg-perm-cost": {
+   "value": -80378.289474,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|avg-sec-cost": {
+   "value": -63000.0,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|revenue-per-hc": {
+   "value": 120307.486631,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|gp-per-hc": {
+   "value": 24104.278075,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|revenue-per-staff-cost": {
+   "value": 1.559889,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  },
+  "FY26|FY|mt|pcon-pct": {
+   "value": 0.156684,
+   "by": "seed-finance-mt-sheet",
+   "byName": "Finance MT sheet (5 Nov 2026)",
+   "at": "2026-11-05T06:30:00+00:00"
+  }
+ }
+}

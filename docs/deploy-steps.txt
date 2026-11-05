@@ -1,0 +1,77 @@
+LPS-Beacon: full deploy steps (copy-paste, run in Ubuntu / WSL)
+=================================================================
+Order matters: 1 pipeline -> 2 rebuild data -> 3 API -> 4 frontend.
+A new frontend on old API / pipeline output shows blank or stuck sections.
+Run everything in ONE terminal, so the variables from step 0 stay set.
+
+
+0. SIGN IN (once per terminal)
+------------------------------
+aws sso login --profile lps
+export AWS_PROFILE=lps
+export AWS_PAGER=""
+REGION=ap-southeast-1
+
+
+1. PIPELINE LAMBDA (lambda-forecastpipeline, container image)
+-------------------------------------------------------------
+cd /mnt/c/Users/dleong4/Documents/GitHub/LPS-Beacon_Bot/LPS-Beacon_Backend/lambda-forecastpipeline
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+REPO=lambda-forecastpipeline; TAG=$(date +%Y%m%d-%H%M%S)
+REGISTRY=$ACCOUNT.dkr.ecr.$REGION.amazonaws.com
+docker build --platform linux/amd64 --provenance=false -t $REPO:$TAG .
+aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $REGISTRY
+docker tag $REPO:$TAG $REGISTRY/$REPO:$TAG
+docker push $REGISTRY/$REPO:$TAG
+echo "IMAGE URI: $REGISTRY/$REPO:$TAG"
+
+# Point the function at the new image (pushing to ECR alone does NOT update it)
+aws lambda update-function-code --function-name lambda-forecastpipeline --image-uri $REGISTRY/$REPO:$TAG --region $REGION
+aws lambda wait function-updated --function-name lambda-forecastpipeline --region $REGION
+
+# If the build said CACHED everywhere but you changed pipeline code, rebuild with:
+#   docker build --no-cache --platform linux/amd64 --provenance=false -t $REPO:$TAG .
+
+
+2. REBUILD THE DASHBOARD / ANALYSIS DATA (only needed when pipeline code changed)
+---------------------------------------------------------------------------------
+aws lambda invoke --function-name lambda-forecastpipeline --region $REGION --cli-binary-format raw-in-base64-out --cli-read-timeout 300 --payload '{"mode":"capacity_inputs"}' /tmp/cap.json && cat /tmp/cap.json
+
+# Check: must print true (false = the function is still on old code)
+aws s3 cp s3://lps-beacon-data/results/capacity/inputs.json - | jq '.productivity.agencies[0] | has("byMonth")'
+
+# Never run {"mode":"full"}: it publishes a new review run.
+
+
+3. API LAMBDA (lps-beacon-apilambda, zip)
+-----------------------------------------
+# First time only: sudo apt install zip
+cd /mnt/c/Users/dleong4/Documents/GitHub/LPS-Beacon_Bot/LPS-Beacon_Backend/lambda-api
+rm -f /tmp/api.zip
+zip -j /tmp/api.zip lambda_function.py capacity_plan.py activity.py analytics_tools.py management_target.py
+aws lambda update-function-code --function-name lps-beacon-apilambda --zip-file fileb:///tmp/api.zip --region $REGION
+aws lambda wait function-updated --function-name lps-beacon-apilambda --region $REGION
+
+# The zip REPLACES all the function's code. If a new .py file is added to lambda-api/, add it to the zip line.
+# New API routes must also be added in API Gateway (9dpaon3lz7) with the JWT authorizer.
+
+
+4. FRONTEND (S3 + CloudFront)
+-----------------------------
+cd /mnt/c/Users/dleong4/Documents/GitHub/LPS-Beacon_Bot/LPS-Beacon-Frontend
+npm run build
+aws s3 sync dist s3://lps-beacon-frontend --delete --region $REGION
+aws cloudfront create-invalidation --distribution-id E2AFF4J4V920FW --paths "/*"
+
+
+5. CHECK (wait ~2 min for the invalidation, then hard-refresh with Ctrl+Shift+R)
+--------------------------------------------------------------------------------
+- Dashboard: the ADR card has a number; agency panels show Total actual cost and ADR.
+- Analysis: the period dropdown is there; the agencies table has an ADR column; the MT table has an ADR line.
+
+
+SKIP WHAT DIDN'T CHANGE
+-----------------------
+Only frontend files (LPS-Beacon-Frontend/)       -> step 0 + 4
+Only API files (LPS-Beacon_Backend/lambda-api/)   -> step 0 + 3
+Pipeline files (lambda-forecastpipeline/)         -> step 0 + 1 + 2, then 3 and 4 if those changed too
