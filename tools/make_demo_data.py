@@ -4,13 +4,19 @@
 
 10 agencies with 1 to 3 projects each (18 projects), 122 people on projects (13 of them on more than one project)
 plus 5 on the bench (127 staff). Fiscal year FY26 (Apr 2026 - Mar 2027); April to October 2026 are actual months.
-Designed flags (fiscal year to date, the 4 Nov rules: red below 15.3 or above 18 clocked days a head a month, or
-revenue per FTE more than 20% below the company average; an agency is red when any of its projects is red):
-    red    Urban Mobility Board       over-utilised (people clock about 20 days a month)
-    red    National Skills Council    under-utilised (about 13 days)
-    red    Coastal Defence Agency     one over-utilised project (the agency's own average is in range)
-    red    Heritage & Culture Board   low revenue per FTE (ADR about $380 a day against about $590)
-    green  the other six
+Designed flags (fiscal year to date): every rule shows at least once. Red: average billable MD below 15.3 or above 18
+a month, or revenue per FTE more than 20% below the company average; amber (Watch): revenue per FTE 5-20% below; an
+agency is red when any of its projects is red.
+    red    Urban Mobility Board         over-utilised (people clock about 20 billable MD a month)
+    red    National Skills Council      under-utilised (about 13)
+    red    Coastal Defence Agency       one over-utilised project (the agency's own average is in range)
+    red    Heritage & Culture Board     revenue per FTE about 35% below the average (ADR about $380 a day)
+    amber  Civic Records Agency         revenue per FTE about 10% below (ADR about $530)
+    amber  Community Services Council   revenue per FTE about 11% below (ADR about $520)
+    green  the other four
+Joiners and leavers (Workday, one file a month, Apr-Oct 2026): six leavers, one a month from April to September, each
+replaced on the same project and position from the next month; two new hires join the bench in September and October.
+Headcount: 125 in April (UR report) + 8 joiners - 6 leavers = 127 at the end of October (staff list).
 
 Plus two won quotes not started yet (from January 2027, no project yet) that the matching review redeploys
 people onto; the two projects ending December 2026 roll off in time for them.
@@ -52,7 +58,7 @@ AGENCIES = [
         ("PROJ-00020101", "[ATFM] HPA Infrastructure Operations FY26", 14, "green", 610, "2028-03"),
         ("PROJ-00020102", "[ATFM] HPA Cloud Landing Zone Support", 6, "green", 640, "2028-03")]),
     ("Civic Records Agency", "CRA", [
-        ("PROJ-00020201", "[ATFM] CRA Records Platform Support", 10, "green", 595, "2028-03")]),
+        ("PROJ-00020201", "[ATFM] CRA Records Platform Support", 10, "green", 530, "2028-03")]),
     ("Urban Mobility Board", "UMB", [
         ("PROJ-00020301", "[ATFM] UMB Traffic Systems Operations", 12, "over", 600, "2028-03"),
         ("PROJ-00020302", "[ATFM] UMB Network Refresh", 5, "over", 620, "2026-12")]),
@@ -74,8 +80,8 @@ AGENCIES = [
     ("Digital Identity Office", "DIO", [
         ("PROJ-00020901", "[ATFM] DIO Identity Platform Operations", 9, "green", 640, "2028-03")]),
     ("Community Services Council", "CSC", [
-        ("PROJ-00021001", "[ATFM] CSC Case Management Application Support", 6, "green", 590, "2028-03"),
-        ("PROJ-00021002", "[ATFM] CSC End-User Computing Helpdesk", 5, "green", 575, "2028-03")]),
+        ("PROJ-00021001", "[ATFM] CSC Case Management Application Support", 6, "green", 525, "2028-03"),
+        ("PROJ-00021002", "[ATFM] CSC End-User Computing Helpdesk", 5, "green", 515, "2028-03")]),
 ]
 # People on more than one project (same profile on each): project ids and their shares of the person's time.
 SHARED = (
@@ -97,6 +103,10 @@ NEW_DEMAND = [
      [("Service Desk Lead", 5), ("Service Desk Agent", 3), ("Service Desk Agent", 3), ("Mobile/Desktop Engineer", 4)]),
 ]
 NEW_START = ["2027-01", "2027-02", "2027-03"]
+# Leavers: (project, month they leave); each is replaced on the same project and position from the next month.
+LEAVERS = [("PROJ-00020101", "2026-04"), ("PROJ-00020501", "2026-05"), ("PROJ-00020801", "2026-06"),
+           ("PROJ-00020901", "2026-07"), ("PROJ-00020601", "2026-08"), ("PROJ-00020301", "2026-09")]
+BENCH_JOINERS = ["2026-09", "2026-10"]          # new hires not on a project yet
 # Roles by kind of project; the first is the lead. (role, band range)
 ROLES = {
     "infra": [("Service Delivery Manager", (7, 8)), ("Server Engineer L2", (5, 6)), ("Server Engineer L1", (3, 4)),
@@ -150,7 +160,8 @@ def build(rng: random.Random):
         r = rng.random()
         person = dict(name=name, code=f"demo{n:03d}", role=role, band=rng.randint(*bands), profile=profile,
                       employment="Secondment" if r < 0.19 else "Supplemental-Other" if r < 0.22 else "Regular Employee",
-                      joined=dt.date(rng.randint(2016, 2025), rng.randint(1, 12), rng.randint(1, 28)), alloc={})
+                      joined=dt.date(rng.randint(2016, 2025), rng.randint(1, 12), rng.randint(1, 28)), alloc={},
+                      first=None, last=None)          # first / last active month (None: before / after the data)
         people.append(person)
         return person
 
@@ -165,8 +176,42 @@ def build(rng: random.Random):
             p = new_person(pr["profile"], pr["kind"], lead=not any(x["alloc"].get(pr["id"]) == 1.0 for x in pr["slots"]))
             p["alloc"][pr["id"]] = 1.0
             pr["slots"].append(p)
+    # Leavers and their replacements: a dedicated person leaves at the end of the month; a new hire takes the same
+    # position and share from the next month.
+    taken = set()
+    for pid, month in LEAVERS:
+        pr = projects[pid]
+        leaver = next(x for x in pr["slots"] if x["alloc"] == {pid: 1.0} and x["code"] not in taken and x["first"] is None
+                      and x["role"] != ROLES[pr["kind"]][0][0])
+        taken.add(leaver["code"])
+        leaver["last"] = month
+        nxt = (pd.Period(month) + 1).strftime("%Y-%m")
+        joiner = new_person(pr["profile"], pr["kind"])
+        joiner.update(role=leaver["role"], band=leaver["band"], alloc={pid: 1.0}, first=nxt,
+                      joined=first_workday(nxt))
+        pr["slots"].append(joiner)
     bench = [new_person("bench", rng.choice(["infra", "cloud", "app"])) for _ in range(BENCH)]
+    for p, month in zip(bench[-len(BENCH_JOINERS):], BENCH_JOINERS):
+        p.update(first=month, joined=first_workday(month))
     return projects, [p for p in people if p["profile"] != "bench"], bench
+
+
+def first_workday(month: str) -> dt.date:
+    d = dt.date.fromisoformat(month + "-01")
+    while d.weekday() >= 5 or d.isoformat() in HOLIDAYS:
+        d += dt.timedelta(days=1)
+    return d
+
+
+def last_workday(month: str) -> dt.date:
+    d = pd.Period(month).end_time.date()
+    while d.weekday() >= 5 or d.isoformat() in HOLIDAYS:
+        d -= dt.timedelta(days=1)
+    return d
+
+
+def active(p: dict, month: str) -> bool:
+    return (p["first"] is None or month >= p["first"]) and (p["last"] is None or month <= p["last"])
 
 
 def days_a_month(profile: str, month: str, rng: random.Random) -> float:
@@ -184,24 +229,28 @@ def main(out_dir: str) -> None:
     rng = random.Random(SEED)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    projects, people, bench = build(rng)
+    projects, everyone, bench = build(rng)
+    leavers = [p for p in everyone if p["last"] is not None]
+    people = [p for p in everyone if p["last"] is None]      # on projects at the end of October
     staff = people + bench
 
     # Clocked billable days per person, project and month (actual months), and the plan (all months).
     clock, plan_rows = [], []
-    for p in people:
+    for p in people + leavers:
         for m in ACTUAL:
+            if not active(p, m):
+                continue
             total = days_a_month(p["profile"], m, rng)
             live = {pid: s for pid, s in p["alloc"].items() if m <= projects[pid]["end"]}
             for pid, share in live.items():
                 clock.append(dict(month=m, code=p["code"], name=p["name"], pid=pid, days=round(total * share * 2) / 2))
         for pid, share in p["alloc"].items():
             for m in PLAN:
-                if m <= projects[pid]["end"]:
+                if m <= projects[pid]["end"] and active(p, m):
                     plan_rows.append(dict(month=m, code=p["code"], pid=pid, md=round(FULL * share * 2) / 2))
     clock = pd.DataFrame(clock)
     plan = pd.DataFrame(plan_rows)
-    by_person = {p["code"]: p for p in staff}
+    by_person = {p["code"]: p for p in staff + leavers}
 
     # ---- SL x RP: the PM's plan, one row per person, project and month (Demand Type "Project")
     sl = []
@@ -340,8 +389,10 @@ def main(out_dir: str) -> None:
     # ---- BU UR report: one row per person and actual month; header on row 2 (row 1 holds subtotals)
     billable = clock.groupby(["code", "month"])["days"].sum()
     ur = []
-    for p in staff:
+    for p in staff + leavers:
         for m in ACTUAL:
+            if not active(p, m):
+                continue
             wd = working_days(m)
             b = float(billable.get((p["code"], m), 0.0))
             leave = min(round(rng.choice([0, 0, 0.5, 1, 1, 1.5, 2, 3]), 1), max(wd - b, 0))
@@ -407,10 +458,28 @@ def main(out_dir: str) -> None:
             put(period, row, val)
     (out / "management_target_FY26.json").write_text(json.dumps({"cells": cells}, indent=1))
 
+    # ---- Workday new hire / leaver reports, one a month (no Grade column, like the real report: the system finds the
+    # band by name on the UR report or staff list)
+    for m in ACTUAL:
+        rows = [{"Employee ID": f"E{1000 + int(p['code'][4:])}", "Worker": p["name"], "Original Hire Date": p["joined"],
+                 "Termination Date": last_workday(m)} for p in leavers if p["last"] == m]
+        rows += [{"Employee ID": f"E{1000 + int(p['code'][4:])}", "Worker": p["name"], "Original Hire Date": p["joined"],
+                  "Termination Date": None} for p in people + bench if p["first"] == m]
+        end = pd.Period(m).end_time.date()
+        top = pd.DataFrame([["Termination Date is greater than or equal to", dt.date.fromisoformat(m + "-01"), None, None],
+                            ["Effective as of Date", end, None, None],
+                            ["Employee ID", "Worker", "Original Hire Date", "Termination Date"]])
+        body = pd.DataFrame(rows, columns=["Employee ID", "Worker", "Original Hire Date", "Termination Date"])
+        with pd.ExcelWriter(out / f"Demo_SG_Delivery_New_Hire_Leaver_{end.isoformat()}.xlsx") as xw:
+            top.to_excel(xw, sheet_name="Sheet1", index=False, header=False)
+            body.to_excel(xw, sheet_name="Sheet1", index=False, header=False, startrow=3)
+
     # ---- summary
     shared = [p for p in people if len(p["alloc"]) > 1]
     lines = [f"Demo data (seed {SEED}), written {dt.date.today()}. Every name and number is invented.",
-             f"Staff: {len(staff)} ({len(people)} on projects, {len(shared)} of them on more than one project; {len(bench)} on the bench)",
+             f"Staff at the end of October: {len(staff)} ({len(people)} on projects, {len(shared)} of them on more than one "
+             f"project; {len(bench)} on the bench); {len(leavers)} leavers and "
+             f"{sum(1 for p in staff if p['first'])} joiners during Apr-Oct 2026",
              f"Agencies: {len(AGENCIES)}; projects: {len(projects)}", ""]
     for agency, short, plist in AGENCIES:
         lines.append(f"{agency} ({short})")

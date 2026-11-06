@@ -43,7 +43,7 @@ aws s3 ls s3://$BUCKET/ --recursive --summarize | tail -2
 4. UPLOAD THE DEMO FILES THROUGH THE WEB APP
 --------------------------------------------
 Files: Cleaned Files/Demo data ATFM/ (C:\Users\dleong4\Documents\Cleaned Files\Demo data ATFM)
-In the web app, Upload files, pick these 8 together (one batch):
+In the web app, Upload files, pick all 15 Demo_*.xlsx files together (one batch):
     Demo_SL_X_RP.xlsx
     Demo_ABCD_to_BP_Oct26.xlsx
     Demo_BU_UR_Apr26_Oct26.xlsx
@@ -52,6 +52,7 @@ In the web app, Upload files, pick these 8 together (one batch):
     Demo_Position_Name_Mapping.xlsx
     Demo_Quote_Line.xlsx
     Demo_Project_Resource_Plan.xlsx
+    Demo_SG_Delivery_New_Hire_Leaver_2026-04-30.xlsx ... _2026-10-31.xlsx   (7 Workday files, one a month)
 Wait for the review panel (Conflicts > Matching). The matching step should show 8 demand lines from Jan 2027
 (two new won quotes): 5 matched to people rolling off in Dec 2026, 3 cloud roles unmatched (to hire). Publish it.
 
@@ -66,9 +67,10 @@ aws s3 cp management_target_FY26.json s3://$BUCKET/plan/management_target.json -
 --------
 aws s3 cp s3://$BUCKET/results/capacity/inputs.json - | jq '[.productivity.agencies[] | {agency, flag}]'
 # Expect 10 agencies: 4 "red" (Coastal Defence Agency, Urban Mobility Board, National Skills Council,
-# Heritage & Culture Board), 6 "green".
-In the app (Ctrl+Shift+R first): Dashboard and Analysis both show Needs attention (4) / On track (6) on
-"FY26 to date"; HC 127; ADR about $592; the MT table filled in, Act + fcst blank.
+# Heritage & Culture Board), 2 "amber" (Civic Records Agency, Community Services Council), 4 "green".
+In the app (Ctrl+Shift+R first): Dashboard and Analysis both show Needs attention (4) / Watch (2) / On track (4)
+on "FY26 to date"; HC 127; the Capacity plan's ending HC 124 (Apr) to 127 (Oct) with Workday joiners and leavers
+every month; the MT table filled in, Act + fcst blank.
 
 To regenerate the demo files (same numbers every time):
     python tools/make_demo_data.py "/mnt/c/Users/dleong4/Documents/Cleaned Files/Demo data ATFM"

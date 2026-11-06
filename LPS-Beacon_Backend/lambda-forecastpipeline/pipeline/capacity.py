@@ -742,7 +742,8 @@ def build(store: Store, today: dt.date | None = None) -> dict:
     mix = {b: float(n) for b, n in ((starting or {}).get("bands") or {}).items()}
     flows, flow_notes = _actual_flows(store, mix)
     notes.extend(flow_notes)
-    if starting and starting.get("source") == "bu_ur" and flows and months[0] in flows:
+    if starting and starting.get("source") == "bu_ur" and flows and months[0] in flows \
+            and sum(flows[months[0]]["joiners"].values()):
         # The UR report lists everyone who worked in the month, including that month's joiners. The plan adds the
         # joiners itself, so the opening headcount leaves them out (ending HC = the report's staff - leavers).
         joined = flows[months[0]]["joiners"]
