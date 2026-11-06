@@ -51,7 +51,9 @@ function adrSub(months: string[], period: Period): string {
 function orgCards(plan: CapacityPlan, view: DashboardView | null, period: Period): Card[] {
   const v = plan.values;
   const hc = v["ending-hc"]?.[period.endKey] ?? null;
-  const ur = v["billable-ur"]?.[period.totalKey] ?? null;
+  // Year to date: the average of its months' billable UR; a month or a quarter: its own column.
+  const urMonths = period.keys.map((k) => v["billable-ur"]?.[k]).filter((x): x is number => x !== null && x !== undefined);
+  const ur = period.id === "fy" ? average(urMonths) : v["billable-ur"]?.[period.totalKey] ?? null;
   const demand = average(period.months.map((m) => plan.demandByMonth?.[m]?.fte).filter((x): x is number => x !== undefined));
   const p = view?.permanent;
   const permanent = p ? p.regular : null;
@@ -98,6 +100,20 @@ function selectionCards(plan: CapacityPlan, view: DashboardView, period: Period)
       ? prod?.agencies.find((a) => a.agency === sel.agency)
       : prod?.agencies.flatMap((a) => a.projects).find((p) => p.projectId === sel.projectId);
   const months = adrMonths(plan, period);
+  // Billable UR from the clocking by project (6 Nov 2026): billable days ÷ working days, a person on several projects
+  // counting in each by the share of days they clocked to it. Inputs from an older pipeline: the UR report's figures.
+  const ur = (() => {
+    let b = 0;
+    let w = 0;
+    for (const m of months) {
+      const c = figures?.byMonth?.[m];
+      if (c?.workingDays) {
+        b += c.actualDays;
+        w += c.workingDays;
+      }
+    }
+    return w ? b / w : days ? billable / days : null;
+  })();
   const clocked = cells.filter((c): c is DashboardMonthCell & { actualFte: number } => c.actualFte != null);
   const actual = average(clocked.map((c) => c.actualFte));
   const sold = average(cells.map((c) => c.soldFte).filter((x): x is number => x !== undefined));
@@ -107,8 +123,9 @@ function selectionCards(plan: CapacityPlan, view: DashboardView, period: Period)
     { label: "Permanent · Secondment", value: end ? `${fmt.int(end.permanent)} · ${fmt.int(end.secondment)}` : "–",
       sub: end && end.other + end.unknown ? `+ ${end.other + end.unknown} other or unknown` : "of those people",
       how: "Those people by employment type, from the staff list." },
-    { label: "Billable UR", value: days ? fmt.pct(billable / days) : "–", sub: days ? undefined : "no clocking yet",
-      how: "Those people's billable days ÷ working days, from the UR report." },
+    { label: "Billable UR", value: fmt.pct(ur), sub: ur === null ? "no clocking yet" : undefined,
+      how: "Billable days clocked to it ÷ its people's working days, totalled. A person on several projects counts in " +
+        "each by the share of days they clocked to it." },
     { label: "As sold (FTE)", value: fmt.dec1(sold), sub: sold === null ? "no quote line for it" : "quote line", how: SOLD_HOW },
     { label: "As planned (FTE)", value: fmt.dec1(demand), sub: "PM's plan (SL x RP)", how: PLAN_HOW },
     { label: "Actual (FTE)", value: fmt.dec1(actual), sub: clocked.length ? "clocked (MSPO)" : "not clocked yet", how: ACTUAL_HOW },

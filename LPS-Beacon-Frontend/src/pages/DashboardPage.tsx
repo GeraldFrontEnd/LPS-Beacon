@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { reportingYear } from "../analysis/baseline";
+import { periodView } from "../analysis/periodFigures";
 import { getCapacityPlan, getDashboardInsights, getDashboardView } from "../api/client";
 import type { CapacityPlan, DashboardView } from "../api/types";
 import { useAuth } from "../auth/useAuth";
@@ -57,7 +58,7 @@ export default function DashboardPage() {
   const [params, setParams] = useSearchParams();
   const [agency, setAgency] = useState(() => params.get("agency") ?? "");
   const [projectId, setProjectId] = useState(() => params.get("projectId") ?? "");
-  const [periodId, setPeriodId] = useState(() => params.get("period") ?? "latest");
+  const [periodId, setPeriodId] = useState(() => params.get("period") ?? "fy"); // year to date, as on Analysis
   const [filterNote, setFilterNote] = useState<string | null>(null);
   const [arrivedWith] = useState(() => params.get("projectId")); // opened from another page: show its people
   const [allRed, setAllRed] = useState(false); // the red agencies list starts with the first RED_SHOWN
@@ -118,7 +119,7 @@ export default function DashboardPage() {
     const next = new URLSearchParams();
     if (agency) next.set("agency", agency);
     if (projectId) next.set("projectId", projectId);
-    if (periodId !== "latest") next.set("period", periodId);
+    if (periodId !== "fy") next.set("period", periodId);
     if (next.toString() !== params.toString()) setParams(next, { replace: true });
   }, [agency, projectId, periodId, params, setParams]);
 
@@ -133,7 +134,12 @@ export default function DashboardPage() {
   const fy = plan ? reportingYear(plan) : "FY26";
   const projects = (view?.filters.projects ?? []).filter((p) => !agency || p.agency === agency);
   const filterName = projectId ? `${view?.selection?.name ?? projectId} (${projectId})` : agency || "All agencies";
-  const red = (plan?.productivity?.agencies ?? []).filter((a) => a.flag === "red");
+  // The red agencies, fiscal year to date, with the same rules as the Analysis page (periodView: an agency is red
+  // when any of its projects is), so both pages count the same.
+  const red = useMemo(
+    () => (plan?.productivity ? periodView(plan, fy, plan.productivity.months).agencies.filter((a) => a.flag === "red") : []),
+    [plan, fy]
+  );
 
   if (error)
     return (
@@ -244,11 +250,18 @@ export default function DashboardPage() {
                 id="dash-people"
                 title="Agencies and projects"
                 sub={
-                  "Each agency and its projects in the last month of the period: headcount, FTE as sold, as planned " +
-                  "and actual, total actual cost and ADR. Click a name to see its people on the Analysis page."
+                  "Each agency and its projects: headcount and FTE as sold, as planned and actual in the last month " +
+                  "of the period; total actual cost and ADR over the period. Click a name to see its people on the " +
+                  "Analysis page."
                 }
               >
-                <AgencySummary panels={view?.agencyPanels} plan={plan} fy={fy} periodMonths={period?.months ?? []} />
+                <AgencySummary
+                  panels={view?.agencyPanels}
+                  plan={plan}
+                  fy={fy}
+                  periodMonths={period?.months ?? []}
+                  filtered={!!(agency || projectId)}
+                />
               </Card>
 
               <Card

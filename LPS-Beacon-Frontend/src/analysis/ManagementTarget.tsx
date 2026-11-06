@@ -184,7 +184,7 @@ const QUARTERS: Period[] = ["Q1", "Q2", "Q3", "Q4"];
 // projects share one agent; until then only revenue comes from a file (ABCD) and the rest is typed in. Our side keeps
 // working out the KPIs (GP %, per-HC figures, ADR) from those numbers.
 export const DAVID_REMARK =
-  "To come from David's P&L agent; until then revenue is from the ABCD report and the other lines are typed in.";
+  "To come from David's P&L agent; until then it holds only what is typed in.";
 
 type Values = Record<string, number | null>;
 interface Resolved {
@@ -396,7 +396,6 @@ export default function ManagementTarget({
   const resolved = useMemo(() => {
     const months = PLAN_COLUMNS.filter((c) => c.fiscalYear === fiscalYear && c.kind === "month");
     const monthOfKey = Object.fromEntries((plan.months ?? []).map((m) => [m.key, m]));
-    const values = plan.values;
     const typed = (period: Period, column: Column): Values => {
       const out: Values = {};
       for (const r of ROWS) {
@@ -405,28 +404,9 @@ export default function ManagementTarget({
       }
       return out;
     };
-    // This year from the files: ABCD revenue (actual, then forecast) and the capacity plan's average Ending HC.
-    const current = (period: Period) => {
-      const keys = months.filter((c) => period === "FY" || `Q${c.quarter}` === period).map((c) => c.key);
-      const actual = keys.filter((k) => monthOfKey[k]?.actual).length;
-      const basis = actual === keys.length ? `${actual} months actual` : `${actual} months actual, ${keys.length - actual} forecast`;
-      const d: Record<string, { value: number; title: string }> = {};
-      const rev = keys.map((k) => values["revenue"]?.[k] ?? null);
-      if (rev.every((x) => x !== null)) {
-        d["revenue"] = {
-          value: rev.reduce<number>((t, x) => t + (x as number), 0),
-          title: `From the ABCD report: ${basis}`,
-        };
-      }
-      const hc = keys.map((k) => values["ending-hc"]?.[k] ?? null).filter((x): x is number => x !== null);
-      if (hc.length === keys.length && hc.length) {
-        d["hc-total"] = {
-          value: Math.round(hc.reduce((t, x) => t + x, 0) / hc.length),
-          title: `Average headcount from the capacity plan: ${basis}`,
-        };
-      }
-      return d;
-    };
+    // The actual and last-year columns are not filled from the files any more (6 Nov 2026): they will come from David's
+    // P&L agent (see DAVID_REMARK), so until then they hold only what is typed in. ADR is still worked out here.
+    const noDefaults: Record<string, { value: number; title: string }> = {};
     // ADR of the period's actual months: every agency's revenue and clocked days added up, then divided.
     const prod = plan.productivity;
     const adrTotals: Record<string, { revenue: number; actualDays: number }> = {};
@@ -452,46 +432,19 @@ export default function ManagementTarget({
         title: `Revenue ÷ billable days clocked, actual months only (${names}): monthly revenue ÷ (FTE actual × 18)`,
       };
     };
-    // Last year: the MBR headcount file's average HC and gross staff cost (full year only), ABCD revenue if complete.
-    const prior = () => {
-      const d: Record<string, { value: number; title: string }> = {};
-      const p = plan.settings?.[fy]?.priorYear;
-      if (p) {
-        d["hc-total"] = {
-          value: p.averageHeadcount,
-          title: "Average headcount, from the MBR headcount file",
-        };
-        d["gross-staff-cost"] = {
-          value: -p.staffCostUsd,
-          title: "Staff cost, from the MBR headcount file",
-        };
-      }
-      const byMonth = plan.revenueByMonth ?? {};
-      const last = Array.from({ length: 12 }, (_, i) => {
-        const d0 = new Date(start - 1, 3 + i, 1);
-        return `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, "0")}`;
-      });
-      if (last.every((m) => byMonth[m]?.revenue !== undefined)) {
-        d["revenue"] = {
-          value: last.reduce((t, m) => t + byMonth[m].revenue, 0),
-          title: "From the ABCD report",
-        };
-      }
-      return d;
-    };
     const out: Record<string, Record<string, Resolved>> = {};
     for (const period of ["FY", ...QUARTERS] as Period[]) {
       const annualise = 1; // per period, as on Finance's sheet (5 Nov 2026)
       out[`${period}|mt`] = typedOnly(typed(period, "mt"));
-      out[`${period}|current`] = resolveColumn(typed(period, "current"), current(period), annualise);
+      out[`${period}|current`] = resolveColumn(typed(period, "current"), noDefaults, annualise);
       out[`${period}|current`]["adr"] = adrOf(period);
       if (period === "FY") {
-        out[`FY|prior`] = resolveColumn(typed("FY", "prior"), prior(), 1);
+        out[`FY|prior`] = resolveColumn(typed("FY", "prior"), noDefaults, 1);
         out[`FY|prior`]["adr"] = { value: null, source: null, title: "No clocking for last year" };
       }
     }
     return out;
-  }, [plan, cells, fiscalYear, fy, start]);
+  }, [plan, cells, fiscalYear, fy]);
 
   const diff = (a: Resolved | undefined, b: Resolved | undefined) =>
     a?.value === null || a?.value === undefined || b?.value === null || b?.value === undefined

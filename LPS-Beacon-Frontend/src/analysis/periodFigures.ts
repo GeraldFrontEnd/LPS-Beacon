@@ -10,7 +10,7 @@
 //   Calculated FTE required   the calculator's formula (baseline.ts) on the period's annualised revenue (kept for the chat
 //                      and the calculator; the table shows ADR instead)
 //   ADR                average daily revenue: revenue ÷ billable days clocked (baseline.ts adr), actual only
-//   Flags              red when days per head is below 15.3 or above 18; productivity against the company average of
+//   Flags              an agency is also red when any of its projects is red (5 Nov 2026); red when days per head is below 15.3 or above 18; productivity against the company average of
 //                      the same period (draft thresholds); agencies under the minimum FTE or without revenue are not
 //                      flagged on productivity
 // Inputs built by a pipeline older than 4 Nov 2026 have no byMonth: the page then shows the pipeline's own figures
@@ -79,7 +79,7 @@ export function periodView(plan: CapacityPlan, fy: string, months: string[]): Pe
   const clocked = p.clocked !== false; // without clocking, actualDays holds the plan: no ADR
 
   const sum = (byMonth: Record<string, ProductivityMonth> | undefined) => {
-    const t = { revenue: 0, hcCost: 0, actualDays: 0, planDays: 0, people: 0, clockedDays: 0, clockedPeople: 0 };
+    const t = { revenue: 0, hcCost: 0, actualDays: 0, planDays: 0, people: 0, clockedDays: 0, clockedPeople: 0, workingDays: 0 };
     for (const m of months) {
       const c = byMonth?.[m];
       if (!c) continue;
@@ -90,6 +90,7 @@ export function periodView(plan: CapacityPlan, fy: string, months: string[]): Pe
       t.people += c.people;
       t.clockedDays += c.clockedDays;
       t.clockedPeople += c.clockedPeople;
+      t.workingDays += c.workingDays ?? 0;
     }
     return t;
   };
@@ -126,6 +127,8 @@ export function periodView(plan: CapacityPlan, fy: string, months: string[]): Pe
       ratePerDay: rate,
       requiredFte: required,
       adr: clocked && t.actualDays ? t.revenue / t.actualDays : null,
+      // Billable UR: totals divided (never an average of %), shared people split by the days they clocked to it.
+      billableUr: clocked && t.workingDays ? t.actualDays / t.workingDays : null,
     };
   };
 
@@ -190,8 +193,17 @@ export function periodView(plan: CapacityPlan, fy: string, months: string[]): Pe
     };
   };
 
+  // An agency is red when any of its projects is red (5 Nov 2026 review), the same rule as the pipeline and the
+  // Dashboard, so both pages count the same agencies.
+  const rollUp = (a: AgencyProductivity): AgencyProductivity => {
+    const red = a.projects.filter((pr) => pr.flag === "red").length;
+    if (!red || a.flag === "red") return a;
+    const why = `${red} of its projects need${red === 1 ? "s" : ""} attention`;
+    const own = a.flagReason && !a.flagReason.startsWith("On track") ? `; ${a.flagReason}` : "";
+    return { ...a, flag: "red", flagReason: why + own };
+  };
   const flagged = agencies
-    .map((a) => ({ ...flag(a), projects: a.projects.map((pr) => flag(pr)).sort((x, y) => y.revenue - x.revenue) }))
+    .map((a) => rollUp({ ...flag(a), projects: a.projects.map((pr) => flag(pr)).sort((x, y) => y.revenue - x.revenue) }))
     .filter((a) => a.revenue || a.fte || a.planFte);
   const rank: Record<string, number> = { red: 0, amber: 1, green: 2 };
   flagged.sort((x, y) => (rank[x.flag ?? ""] ?? 3) - (rank[y.flag ?? ""] ?? 3) || y.revenue - x.revenue);

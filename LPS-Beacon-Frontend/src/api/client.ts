@@ -290,7 +290,7 @@ export async function clearMyCapacityPlanEdits(token?: string): Promise<Capacity
 // was uploaded. With VITE_USE_SAMPLE_PLAN=true (or VITE_USE_MOCK=true) it returns made-up numbers.
 // GET /dashboard with the Dashboard's filter. null in mock mode or before anything was uploaded.
 export async function getDashboardView(
-  filter: { agency?: string | null; projectId?: string | null; month?: string | null; people?: boolean },
+  filter: { agency?: string | null; projectId?: string | null; month?: string | null; months?: string[]; people?: boolean },
   token?: string
 ): Promise<DashboardView | null> {
   if (USE_MOCK || USE_SAMPLE_PLAN) return null;
@@ -299,6 +299,7 @@ export async function getDashboardView(
   if (filter.projectId) query.set("projectId", filter.projectId);
   if (filter.month) query.set("month", filter.month); // the agencies summary follows the period, filtered or not
   if (filter.people) query.set("people", "1"); // the Analysis page's resource list for one project
+  if (filter.people && filter.months && filter.months.length > 1) query.set("months", filter.months.join(","));
   const path = query.toString() ? `${API_ROUTES.dashboard}?${query}` : API_ROUTES.dashboard;
   return (await apiRequest<DashboardView | undefined>("GET", path, token)) ?? null;
 }

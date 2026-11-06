@@ -350,8 +350,11 @@ Rules:
   - Use a table only for figures with at most 4 short columns, such as counts by role or month (a project's people:
     up to 5).
   - Write dates as "1 Nov 2026", not 2026-11-01.
-- When a tool reports more rows than it returned (totalRows > rowsShown), give the total and offer to narrow down by
-  role, grade or month. Never present a partial list as complete.
+- For a list of agencies or projects (e.g. "which agencies are below the company average"), answer straight away
+  with a compact table (name, flag, the figure asked about), worst first, at most 15 rows, then say how many there are
+  in total. Never answer only with a request to narrow the question down.
+- When a tool reports more rows than it returned (totalRows > rowsShown), give the total, show what you have, and
+  offer to narrow down by role, grade or month. Never present a partial list as complete.
 - Earlier assistant messages in this conversation were produced with tool calls that are not shown to you. Do not
   comment on, apologise for or correct earlier answers unless the user asks, or a new tool result contradicts them.
   For a follow-up question, call the tools again for the new data rather than relying on earlier answers.
@@ -680,7 +683,15 @@ def tool_productivity(args):
 
 def tool_fte_required(args):
     inputs, values = _plan()
-    return analytics_tools.fte_required(inputs, values, args) if inputs else NO_PLAN
+    if not inputs:
+        return NO_PLAN
+    # Default revenue target: the management target's full-year revenue when it is typed in (6 Nov 2026).
+    if not args.get("revenueUsd") and args.get("fte") in (None, "") and not args.get("agency"):
+        fy = analytics_tools.reporting_year(inputs)
+        cell = (_management_target().get("cells") or {}).get(f"{fy}|FY|mt|revenue")
+        if cell and cell.get("value"):
+            args = {**args, "revenueUsd": cell["value"]}
+    return analytics_tools.fte_required(inputs, values, args)
 
 
 def tool_hiring_what_if(args):
@@ -966,7 +977,8 @@ def answer(caller, session_id, message):
     for round_number in range(1, MAX_AGENT_ROUNDS + 1):
         response = bedrock.converse(
             modelId=CHAT_MODEL_ID, system=system, messages=messages, toolConfig=tool_config,
-            inferenceConfig={"maxTokens": 1024})   # Haiku 5.5 rejects "temperature"; do not add it back
+            inferenceConfig={"maxTokens": 2048})   # Haiku 5.5 rejects "temperature"; do not add it back
+        # 2048 (6 Nov 2026): at 1024 a list of agencies was cut short and the user was told to ask a narrower question.
         output = response["output"]["message"]
         messages.append(output)
         stop = response.get("stopReason")
@@ -1425,7 +1437,33 @@ def selection_people(roster, project_ids, month=None):
             "actualSource": (roster or {}).get("actualSource"), "rows": rows}
 
 
-def agency_panels(roster, groups=None, month=None, sold=None, with_people=False):
+def _people_over(project, months, full):
+    """One project's people averaged a month over several months (6 Nov 2026, Crislyn: judge on a quarter, not one
+    month): planned FTE over the months they are planned; actual FTE and their billable man-days (all their projects)
+    over the months they clocked."""
+    acc: dict[str, dict] = {}
+    for m in months:
+        for person in (((project.get("byMonth") or {}).get(m) or {}).get("people") or []):
+            key = person.get("name") or person.get("position") or "?"
+            a = acc.setdefault(key, {"name": person.get("name"), "skill": person.get("position"), "band": person.get("band"),
+                                     "employment": person.get("employment"), "salaryScale": None,
+                                     "plan": [], "actual": [], "days": []})
+            a["plan"].append(float(person.get("planDays") or 0))
+            if person.get("actualDays") is not None:
+                a["actual"].append(float(person["actualDays"]))
+            if person.get("clockedDaysAllProjects") is not None:
+                a["days"].append(float(person["clockedDaysAllProjects"]))
+    out = []
+    for a in acc.values():
+        avg = lambda xs: sum(xs) / len(xs) if xs else None  # noqa: E731
+        plan, actual, days = avg(a.pop("plan")), avg(a.pop("actual")), avg(a.pop("days"))
+        out.append({**a, "planFte": round((plan or 0) / full, 2),
+                    "actualFte": None if actual is None else round(actual / full, 2),
+                    "clockedDaysAllProjects": None if days is None else round(days, 2)})
+    return sorted(out, key=lambda r: str(r["name"] or "~"))
+
+
+def agency_panels(roster, groups=None, month=None, sold=None, with_people=False, people_months=None):
     """Headcount details by agency and project in one month (5 Nov 2026: the Dashboard shows the summary, the
     Analysis page the people). groups: {agency: [project ids]} for the filter; None = every agency on the roster.
         headcount    distinct people on its projects that month
@@ -1467,7 +1505,9 @@ def agency_panels(roster, groups=None, month=None, sold=None, with_people=False)
                    "actualDays": actual_days,
                    "actualFte": None if actual_days is None else round(float(actual_days) / full, 2),
                    "asSoldFte": sold_fte(pid)}
-            if with_people:
+            if with_people and people_months:
+                row["people"] = _people_over(p, people_months, full)
+            elif with_people:
                 row["people"] = sorted(({
                     "name": person.get("name"), "skill": person.get("position"), "band": person.get("band"),
                     "employment": person.get("employment"), "salaryScale": None,
@@ -1496,7 +1536,7 @@ def agency_panels(roster, groups=None, month=None, sold=None, with_people=False)
             "agencies": panels}
 
 
-def dashboard_view(inputs, agency=None, project_id=None, roster=None, month=None, with_people=False):
+def dashboard_view(inputs, agency=None, project_id=None, roster=None, month=None, with_people=False, months=None):
     """GET /dashboard: today's headcount by employment type (staff list), the agency and project lists for the
     Dashboard's filter, and, with ?agency= or ?projectId=, that selection's figures per month (people, FTE demand,
     permanent / secondment, UR days). The pipeline precomputes them (pipeline/capacity.py, "breakdown").
@@ -1543,7 +1583,7 @@ def dashboard_view(inputs, agency=None, project_id=None, roster=None, month=None
             groups = {selection.get("agency") or "(no customer)": ids}
         else:
             groups = None
-        out["agencyPanels"] = agency_panels(roster, groups, month, sold, with_people and selection is not None)
+        out["agencyPanels"] = agency_panels(roster, groups, month, sold, with_people and selection is not None, months)
     return out
 
 
@@ -1560,8 +1600,12 @@ def get_dashboard(event, caller):
     if month and not re.fullmatch(r"\d{4}-\d{2}", month):
         raise HttpError(400, "month must look like 2026-10")
     people = str(query.get("people") or "") in ("1", "true")   # the Analysis page's resource lists
+    # &months=2026-04,2026-05,2026-06: the people averaged a month over the period (a quarter, the year to date).
+    months = [m for m in str(query.get("months") or "").split(",") if m][:24]
+    if any(not re.fullmatch(r"\d{4}-\d{2}", m) for m in months):
+        raise HttpError(400, "months must look like 2026-04,2026-05")
     roster = _cached_json(ROSTER_KEY)
-    return reply(200, dashboard_view(inputs, agency, project_id, roster, month, people))
+    return reply(200, dashboard_view(inputs, agency, project_id, roster, month, people, months or None))
 
 
 DASHBOARD_INSIGHTS_KEY = "results/dashboard/insights.json"

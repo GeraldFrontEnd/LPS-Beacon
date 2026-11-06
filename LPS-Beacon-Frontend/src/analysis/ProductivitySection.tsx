@@ -85,8 +85,10 @@ function Baseline({ plan, fy }: { plan: CapacityPlan; fy: string }) {
                   {before?.label} {t.was}
                   {t.d && <span className={t.d.down ? "down" : "up"}> {t.d.text}</span>}
                 </>
-              ) : (
+              ) : t.label === "Weighted cost per FTE per day" ? (
                 <>Rate card (iRate) by band, weighted by {last?.key ?? "today's"} headcount</>
+              ) : (
+                <>No last-year figures to compare with</>
               )}
             </div>
           </div>
@@ -127,10 +129,15 @@ function figures(f: ProductivityFigures) {
       </td>
       <td className="num" title={`Planned: ${fmt.dec1(f.planFte)} FTE`}>{fmt.dec1(f.fte)}</td>
       <td className={`num${f.utilisationFlag === "red" ? " days-red" : ""}`}
-        title={f.utilisationFlag === "red" ? (days !== null && days < 15.3 ? "Under-utilised: below 15.3 days" : "Over-utilised: above 18 days") : undefined}>
+        title={f.utilisationFlag === "red" ? (days !== null && days < 15.3 ? "Under-utilised: below 15.3 billable MD a month" : "Over-utilised: above 18 billable MD a month") : undefined}>
         {fmt.dec1(days)}
       </td>
-      <td className="num">{fmt.usdK(f.revenuePerFte)}</td>
+      <td className="num">{fmt.pct(f.billableUr)}</td>
+      {/* The metric behind a productivity flag is highlighted, red or amber (6 Nov 2026, Crislyn). */}
+      <td className={`num${f.productivityFlag === "red" ? " days-red" : f.productivityFlag === "amber" ? " days-amber" : ""}`}
+        title={f.productivityFlag === "red" || f.productivityFlag === "amber" ? f.flagReason : undefined}>
+        {fmt.usdK(f.revenuePerFte)}
+      </td>
       <td className="num">{fmt.usdK(f.gpPerFte)}</td>
       <td className="num">{fmt.usd(f.adr)}</td>
     </>
@@ -143,8 +150,11 @@ function figureHeads() {
       <th scope="col" className="num" title="Revenue in the period picked (ABCD report)">Revenue</th>
       <th scope="col" className="num" title="People working on it in the last month of the period. Hover a number for the monthly average">HC</th>
       <th scope="col" className="num" title="Billable days clocked ÷ 18, averaged per month. Hover a number to see the planned FTE">FTE actual</th>
-      <th scope="col" className="num" title="Billable days each person clocks a month, on average. Red below 15.3 or above 18">
-        Utilization rate
+      <th scope="col" className="num" title="Billable man-days each person clocks a month (all their projects), on average over the period. Red below 15.3 or above 18">
+        Average billable MD
+      </th>
+      <th scope="col" className="num" title="Billable days ÷ working days, totalled (not an average of each person's %). A person on several projects counts in each by the share of days they clocked to it">
+        Billable UR
       </th>
       <th scope="col" className="num">Revenue per FTE</th>
       <th scope="col" className="num">GP per FTE</th>
@@ -230,9 +240,10 @@ function AgencyExplorer({
           <h3 id="agency-title">Agencies and projects</h3>
           <p className="prod-sub">
             {monthName(view.months[0])}
-            {view.months.length > 1 ? ` to ${monthName(view.months[view.months.length - 1])}` : ""}. HC = people on it in{" "}
-            {monthName(view.months[view.months.length - 1])}; FTE actual ={" "}
-            {p.clocked === false ? "planned man-days (no clocking yet)" : "clocked billable days"} ÷ 18, averaged a month;
+            {view.months.length > 1 ? ` to ${monthName(view.months[view.months.length - 1])}` : ""}. HC = people on it in the
+            period&apos;s last month ({monthName(view.months[view.months.length - 1])}); every other figure covers the whole
+            period: FTE actual = {p.clocked === false ? "planned man-days (no clocking yet)" : "clocked billable days"} ÷ 18,
+            averaged a month; average billable MD a month; the people under a project are averaged over the period too;
             revenue from the ABCD report. Click an agency to see its projects, and a project to see its people.
             {view.months.length < 3 && " One month of revenue can be lumpy (milestone billing): judge productivity on the year."}
           </p>
@@ -328,7 +339,7 @@ function AgencyExplorer({
                   </tr>
                   {isOpen && (
                     <tr className="prod-detail">
-                      <td colSpan={9}>
+                      <td colSpan={10}>
                         <p className="prod-reason">
                           <strong>Why:</strong> {a.flagReason}.
                         </p>
@@ -363,8 +374,8 @@ function AgencyExplorer({
                                   </tr>
                                   {projectOpen && lastMonth && (
                                     <tr className="prod-resources">
-                                      <td colSpan={9}>
-                                        <ProjectResources agency={a.agency} projectId={pr.projectId} month={lastMonth} />
+                                      <td colSpan={10}>
+                                        <ProjectResources agency={a.agency} projectId={pr.projectId} month={lastMonth} months={view.months} />
                                       </td>
                                     </tr>
                                   )}
@@ -392,9 +403,9 @@ function AgencyExplorer({
             GP per FTE {fmt.usdK(avg.gpPerFte)}, revenue per $1 of HC cost {fmt.ratio(avg.revenuePerHcCost)}.
           </li>
           <li>
-            Red on utilisation: its people clock on average below {util.redBelowDays} or above {util.redAboveDays}{" "}
-            billable days a month (1 person = {util.fullMonthManDays} working days at a {pct(util.urTarget)} UR target);
-            green otherwise.
+            Red on average billable MD: its people clock on average below {util.redBelowDays} or above {util.redAboveDays}{" "}
+            billable man-days a month (1 person = {util.fullMonthManDays} working days at a {pct(util.urTarget)} UR target);
+            green otherwise. Judge it on a quarter or the year: one month swings with leave.
           </li>
           <li>
             Red on productivity: {r.metrics.map((m) => (m === "revenuePerFte" ? "revenue per FTE" : "GP per FTE")).join(" or ")}{" "}
@@ -423,6 +434,7 @@ interface Scope {
   key: string;
   label: string;
   annualRevenue: number; // the default revenue target
+  target: number | null; // the year's revenue target to compare a calculated revenue with
   adr: number | null; // the default ADR, fiscal year to date
   current: number | null; // people today (HC): the calculator's FTE apply UR, so they are people at the target UR
   currentLabel: string;
@@ -452,7 +464,7 @@ function FteCalculator({ plan, fy, scope }: { plan: CapacityPlan; fy: string; sc
   const totalFte = mode === "fte" && billableFte !== null ? billableFte / urValue : null;
   const revenueOut = mode === "revenue" && billableFte !== null && perFteYear ? billableFte * perFteYear : null;
   const gap = totalFte !== null && scope.current !== null ? totalFte - scope.current : null;
-  const target = t?.revenueUsd ?? null;
+  const target = scope.target;
 
   const field = (label: string, value: string, set: (v: string) => void, unit: string, prefix?: string, extra?: ReactNode) => (
     <label>
@@ -623,6 +635,7 @@ export default function ProductivitySection({
   const [scopeKind, setScopeKind] = usePageState<"org" | "selection">("analysis.scope", "org");
   const p = plan.productivity;
 
+  const mtRevenue = plan.managementTarget?.[`${fy}|FY|mt|revenue`]?.value ?? null;
   const scope: Scope = useMemo(() => {
     const months = p?.clocked === false ? [] : p?.months ?? [];
     // ADR over the agencies picked (or all): their revenue and clocked days added up, then divided.
@@ -645,6 +658,7 @@ export default function ProductivitySection({
         key: `sel:${selected.join("|")}`,
         label: picked.length === 1 ? picked[0].agency : `the ${picked.length} agencies picked`,
         annualRevenue: picked.reduce((s, a) => s + a.revenue, 0) * annual,
+        target: null,
         adr: adrOf(picked),
         current: picked.reduce((s, a) => s + a.headcount, 0),
         currentLabel: "HC on their projects (latest month)",
@@ -654,12 +668,14 @@ export default function ProductivitySection({
     return {
       key: "org",
       label: "the organisation (Singapore delivery)",
-      annualRevenue: plan.settings?.[fy]?.target?.revenueUsd ?? 90_000_000,
+      // The management target's full-year revenue when it is typed in, else the settings' example.
+      annualRevenue: mtRevenue ?? plan.settings?.[fy]?.target?.revenueUsd ?? 90_000_000,
+      target: mtRevenue ?? plan.settings?.[fy]?.target?.revenueUsd ?? null,
       adr: p ? adrOf(p.agencies) : null,
       current: last ? plan.values["ending-hc"]?.[last.key] ?? null : null,
       currentLabel: `HC today (${last?.key ?? "–"})`,
     };
-  }, [plan, fy, p, selected, scopeKind]);
+  }, [plan, fy, p, selected, scopeKind, mtRevenue]);
 
   if (!plan.months || plan.months.length === 0) return null;
 
@@ -694,14 +710,13 @@ export default function ProductivitySection({
             <p className="prod-sub">
               Finance&apos;s P&amp;L summary against the management target (MT): the full year, with the four quarters
               beside it. The MT is set by management, so every MT line is typed in and starts blank. Blue boxes are
-              shared with everyone (costs negative, as on Finance&apos;s sheet); grey italics come from the uploaded
-              files until someone types over them; the other lines are worked out. Per-HC figures are for the
-              period (a quarter's is the quarter's), as on Finance's sheet.
+              shared with everyone (costs negative, as on Finance&apos;s sheet); the other lines are worked out.
+              Per-HC figures are for the period (a quarter's is the quarter's), as on Finance's sheet.
             </p>
             <p className="prod-sub mt-remark">
               <strong>* Remark:</strong> the {"\u201c"}Act + fcst{"\u201d"} and last-year columns will come from David&apos;s P&amp;L
-              agent. Until then, revenue is from the ABCD report and the other lines are typed in; the KPIs (GP %,
-              per-HC figures, ADR) are worked out here from those numbers.
+              agent. Until then they hold only what is typed in; the KPIs (GP %, per-HC figures, ADR) are worked out
+              here from those numbers.
             </p>
           </div>
           <div className="prod-controls">

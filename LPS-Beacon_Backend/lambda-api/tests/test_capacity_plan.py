@@ -304,6 +304,10 @@ class RouteTests(unittest.TestCase):
         self.assertIn("people", view["agencyPanels"]["agencies"][0]["projects"][0])
         self.assertEqual(len(L.dashboard_view(data, roster=roster)["agencyPanels"]["agencies"]), 2)
         self.assertEqual(L._sold_fte_by_month({"fullMonthManDays": 18, "byMonth": {"2026-10": 36}}), {"2026-10": 2.0})
+        over = L.agency_panels(roster, {"Agency Y": ["P3"]}, "2026-11", with_people=True, people_months=["2026-10", "2026-11"])
+        bob = over["agencies"][0]["projects"][0]["people"][0]
+        self.assertEqual((bob["planFte"], bob["actualFte"], bob["clockedDaysAllProjects"]), (1.0, 0.5, 18.0),
+                         "averaged a month over the months given")
 
     def test_dashboard_204_without_inputs(self):
         del self.objects["results/capacity/inputs.json"]

@@ -11,6 +11,7 @@
   --accent-ink: #ffffff; /* text on top of the accent colour */
   --error-bg: #fbeaea;
   --error: #8e1f1f;
+  --watch: #9a5b00;
   --success: #1f6b3a; /* text for finished uploads */
   --accent-soft: #e8eef5; /* light highlight while dragging files */
   --brand-purple: #5b2a86; /* LPS-Beacon logo banners (white text on top) */
@@ -41,6 +42,7 @@
   --accent-ink: #ffffff;
   --error-bg: #3a1d1d;
   --error: #f2a7a7;
+  --watch: #f5b83d;
   --success: #7fd19b;
   --accent-soft: #1d2836;
   --brand-ink: #c9a7ef;
@@ -68,6 +70,7 @@
     --accent-ink: #ffffff;
     --error-bg: #3a1d1d;
     --error: #f2a7a7;
+    --watch: #f5b83d;
     --success: #7fd19b;
     --accent-soft: #1d2836;
     --brand-ink: #c9a7ef;
@@ -3479,6 +3482,12 @@ select.cell-input {
 .prod-table td.days-red {
   font-weight: 600;
   color: var(--error);
+}
+
+/* A metric behind an amber (watch) flag */
+.prod-table td.days-amber {
+  font-weight: 600;
+  color: var(--watch);
 }
 
 /* The opened agency: its reason and its projects */

@@ -1,0 +1,74 @@
+LPS-Beacon: reset the data bucket and load the demo data (copy-paste, Ubuntu / WSL)
+====================================================================================
+Do the code deploy FIRST (docs/deploy-steps.txt steps 0-4), then this.
+The data bucket is lps-beacon-data. The website bucket (lps-beacon-frontend) is NOT touched here.
+
+
+0. SIGN IN
+----------
+aws sso login --profile lps
+export AWS_PROFILE=lps
+export AWS_PAGER=""
+BUCKET=lps-beacon-data
+
+
+1. LOOK BEFORE DELETING
+-----------------------
+aws s3 ls s3://$BUCKET/
+aws s3 ls s3://$BUCKET/ --recursive --summarize | tail -3
+aws s3api get-bucket-versioning --bucket $BUCKET
+# If versioning says "Enabled", deleted files stay as old versions (recoverable, and they still cost storage).
+
+
+2. OPTIONAL BACKUP TO YOUR LAPTOP (recommended: the uploads were real sample files)
+-----------------------------------------------------------------------------------
+mkdir -p ~/lps-beacon-backup-$(date +%Y%m%d)
+aws s3 sync s3://$BUCKET ~/lps-beacon-backup-$(date +%Y%m%d)
+
+
+3. DELETE EVERYTHING IN THE DATA BUCKET
+---------------------------------------
+# Dry run first: lists what would go, deletes nothing.
+aws s3 rm s3://$BUCKET --recursive --dryrun | tail -5
+# The real delete:
+aws s3 rm s3://$BUCKET --recursive
+# Check it is empty (prints nothing, or "Total Objects: 0"):
+aws s3 ls s3://$BUCKET/ --recursive --summarize | tail -2
+
+# This also removes the capacity plan edits (plan/edits.json), the management target (plan/management_target.json),
+# review runs and the chat's results files. Chat history and the activity bell live in DynamoDB, not S3: old upload
+# entries will still show under the bell. That is harmless; ask Claude for a DynamoDB clean-up if it matters.
+
+
+4. UPLOAD THE DEMO FILES THROUGH THE WEB APP
+--------------------------------------------
+Files: Cleaned Files/Demo data ATFM/ (C:\Users\dleong4\Documents\Cleaned Files\Demo data ATFM)
+In the web app, Upload files, pick these 8 together (one batch):
+    Demo_SL_X_RP.xlsx
+    Demo_ABCD_to_BP_Oct26.xlsx
+    Demo_BU_UR_Apr26_Oct26.xlsx
+    Demo_MSPO_SG_Staff_List.xlsx
+    Demo_MSPO_Clocking_Apr26_Oct26.xlsx
+    Demo_Position_Name_Mapping.xlsx
+    Demo_Quote_Line.xlsx
+    Demo_Project_Resource_Plan.xlsx
+Wait for the review panel (Conflicts > Matching). The matching step should show 8 demand lines from Jan 2027
+(two new won quotes): 5 matched to people rolling off in Dec 2026, 3 cloud roles unmatched (to hire). Publish it.
+
+
+5. LOAD THE MANAGEMENT TARGET (FY26)
+------------------------------------
+cd "/mnt/c/Users/dleong4/Documents/Cleaned Files/Demo data ATFM"
+aws s3 cp management_target_FY26.json s3://$BUCKET/plan/management_target.json --content-type application/json
+
+
+6. CHECK
+--------
+aws s3 cp s3://$BUCKET/results/capacity/inputs.json - | jq '[.productivity.agencies[] | {agency, flag}]'
+# Expect 10 agencies: 4 "red" (Coastal Defence Agency, Urban Mobility Board, National Skills Council,
+# Heritage & Culture Board), 6 "green".
+In the app (Ctrl+Shift+R first): Dashboard and Analysis both show Needs attention (4) / On track (6) on
+"FY26 to date"; HC 127; ADR about $592; the MT table filled in, Act + fcst blank.
+
+To regenerate the demo files (same numbers every time):
+    python tools/make_demo_data.py "/mnt/c/Users/dleong4/Documents/Cleaned Files/Demo data ATFM"

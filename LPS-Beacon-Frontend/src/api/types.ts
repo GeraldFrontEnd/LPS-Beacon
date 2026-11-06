@@ -155,6 +155,7 @@ export interface ProductivityFigures {
   gpPerFte: number | null;
   revenuePerHcCost: number | null;
   requiredFte: number | null; // the FTE its revenue needs (the calculator's formula, default settings)
+  billableUr?: number | null; // billable days ÷ working days (shared people split by their clocked days)
   adr?: number | null; // average daily revenue: revenue ÷ clocked billable days (= ÷ (FTE actual × 18)); actual only
   ratePerDay: number | null; // weighted rate card (iRate) of its people, USD a day
   flag: Flag | null; // the worse of the productivity and utilisation flags; null = not flagged
@@ -168,6 +169,7 @@ export interface ProductivityMonth {
   revenue: number; // USD (ABCD)
   hcCost: number; // USD at the rate card
   actualDays: number; // clocked billable days (FTE actual = ÷ 18)
+  workingDays?: number; // its people's working days, each person's shared by the days they clocked to it (billable UR)
   planDays: number; // planned man-days (SL x RP)
   people: number; // distinct people on it
   clockedDays: number; // clocked billable days of those people, all their projects (each person once)

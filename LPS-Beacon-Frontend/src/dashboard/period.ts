@@ -1,11 +1,12 @@
 // src/dashboard/period.ts
-// The Dashboard's time filter: the latest month with actual figures, or one fiscal quarter (Q1 = Apr-Jun).
+// The Dashboard's time filter: the fiscal year to date (the default, as on the Analysis page, 6 Nov 2026), the latest
+// month with actual figures, or one fiscal quarter (Q1 = Apr-Jun).
 // Gives the plan's column keys and "YYYY-MM" months the period covers, and its label for the header.
 
 import type { CapacityPlan } from "../api/types";
 
 export interface Period {
-  id: string; // "latest" or a quarter column key like "Q3'26"
+  id: string; // "fy" (year to date), "latest" or a quarter column key like "Q3'26"
   label: string; // "Oct'26" or "Q3'26 (Oct–Dec 2026)"
   keys: string[]; // plan column keys, in order
   months: string[]; // the same months as "YYYY-MM"
@@ -25,7 +26,19 @@ export function periodChoices(plan: CapacityPlan): Period[] {
   const months = plan.months ?? [];
   const latest = [...months].reverse().find((m) => m.actual) ?? months[0];
   if (!latest) return [];
+  // The fiscal year to date: its actual months, from April to the latest. totalKey is the latest month; the cards
+  // average the months themselves (HeaderCards).
+  const ytd = months.filter((m) => m.fiscalYear === latest.fiscalYear && m.actual && m.month <= latest.month);
+  const first = ytd[0];
   const out: Period[] = [
+    {
+      id: "fy",
+      label: `${latest.fiscalYear.replace("'", "")} to date (${first?.key ?? latest.key} – ${latest.key})`,
+      keys: ytd.map((m) => m.key),
+      months: ytd.map((m) => m.month),
+      endKey: latest.key,
+      totalKey: latest.key,
+    },
     { id: "latest", label: latest.key, keys: [latest.key], months: [latest.month], endKey: latest.key, totalKey: latest.key },
   ];
   const groups = new Map<string, typeof months>();

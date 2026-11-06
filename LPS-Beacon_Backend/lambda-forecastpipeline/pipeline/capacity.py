@@ -283,6 +283,23 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
             names[r.project] = r.projectName
     pm = pm.copy()
     pm["fteDays"] = pm["actualDays"].fillna(0.0) if clocked else pm["planDays"]
+    # Billable UR by project (6 Nov 2026, Crislyn): billable days / working days, totalled, never an average of %.
+    # A person on several projects gives each project the share of their working days that matches the share of
+    # their billable days clocked to it (else of their planned days), so shared people are not counted twice and a
+    # move mid-period counts on the new project from that month. Working days: the UR report's, else the month's.
+    ur_wd: dict[tuple[str, str], float] = {}
+    if store.exists("clean/bu_ur/latest.json.gz"):
+        ur = store.read_table("clean/bu_ur/latest.json.gz").dropna(subset=["IT Code"])
+        ur_wd = {(str(c), str(m)): float(v) for (c, m), v in ur.groupby(["IT Code", "Month"])[UR_DAYS].sum().items()}
+    if len(pm):
+        plan_total = pm.groupby(["itCode", "month"])["planDays"].transform("sum")
+        clocked_share = pm["actualDays"] / pm["clockedDays"]
+        plan_share = pm["planDays"] / plan_total
+        share = clocked_share.where(pm["clockedDays"].fillna(0) > 0, plan_share).fillna(0.0)
+        wd = [ur_wd.get((str(c), str(m)), days.get(str(m), 0.0)) for c, m in zip(pm["itCode"], pm["month"])]
+        pm["workingDaysShare"] = pd.Series(wd, index=pm.index) * share
+    else:
+        pm["workingDaysShare"] = pd.Series(dtype="float64")
     latest = months[-1] if months else None
     rules = plan_settings.PRODUCTIVITY["flags"]
 
@@ -337,6 +354,7 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
             heads = part.dropna(subset=["clockedDays"]).drop_duplicates(["itCode"]) if clocked else part.iloc[0:0]
             out[m] = {"revenue": round(revenue, 2), "hcCost": round(cost_of(part), 2),
                       "actualDays": round(float(part["fteDays"].sum()), 2),
+                      "workingDays": round(float(part["workingDaysShare"].sum()), 2),
                       "planDays": round(float(part["planDays"].sum()), 2),
                       "people": int(part["itCode"].nunique()),
                       "clockedDays": round(float(heads["clockedDays"].sum()), 2), "clockedPeople": int(len(heads))}
@@ -404,6 +422,15 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
         flags_for(a)
         for p in a["projects"]:
             flags_for(p)
+        # 5 Nov 2026 review (Ruey-lin): an agency is red when any of its projects is red, so a problem inside it shows
+        # on the agency too. The same rule as the web app (src/analysis/periodFigures.ts).
+        red = [p for p in a["projects"] if p["flag"] == "red"]
+        if red and a["flag"] != "red":
+            n = len(red)
+            reason = f"{n} of its projects need{'s' if n == 1 else ''} attention"
+            if a.get("flagReason") and not a["flagReason"].startswith("On track"):
+                reason += f"; {a['flagReason']}"
+            a.update(flag="red", flagReason=reason)
     order = {"red": 0, "amber": 1, "green": 2, None: 3}
     agencies.sort(key=lambda a: (order[a["flag"]], -a["revenue"]))
     no_fte = sum(1 for a in agencies if not a["fte"])

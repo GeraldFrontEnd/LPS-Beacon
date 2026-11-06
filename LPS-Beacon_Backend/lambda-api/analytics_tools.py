@@ -116,6 +116,11 @@ def _figures(item):
     out["gpPerFteUsd"] = _r(out.pop("gpPerFte"))
     out["revenuePerDollarOfHcCost"] = out.pop("revenuePerHcCost")
     out["calculatedFteRequired"] = out.pop("requiredFte")
+    # Billable UR (6 Nov 2026): billable days / working days over the months, shared people split by clocked days.
+    months = (item.get("byMonth") or {}).values()
+    work = sum(c.get("workingDays") or 0 for c in months)
+    out["billableUrPct"] = round(100 * sum(c.get("actualDays") or 0 for c in months) / work, 1) if work else None
+    out["averageBillableMdPerHeadPerMonth"] = out.pop("clockedDaysPerHeadPerMonth")
     return out
 
 
