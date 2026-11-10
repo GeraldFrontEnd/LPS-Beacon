@@ -106,10 +106,13 @@ class AnalyticsTests(unittest.TestCase):
         r0 = at.hiring_what_if(self.inputs, self.values, {"hires": 0})
         self.assertEqual(r0["revenuePerHCNowUsd"], r0["revenuePerHCIfBillableUsd"], "no hires: nothing changes")
 
-    def test_redeployable_soonest_first_and_names_only_for_finance(self):
+    def test_redeployable_soonest_first_and_never_names(self):
         today = dt.date(2026, 11, 3)
         r = at.redeployable(insights(), {"position": "cloud dba l2"}, today)
-        self.assertEqual([x["person"] for x in r["rows"]], ["Ben", "Ann"], "Cy is already redeployed")
+        self.assertEqual(len(r["rows"]), 2, "Cy is already redeployed")
+        self.assertTrue(all("person" not in x for x in r["rows"]), "10 Nov 2026: position and grade, no names")
+        self.assertNotIn("Ann", str(r))
+        self.assertNotIn("Ben", str(r))
         self.assertEqual((r["freeNow"], r["freeWithin1Month"]), (1, 2))
         hidden = at.redeployable(insights(), {"position": "cloud dba l2"}, today, with_names=False)
         self.assertNotIn("rows", hidden)
@@ -147,10 +150,12 @@ def roster():
 
 
 class ProjectResourcesTests(unittest.TestCase):
-    def test_latest_clocked_month_with_names_plan_and_actual(self):
+    def test_latest_clocked_month_plan_and_actual_without_names(self):
         r = at.project_resources(roster(), {"project": "P-1"})
         self.assertEqual((r["project"], r["month"], r["monthHasClocking"]), ("P-1", "2026-10", True))
-        self.assertEqual([p["name"] for p in r["people"]], ["Ann", "Ben"], "most plan days first")
+        self.assertEqual(r["people"][0]["planDays"] >= r["people"][1]["planDays"], True, "most plan days first")
+        self.assertTrue(all("name" not in p for p in r["people"]), "10 Nov 2026: position and grade, no names")
+        self.assertNotIn("Ann", str(r["people"]))
         self.assertEqual((r["people"][1]["actualDays"], r["people"][1]["split"]), (7, True))
         self.assertEqual(r["yearToDate"], {"months": 2, "planDays": 45, "actualDays": 44})
         self.assertEqual([m["month"] for m in r["byMonth"]], ["2026-09", "2026-10", "2026-11"])
@@ -164,8 +169,7 @@ class ProjectResourcesTests(unittest.TestCase):
         self.assertIn("error", at.project_resources(roster(), {"project": "nothing"}))
         self.assertIn("monthsWithPeople", at.project_resources(roster(), {"project": "P-1", "month": "2025-01"}))
         hidden = at.project_resources(roster(), {"project": "P-1"}, with_names=False)
-        self.assertEqual([p["name"] for p in hidden["people"]], ["Person 1", "Person 2"])
-        self.assertIn("namesHidden", hidden)
+        self.assertTrue(all("name" not in p for p in hidden["people"]))
 
 
 class PermissionTests(unittest.TestCase):

@@ -345,7 +345,9 @@ Rules:
 - For "how many" or "by role / grade / month" questions, use the count tools, which cover every row.
 - Keep answers short and plain. You may use Markdown (bold, bullet lists, tables); the app renders it in a narrow
   chat window, so:
-  - List people as bullets, one line each, e.g. "**DBA Backfill** (DBA L2, grade 7): Land Transport Authority,
+  - Never write a person's name, even if a tool result contains one: a name next to a grade identifies the person
+    (PDPA). Refer to people by position and grade only.
+  - List people as bullets, one line each, e.g. "**DBA L2**, grade 7: Land Transport Authority,
     available 1 Jun 2026, proposed for SPF Win2019 Upgrade from 1 Sep 2026".
   - Use a table only for figures with at most 4 short columns, such as counts by role or month (a project's people:
     up to 5).
@@ -364,13 +366,13 @@ Rules:
 - Say "standardised position" or "position", not "role" or "skill". Matching is by standardised position and
   availability; band is only a secondary check.
 - Matching is redeployment onto won and ongoing work (quote lines). Do not talk about the SFDC sales pipeline.
-- HC and FTE are different. HC = people (names). 1 FTE = 18 working days a month. Three FTE figures: FTE demand
+- HC and FTE are different. HC = people (a headcount). 1 FTE = 18 working days a month. Three FTE figures: FTE demand
   (planned, SL x RP), FTE actual (clocked, MSPO clocking), As sold (quote line) and calculated FTE required (from
   revenue and ADR). Say which one. A person
   clocking below 15.3 or above 18 billable days a month is red (the 85 % UR target). Never call FTE "people".
 - For a project ("list the resources on X", "who works on X", "plan vs actual for X"): call get_project_resources.
-  Give the month, HC, plan FTE vs actual FTE, then a table of the people: name, position, plan days, clocked days,
-  FTE. Mark people whose days are split over several projects, and people over 18 or under 15.3 days. If asked for
+  Give the month, HC, plan FTE vs actual FTE, then a table of the people: position, grade, plan days, clocked days,
+  FTE (no names). Mark people whose days are split over several projects, and people over 18 or under 15.3 days. If asked for
   the plan vs the actual over time, give the byMonth figures as a short table (month, HC, plan FTE, actual FTE).
   For a list of people the table may have up to 5 short columns.
 - Call it "calculated FTE required", never just "FTE required".
@@ -388,7 +390,7 @@ Rules:
 ROLE_RULES = {
     RESTRICTED: "- You do not have access to cost, rate, revenue, margin, productivity, FTE-required or salary information,\n"
                 "  nor to people's names (bench or project lists). If asked, say it is only available to Finance/HR users.",
-    FINANCE_HR: "- The user is in Finance/HR and may see every figure your tools return.",
+    FINANCE_HR: "- The user is in Finance/HR and may see every figure your tools return, but never people's names.",
 }
 
 _results_cache = {}            # file name -> (time loaded, rows); keeps warm Lambdas from re-reading S3 every call

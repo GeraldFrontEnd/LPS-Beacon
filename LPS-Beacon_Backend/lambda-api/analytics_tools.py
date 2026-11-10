@@ -351,7 +351,10 @@ def redeployable(insights, args, today, with_names=True):
     if not with_names:
         out["names"] = "Names and projects are only shown to Finance/HR users."
         return out
-    rows = [{"person": p.get("resource"), "position": p.get("position"), "band": p.get("band"),
+    # No names for anyone (10 Nov 2026 review, PDPA): a name next to a grade identifies the person. A row is a
+    # position and its grade; with_names now only decides whether the rows (projects, dates) are shown at all.
+    out["names"] = "Names are never shown: each row is a position and its grade."
+    rows = [{"position": p.get("position"), "band": p.get("band"),
              "availableFrom": p["availableFrom"], "currentProject": p.get("currentProject"),
              "currentAgency": p.get("currentCustomer"), "alreadyRedeployedTo": p.get("redeployedTo")}
             for p in people]
@@ -491,11 +494,10 @@ def project_resources(roster, args, with_names=True):
               for m, c in sorted(by_month.items()) if _fy_of(m) == fy]
     done = [s for s in series if s["actualMonth"]]
     people = []
-    for i, person in enumerate(sorted(cell["people"], key=lambda x: (-(x["planDays"] or 0), x["name"] or ""))):
+    for person in sorted(cell["people"], key=lambda x: (-(x["planDays"] or 0), x["name"] or "")):
         row = {k: person.get(k) for k in ("position", "band", "employment", "planDays", "planFte", "actualDays",
                                           "actualFte", "clockedDaysAllProjects", "split")}
-        row = {"name": person.get("name") if with_names else f"Person {i + 1}", **row}
-        people.append(row)
+        people.append(row)        # no names for anyone (10 Nov 2026 review, PDPA): position and grade only
     out = {
         "project": pid, "projectName": p.get("name"), "agency": p.get("agency"), "month": month,
         "monthHasClocking": cell["actual"],
@@ -510,13 +512,12 @@ def project_resources(roster, args, with_names=True):
         "peopleCount": len(people), "peopleShown": min(len(people), MAX_PEOPLE), "people": people[:MAX_PEOPLE],
         "rule": "1 FTE = 18 man-days a month. Red when a person clocks below 15.3 or above 18 billable days a month "
                 "(clockedDaysAllProjects, their whole month).",
-        "basis": "HC = names on the project (SL x RP and the clocking); plan = SL x RP man-days; actual = days clocked "
+        "basis": "HC = people on the project (SL x RP and the clocking); plan = SL x RP man-days; actual = days clocked "
                  + ("to this project in the MSPO clocking export (sandbox: synthetic data)" if roster.get("actualSource")
                     == "mspo" else "from the UR report, split over their projects by plan days when they are on "
                     "more than one (split = true)")
                  + ". planDays 0 with actual days = clocked here without being planned. Months not clocked yet are "
                    "plan only.",
     }
-    if not with_names:
-        out["namesHidden"] = "Names are only shown to Finance/HR users."
+    out["names"] = "Names are never shown: each row is a position and its grade."
     return out
