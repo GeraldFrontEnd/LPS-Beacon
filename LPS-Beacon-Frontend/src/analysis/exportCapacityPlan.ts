@@ -2,7 +2,7 @@
 // Turns the capacity plan into a CSV file the user can open in Excel. It always contains every column
 // (all months, quarters and years) and every row, whatever is expanded or collapsed on screen.
 
-import { BANDS, PLAN_COLUMNS, PLAN_SECTIONS, rowId } from "./capacityPlanLayout";
+import { BANDS, EXPORT_SECTIONS, PLAN_COLUMNS, rowId } from "./capacityPlanLayout";
 import type { ValueFormat } from "./capacityPlanLayout";
 import type { CapacityPlan } from "../api/types";
 
@@ -29,7 +29,7 @@ function csvText(text: string): string {
 export function capacityPlanToCsv(plan: CapacityPlan): string {
   const lines: string[] = [["Metric", ...PLAN_COLUMNS.map((c) => c.label)].map(csvText).join(",")];
 
-  for (const section of PLAN_SECTIONS) {
+  for (const section of EXPORT_SECTIONS) {
     const rows = [
       { id: rowId(section.id), label: section.label, format: section.format },
       ...(section.bands

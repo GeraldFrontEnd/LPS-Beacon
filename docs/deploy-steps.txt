@@ -75,3 +75,9 @@ SKIP WHAT DIDN'T CHANGE
 Only frontend files (LPS-Beacon-Frontend/)       -> step 0 + 4
 Only API files (LPS-Beacon_Backend/lambda-api/)   -> step 0 + 3
 Pipeline files (lambda-forecastpipeline/)         -> step 0 + 1 + 2, then 3 and 4 if those changed too
+
+
+
+aws s3 rm s3://lps-beacon-data --recursive --dryrun | tail -5   # preview
+aws s3 rm s3://lps-beacon-data --recursive
+aws s3 ls s3://lps-beacon-data/ --recursive --summarize | tail -2   # expect Total Objects: 0

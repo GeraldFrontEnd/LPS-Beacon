@@ -282,7 +282,7 @@ export default function ReviewDrawer({ anchorRef }: ReviewDrawerProps) {
               </span>
               <h3>Review complete</h3>
               <p>
-                The matching list is confirmed and the hiring demand has been worked out from the roles nobody could fill.
+                The matching list is confirmed and the unfilled demand has been worked out from the roles nobody could fill.
                 The Analysis and Dashboard pages now include this upload.
               </p>
               <p>Have questions about the resources? Ask the assistant.</p>

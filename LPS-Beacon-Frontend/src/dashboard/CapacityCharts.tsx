@@ -51,7 +51,7 @@ export default function CapacityCharts({ plan }: { plan: CapacityPlan }) {
 
       <ChartCard
         title="Joiners and leavers"
-        subtitle="Hires above the line, leavers below it (Workday reports; forecast months use the hiring gap)."
+        subtitle="Hires above the line, leavers below it (Workday reports; forecast months only what is typed into the capacity plan, not unfilled demand)."
         legend={[
           { name: "Joiners", color: TEAL },
           { name: "Leavers", color: ORANGE },

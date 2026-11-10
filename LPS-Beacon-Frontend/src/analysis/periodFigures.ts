@@ -9,6 +9,8 @@
 //   Revenue / GP per FTE   annualised (× 12 ÷ months in the period)
 //   Calculated FTE required   the calculator's formula (baseline.ts) on the period's annualised revenue (kept for the chat
 //                      and the calculator; the table shows ADR instead)
+//   Band mix           % of the people in band 7 or 8 in the period's last month (headcount, people without a band
+//                      left out), and the change on the month before (10 Nov 2026: should fall, a rise is highlighted)
 //   ADR                average daily revenue: revenue ÷ billable days clocked (baseline.ts adr), actual only
 //   Flags              an agency is also red when any of its projects is red (5 Nov 2026); red when days per head is below 15.3 or above 18; productivity against the company average of
 //                      the same period (draft thresholds); agencies under the minimum FTE or without revenue are not
@@ -95,6 +97,11 @@ export function periodView(plan: CapacityPlan, fy: string, months: string[]): Pe
     return t;
   };
 
+  // Band mix of one month, and the month before the period's last month (from all the months the data has).
+  const mixOf = (c: ProductivityMonth | undefined) =>
+    c && c.bandedPeople ? (c.highBandPeople ?? 0) / c.bandedPeople : null;
+  const before = p.months[p.months.indexOf(last) - 1] as string | undefined;
+
   const figures = <T extends ProductivityFigures>(item: T): T => {
     const t = sum(item.byMonth);
     const fte = t.actualDays / fullDays / n;
@@ -127,6 +134,13 @@ export function periodView(plan: CapacityPlan, fy: string, months: string[]): Pe
       ratePerDay: rate,
       requiredFte: required,
       adr: clocked && t.actualDays ? t.revenue / t.actualDays : null,
+      bandMix: mixOf(item.byMonth?.[last]),
+      bandMixChange: (() => {
+        const now = mixOf(item.byMonth?.[last]);
+        const then = before ? mixOf(item.byMonth?.[before]) : null;
+        return now !== null && then !== null ? now - then : null;
+      })(),
+      bandMixMonths: before ? [before, last] : null,
       // Billable UR: totals divided (never an average of %), shared people split by the days they clocked to it.
       billableUr: clocked && t.workingDays ? t.actualDays / t.workingDays : null,
     };

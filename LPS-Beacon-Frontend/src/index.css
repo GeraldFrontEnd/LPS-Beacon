@@ -1484,7 +1484,24 @@ body {
   position: relative;
 }
 
-/* A joiners cell filled from the latest review's hiring gap: a teal corner on the left. */
+/* A joiners cell with unfilled demand (latest review): a teal corner on the left. */
+/* Joiners with unfilled demand: "5 (+3)" (10 Nov 2026). The edit box and the bracket sit side by side. */
+.plan-joiners {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.plan-joiners .plan-input {
+  min-width: 48px;
+  width: 52px;
+}
+
+.plan-unfilled {
+  color: var(--chart-3);
+  font-weight: 600;
+}
+
 .plan-table td.plan-from-hires {
   position: relative;
 }

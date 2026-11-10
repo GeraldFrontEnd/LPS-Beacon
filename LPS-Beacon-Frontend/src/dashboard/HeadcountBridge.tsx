@@ -79,7 +79,7 @@ export default function HeadcountBridge({ plan, fy }: { plan: CapacityPlan; fy: 
       <p className="note">
         {q}: opening headcount {fmt.int(opening)}, {fmt.int(joiners)} joined, {fmt.int(leavers)} left, closing {fmt.int(closing)}.
         At the end of the quarter {fmt.int(billable)} are billable and {fmt.int(bench)} on the bench (headcount × billable UR).
-        Joiners and leavers come from the Workday reports; forecast months use the hiring gap.
+        Joiners and leavers come from the Workday reports; forecast months show only joiners typed into the capacity plan (unfilled demand is not counted).
       </p>
     </div>
   );

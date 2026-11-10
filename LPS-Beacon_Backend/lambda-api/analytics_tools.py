@@ -116,6 +116,9 @@ def _figures(item):
     out["gpPerFteUsd"] = _r(out.pop("gpPerFte"))
     out["revenuePerDollarOfHcCost"] = out.pop("revenuePerHcCost")
     out["calculatedFteRequired"] = out.pop("requiredFte")
+    # Band mix (10 Nov 2026): % of the people in band 7 or 8, latest month (headcount, not FTE).
+    mix = item.get("bandMix")
+    out["bandMixPct"] = round(100 * mix, 1) if mix is not None else None
     # Billable UR (6 Nov 2026): billable days / working days over the months, shared people split by clocked days.
     months = (item.get("byMonth") or {}).values()
     work = sum(c.get("workingDays") or 0 for c in months)

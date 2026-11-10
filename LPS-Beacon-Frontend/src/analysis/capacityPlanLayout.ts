@@ -103,6 +103,12 @@ export const PLAN_SECTIONS: PlanSection[] = [
   { id: "joiners", label: "Joiners", format: "int", bands: true },
   { id: "leavers", label: "Leavers", format: "int", bands: true },
   { id: "ending-hc", label: "Ending HC", format: "int", bands: true },
+  // Bench (10 Nov 2026 review): Ending HC minus the people on a project that month (clocked in actual months,
+  // planned in SL x RP after). Quarter and year columns: the last month, like Ending HC.
+  { id: "bench", label: "Bench HC", format: "int", bands: true },
+  // Unfilled demand: won and ongoing work the latest review could match nobody to, by start month and band. Not a
+  // row of its own on the page: it shows in brackets in the Joiners row, "5 (+3)". Not in Ending HC (nobody is hired).
+  { id: "unfilled-demand", label: "Unfilled demand", format: "int", bands: true },
   // Revenue is not split by band (it is not sold by band), so there is no revenue row per band. Productivity uses HC.
   { id: "revenue", label: "Revenue (USD in M)", format: "usdM", bands: false },
   { id: "resource-cost", label: "Resource Cost at Rate card (iRate) (USD in M)", format: "usdM", bands: true },
@@ -119,6 +125,25 @@ export const PLAN_SECTIONS: PlanSection[] = [
   { id: "leavers-pct", label: "Leavers %", format: "pct1", bands: true },
 ];
 
+// Productivity rows (Revenue down to Revenue per $ of HC cost): the backend still works them out (the chat and the
+// Analysis page use them), but the resource manager does not need them, so the Capacity plan page and its download
+// leave them out (10 Nov 2026 review). The Analysis page shows productivity.
+export const PRODUCTIVITY_SECTION_IDS = new Set([
+  "revenue",
+  "resource-cost",
+  "gross-margin",
+  "gross-margin-pct",
+  "revenue-per-hc",
+  "gp-per-hc",
+  "revenue-per-hc-cost",
+]);
+
+// The rows of the download: everything but productivity.
+export const EXPORT_SECTIONS: PlanSection[] = PLAN_SECTIONS.filter((s) => !PRODUCTIVITY_SECTION_IDS.has(s.id));
+
+// The rows on the page: also without Unfilled demand, which shows inside the Joiners row.
+export const PAGE_SECTIONS: PlanSection[] = EXPORT_SECTIONS.filter((s) => s.id !== "unfilled-demand");
+
 // The id the backend uses for a row's values: the section id, or "<section id>:<band id>" for a band row.
 export function rowId(sectionId: string, bandId?: string): string {
   return bandId ? `${sectionId}:${bandId}` : sectionId;
@@ -132,7 +157,7 @@ const FIRST_MONTH_KEY = MONTH_COLUMNS[0].key;
 // This follows Capacity_Plan_template.xlsx, where these are the only cells that are plain numbers:
 //  - Joiners, Leavers and Billable UR % for each band, in every month
 //  - Current HC for each band, in the first month only (the starting headcount; later months are formulas)
-//  - Revenue ($) and Standard Working days, in every month
+//  - Revenue ($) and Standard Working days, in every month (Revenue is no longer on the page, 10 Nov 2026)
 // The total rows of Joiners, Leavers and Billable UR % are not editable: they are sums or ratios of the band rows.
 // (In the template the Billable UR % total row is a typed number, but nothing depends on it, so editing it would
 // quietly disagree with the bands.)
