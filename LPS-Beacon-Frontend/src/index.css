@@ -825,9 +825,10 @@ body {
   max-width: 540px;
 }
 
-/* "Welcome back, <name>" above the card, in the main text colour (black in light mode). */
+/* "Welcome back", centred above the purple banner, in the main text colour (black in light mode). */
 .login-welcome {
   margin-bottom: 20px;
+  text-align: center;
 }
 
 .login-welcome h1 {
@@ -836,18 +837,6 @@ body {
   font-size: 2.5rem;
   font-weight: 700;
   line-height: 1.15;
-  overflow-wrap: anywhere; /* a long name wraps instead of pushing the card wider */
-}
-
-/* "Not Goon? Use another account" under the greeting. */
-.login-welcome-switch {
-  margin: 8px 0 0;
-  color: var(--muted);
-  font-size: 0.9375rem;
-}
-
-.login-welcome-switch .link-button {
-  color: var(--brand-ink);
 }
 
 /* Purple banner joined to the top of the card, carrying the slogan. */

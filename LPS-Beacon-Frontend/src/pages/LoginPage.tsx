@@ -11,7 +11,6 @@ import { useAuth } from "../auth/useAuth";
 import { DEMO_ACCOUNTS, IS_MOCK, takeSignOutNotice } from "../auth/authService";
 import { ROLE_LABELS } from "../auth/permissions";
 import BeaconLogo from "../components/BeaconLogo";
-import { forgetLastUser, getLastUser, rememberLastUser } from "../auth/lastUser";
 import lpsLogo from "../../LPSLogo.avif";
 
 // Open eye: shown while the password is hidden, click to show it.
@@ -70,11 +69,8 @@ export default function LoginPage() {
   const { user, signIn, isLoading } = useAuth();
   const location = useLocation();
 
-  // The person who last signed in on this browser, if any. Used for the greeting and to fill in the email.
-  const [lastUser, setLastUser] = useState(() => getLastUser());
-
-  // What the user has typed so far. The email starts as the remembered one, so a returning user only types a password.
-  const [email, setEmail] = useState(() => lastUser?.email ?? "");
+  // What the user has typed so far.
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   // The error text to show, or null for none. Starts with the reason the user was signed out, if there is one.
   const [error, setError] = useState<string | null>(() => takeSignOutNotice());
@@ -112,7 +108,6 @@ export default function LoginPage() {
     setPhase("loading"); // starts the moving bar
     try {
       await signIn(email, password); // throws if the login is wrong
-      rememberLastUser(email); // greet this person by name next time
       if (!mounted.current) return;
       setPhase("done"); // the bar fills in green
       await new Promise((resolve) => window.setTimeout(resolve, FINISH_PAUSE_MS));
@@ -125,18 +120,6 @@ export default function LoginPage() {
       if (mounted.current) setIsSubmitting(false);
     }
   }
-
-  // "Use another account": forget the remembered person and clear the form.
-  function switchAccount() {
-    forgetLastUser();
-    setLastUser(null);
-    setEmail("");
-    setPassword("");
-    setError(null);
-  }
-
-  // "Welcome back, Goon" for a returning user, plain "Welcome back" otherwise.
-  const greeting = lastUser ? `Welcome back, ${lastUser.displayName}` : "Welcome back";
 
   const progressText = phase === "done" ? "Signed in. Opening LPS-Beacon…" : "Signing you in…";
 
@@ -160,17 +143,9 @@ export default function LoginPage() {
       {/* RIGHT: the sign-in card. */}
       <section className="login-form-panel">
         <div className="login-stack">
-          {/* The greeting, above the card, in the main text colour. */}
+          {/* The greeting, centred above the purple banner and card. */}
           <div className="login-welcome">
-            <h1>{greeting}</h1>
-            {lastUser && (
-              <p className="login-welcome-switch">
-                Not {lastUser.displayName}?{" "}
-                <button type="button" className="link-button" onClick={switchAccount}>
-                  Use another account
-                </button>
-              </p>
-            )}
+            <h1>Welcome back</h1>
           </div>
 
           {/* Purple banner joined to the top of the card, with the slogan. */}
