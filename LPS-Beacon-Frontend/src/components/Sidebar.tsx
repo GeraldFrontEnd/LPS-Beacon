@@ -85,7 +85,7 @@ export default function Sidebar(props: SidebarProps) {
         {/* The LPS-Beacon logo, white on the brand purple. */}
         <div className="sidebar-brand">
           <span className="sidebar-brand-name">LPS-Beacon</span>
-          <span className="sidebar-brand-slogan">Workforce Analytics Assistant</span>
+          <span className="sidebar-brand-slogan">Workforce Analytics Agent</span>
         </div>
 
         <div className="sidebar-top">

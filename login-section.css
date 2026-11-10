@@ -1,0 +1,380 @@
+/* ---- Login page ---- */
+/* Paste this in src/index.css in place of the login rules added last time (the whole previous login-section.css).
+   The shared .field input / .password-wrap / .password-toggle rules stay where they are. */
+
+/* Two halves side by side: purple brand on the left, white line, sign-in card on the right. */
+.login-page {
+  flex: 1;
+  display: flex;
+  min-height: 100vh; /* fill the window even though the navigation bar is hidden here */
+}
+
+/* ---- Left: brand panel ---- */
+
+.login-brand-panel {
+  flex: 1 1 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px;
+  color: #ffffff;
+  /* The logo purple, a touch deeper towards the bottom so the panel has some depth. */
+  background: linear-gradient(180deg, var(--brand-purple) 0%, #47206b 100%);
+}
+
+/* Beacon mark, LPS logo, name and slogan stacked and centred. */
+.login-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 560px;
+}
+
+/* The beacon mark: white tower and light, softer lavender signal arcs. */
+.login-hero-mark {
+  --beacon-ray: #e2cdf7;
+  color: #ffffff;
+  margin-bottom: 22px;
+}
+
+/* The LPS logo turned pure white so it reads on the purple. */
+.login-hero-logo {
+  height: 52px;
+  width: auto;
+  margin-bottom: 28px;
+  filter: brightness(0) invert(1);
+}
+
+/* The product name, as large as the screen allows. */
+.login-hero-name {
+  margin: 0;
+  font-size: clamp(3rem, 6.5vw, 5.75rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+.login-hero-slogan {
+  margin: 16px 0 0;
+  font-size: clamp(1.25rem, 2.2vw, 1.875rem);
+  font-weight: 500;
+  opacity: 0.92;
+}
+
+/* ---- The white line down the middle ---- */
+
+.login-divider {
+  flex: 0 0 6px;
+  background: #ffffff;
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.12); /* keeps the line visible against the light right side */
+}
+
+/* ---- Right: sign-in panel ---- */
+
+.login-form-panel {
+  flex: 1 1 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 32px;
+  background: var(--bg);
+  overflow-y: auto;
+}
+
+/* The banner and the card in one column, the same width. Bigger than before (was 460px). */
+.login-stack {
+  width: 100%;
+  max-width: 540px;
+}
+
+/* "Welcome back, <name>" above the card, in the main text colour (black in light mode). */
+.login-welcome {
+  margin-bottom: 20px;
+}
+
+.login-welcome h1 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1.15;
+  overflow-wrap: anywhere; /* a long name wraps instead of pushing the card wider */
+}
+
+/* "Not Goon? Use another account" under the greeting. */
+.login-welcome-switch {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.login-welcome-switch .link-button {
+  color: var(--brand-ink);
+}
+
+/* Purple banner joined to the top of the card, carrying the slogan. */
+.login-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 28px;
+  color: #ffffff;
+  text-align: center;
+  background: var(--brand-purple);
+  border-radius: 16px 16px 0 0;
+}
+
+.login-logo-slogan {
+  font-size: 1.375rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.login-card {
+  width: 100%;
+  padding: 40px 44px 40px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-top: 0;
+  border-radius: 0 0 16px 16px;
+  box-shadow: 0 14px 36px rgba(28, 39, 51, 0.09);
+}
+
+.login-card .subtitle {
+  margin: 0 0 28px;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+/* Bigger, easier-to-hit boxes on this page only. */
+.login-card .field {
+  margin-bottom: 22px;
+  font-size: 1rem;
+}
+
+.login-card .field input {
+  padding: 15px 16px;
+  font-size: 1.0625rem;
+  border-radius: 10px;
+}
+
+.login-card .password-wrap input {
+  padding-right: 50px; /* room for the eye button */
+}
+
+/* "Password" on the left, "Forgot your password?" on the right. */
+.field-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.login-forgot {
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 400;
+  text-decoration: none;
+}
+
+.login-forgot:hover {
+  color: var(--brand-ink);
+  text-decoration: underline;
+}
+
+.login-forgot:focus-visible {
+  outline: 2px solid var(--brand-ink);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.login-card .error-banner {
+  margin: 0 0 18px;
+}
+
+.login-card .primary-button {
+  width: 100%;
+  margin-top: 4px;
+  padding: 16px;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  border-radius: 10px;
+}
+
+/* ---- Loading bar under the Sign in button ---- */
+
+.login-progress-block {
+  margin-top: 18px;
+}
+
+/* The grey track, always visible. */
+.login-progress {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  background: var(--line);
+  border-radius: 999px;
+}
+
+/* The purple segment. Hidden (no width) until the sign-in starts. */
+.login-progress-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  background: var(--brand-ink);
+  border-radius: 999px;
+}
+
+/* While signing in: a segment a third of the track wide glides from one end to the other and back. */
+.login-progress.is-loading .login-progress-fill {
+  width: 34%;
+  animation: login-glide 1.1s ease-in-out infinite alternate;
+}
+
+@keyframes login-glide {
+  from {
+    left: 0;
+  }
+  to {
+    left: 66%;
+  }
+}
+
+/* Signed in: the bar fills the whole track and turns green. */
+.login-progress.is-done .login-progress-fill {
+  left: 0;
+  width: 100%;
+  background: var(--success);
+  transition: width 300ms ease-out;
+}
+
+/* "Signing you in…" with the bouncing bars beside it. min-height stops the card jumping when text appears. */
+.login-progress-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 22px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+/* Three small bars, like the beacon's tower, rising and falling one after another. */
+.login-bounce {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 16px;
+}
+
+.login-bounce span {
+  width: 4px;
+  height: 30%;
+  background: var(--brand-ink);
+  border-radius: 2px;
+  animation: login-bounce 0.9s ease-in-out infinite;
+}
+
+.login-bounce span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.login-bounce span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes login-bounce {
+  0%,
+  100% {
+    height: 30%;
+  }
+  50% {
+    height: 100%;
+  }
+}
+
+/* For people who turn off motion: no gliding or bouncing, just a steady half-strength bar while loading. */
+@media (prefers-reduced-motion: reduce) {
+  .login-progress.is-loading .login-progress-fill {
+    width: 100%;
+    opacity: 0.5;
+    animation: none;
+  }
+  .login-bounce span {
+    height: 60%;
+    animation: none;
+  }
+  .login-progress.is-done .login-progress-fill {
+    transition: none;
+  }
+}
+
+/* The practice accounts list at the bottom of the card (mock mode only). */
+.demo-box {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.demo-box ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.demo-box li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* ---- Narrow windows: stack the halves, the white line becomes horizontal ---- */
+
+@media (max-width: 900px) {
+  .login-page {
+    flex-direction: column;
+  }
+
+  .login-brand-panel {
+    flex: 0 0 auto;
+    padding: 40px 24px;
+  }
+
+  .login-hero-mark {
+    width: 72px;
+    height: 72px;
+    margin-bottom: 14px;
+  }
+
+  .login-hero-logo {
+    height: 38px;
+    margin-bottom: 16px;
+  }
+
+  .login-form-panel {
+    flex: 1 0 auto;
+    padding: 32px 16px;
+  }
+
+  .login-logo {
+    padding: 20px;
+  }
+
+  .login-welcome h1 {
+    font-size: 2rem;
+  }
+
+  .login-card {
+    padding: 28px 22px 24px;
+  }
+}
