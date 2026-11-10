@@ -31,10 +31,14 @@ What it holds (all money in USD):
                        18) and against the company average (DRAFT thresholds in plan_settings.PRODUCTIVITY)
   actualFte            FTE actual for the organisation per clocked month: all clocked billable days / 18
   roster               results/capacity/roster.json: plan vs actual per person, project and month (clocking.py)
-  hiringNeeds          the people the latest published review found must be hired (its hiring gap: demand
-                       nobody could be matched to), per month and band, with the roles. They are the plan's
-                       default joiners. A need starting in an actual month is moved to the first forecast
-                       month (the demand already started unstaffed, so the hire comes as soon as possible).
+  hiringNeeds          the latest published review's unfilled demand (summary/hiring_gap.json: demand nobody
+                       could be matched to), per month and band, with the roles. The plan shows it in brackets
+                       after Joiners and leaves it out of Ending HC (10 Nov 2026; until then it was the default
+                       joiners). A need starting in an actual month is moved to the first forecast month (the demand
+                       already started unstaffed, so it is still to be filled).
+  onProject            people on a project per month, in total ("all") and per band (SL x RP grade): clocked billable
+                       days in clocked months, plan days after. The plan's Bench HC = Ending HC - these. Months with
+                       no project rows at all are left out (no data, not "everyone on the bench").
   headcountBreakdown   today's headcount by employment type, for the Dashboard boxes
   sources, notes       which files were used, and what to know about them
 """
@@ -75,14 +79,13 @@ def _plan_months(first_fy_start: int) -> list[str]:
 
 
 def _hiring_needs(store: Store, months: list[str], first_forecast: str | None) -> tuple[dict | None, list[str]]:
-    """The latest published review's hiring gap, per month and band: {"2026-11": {"b7": {"heads", "roles"}}}."""
+    """The latest published review's unfilled demand, per month and band: {"2026-11": {"b7": {"heads", "roles"}}}."""
     pointer = store.read_json_or("results/latest.json", None)
     if not pointer or not pointer.get("prefix"):
-        return None, ["no review has been published yet, so joiners start at 0"]
+        return None, ["no review has been published yet, so there is no unfilled demand"]
     key = pointer["prefix"] + "summary/hiring_gap.json"
     if not store.exists(key):
-        return None, ["the latest published run has no hiring gap (it did not go through the review), "
-                      "so joiners start at 0"]
+        return None, ["the latest published run has no unfilled demand (it did not go through the review)"]
     by_month: dict[str, dict] = {}
     no_band = moved = outside = 0
     for row in store.read_json(key):
@@ -108,15 +111,37 @@ def _hiring_needs(store: Store, months: list[str], first_forecast: str | None) -
         cell["roles"][role] = cell["roles"].get(role, 0) + heads
     total = sum(c["heads"] for m in by_month.values() for c in m.values())
     published = str(pointer.get("publishedAt") or "")[:10]
-    notes = [f"joiners in forecast months default to the {total} people the review published on {published} "
-             "found must be hired (its hiring gap); type over a cell to change it"]
+    notes = [f"unfilled demand: {total} people the review published on {published} could match nobody to, shown in "
+             "brackets after Joiners; they are not in Ending HC until someone is hired (type the joiners in)"]
     if moved:
-        notes.append(f"{moved} of those hires were needed before the first forecast month and are counted in it")
+        notes.append(f"{moved} of the unfilled demand started before the first forecast month and is counted in it")
     if no_band:
-        notes.append(f"{no_band} hires have no band (grade) and are left out of the joiners")
+        notes.append(f"{no_band} of the unfilled demand has no band (grade) and is left out")
     if outside:
-        notes.append(f"{outside} hires fall after the plan's last month and are left out")
+        notes.append(f"{outside} of the unfilled demand falls after the plan's last month and is left out")
     return {"runId": pointer.get("runId"), "publishedAt": pointer.get("publishedAt"), "byMonth": by_month}, notes
+
+
+def _on_project(store: Store, months: list[str]) -> tuple[dict | None, list[str]]:
+    """People on a project per month: {"2026-10": {"all": 122, "b7": 30, ...}}, for the plan's Bench HC.
+    On a project = clocked billable days to it in a clocked month (MSPO, else the UR report split by plan), planned
+    man-days (SL x RP) otherwise, also for a person the clocking does not have that month."""
+    pm = clocking.person_months(store, months)
+    if pm.empty:
+        return None, ["no SL x RP uploaded: Bench HC is left empty"]
+    clocked = clocking.clocked_months(store)
+    use_clock = pm["month"].isin(clocked) & pm["clockedDays"].notna()
+    working = pm[(use_clock & (pm["actualDays"].fillna(0) > 0)) | (~use_clock & (pm["planDays"] > 0))]
+    out: dict[str, dict] = {}
+    for month in sorted(set(pm["month"].astype(str))):
+        part = working[working["month"] == month].drop_duplicates("itCode")
+        cell = {"all": int(len(part))}
+        for band, n in part.dropna(subset=["band"]).groupby("band")["itCode"].nunique().items():
+            if int(band) in range(3, 10):
+                cell[_band_key(band)] = int(n)
+        out[month] = cell
+    return out, ["Bench HC = Ending HC - people on a project that month (clocked billable days in actual months, "
+                 "SL x RP plan after); a band's bench uses the SL x RP grade, so band rows may not add up to the total"]
 
 
 # ---------------------------------------------------------------- headcount and flows
@@ -159,7 +184,7 @@ def _actual_flows(store: Store, mix: dict[str, float]) -> tuple[dict | None, lis
     """{"2026-09": {"joiners": {"b7": 5, ...}, "leavers": {...}, "unbanded": {"joiners": 2, "leavers": 0}}}."""
     key = "clean/workday_hire_leaver/all.json.gz"
     if not store.exists(key):
-        return None, ["no Workday new hire / leaver report uploaded yet: joiners come from the hiring gap and "
+        return None, ["no Workday new hire / leaver report uploaded yet: joiners are 0 until typed in and "
                       "leavers start at 0"]
     events = store.read_table(key)
     bands = _name_bands(store)
@@ -247,6 +272,8 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
          fte           FTE actual: clocked billable days / 18 (MSPO clocking, else the UR report; clocking.py), averaged
          planFte       SL x RP man-days / 18, averaged
          daysPerHead   clocked billable days per person per month; red below 15.3 or above 18
+         bandMix       % of the people on it in band 7 or 8 (rules bandMix.highBands) in the latest month: headcount,
+                       not FTE; people with no band are left out of both sides (10 Nov 2026 review)
     Months: the ABCD report's actual months in the latest FY that the UR report also has (so revenue and clocking
     cover the same months). Without a UR report the planned FTE stands in, and the notes say so."""
     actual = sorted(abcd.loc[abcd["Actual"], "Month"].astype(str).unique())
@@ -303,6 +330,16 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
     latest = months[-1] if months else None
     rules = plan_settings.PRODUCTIVITY["flags"]
 
+    high_bands = {int(b) for b in (rules.get("bandMix") or {}).get("highBands", [7, 8])}
+
+    def band_people(rows: pd.DataFrame) -> tuple[int, int]:
+        """(people in a high band, people with a known band): distinct people, one month's rows."""
+        if not len(rows):
+            return 0, 0
+        people = rows.assign(b=pd.to_numeric(rows["band"], errors="coerce")).dropna(subset=["b"])
+        people = people[people["b"].between(3, 9)].drop_duplicates("itCode")
+        return int(people["b"].astype(int).isin(high_bands).sum()), int(len(people))
+
     def cost_of(rows: pd.DataFrame) -> float:
         total = 0.0
         for r in rows.itertuples(index=False):
@@ -325,6 +362,7 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
         fte_days = float(rows["fteDays"].sum())
         rate_per_day = hc_cost / fte_days if fte_days else None              # weighted iRate of this mix
         required = fte_required(revenue * annual, rate_per_day, target) if rate_per_day else None
+        high_people, banded_people = band_people(rows[rows["month"] == latest]) if len(rows) else (0, 0)
         per_person = rows.dropna(subset=["clockedDays"]).drop_duplicates(["itCode", "month"])
         days_per_head = float(per_person["clockedDays"].mean()) if clocked and len(per_person) else None
         return {"revenue": round(revenue, 2), "hcCost": round(hc_cost, 2), "gp": round(gp, 2),
@@ -336,6 +374,7 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
                 "gpPerFte": round(gp * annual / fte, 2) if fte else None,
                 "revenuePerHcCost": round(revenue / hc_cost, 3) if hc_cost else None,
                 "ratePerDay": round(rate_per_day, 2) if rate_per_day else None,
+                "bandMix": round(high_people / banded_people, 4) if banded_people else None,
                 "requiredFte": round(required, 2) if required else None}
 
     rev_by_project = rev.groupby(rev["Project_ID"].astype(str))["Revenue"].sum().to_dict()
@@ -352,7 +391,8 @@ def _productivity(store: Store, abcd: pd.DataFrame, settings: dict, working_days
             if not len(part) and not revenue:
                 continue
             heads = part.dropna(subset=["clockedDays"]).drop_duplicates(["itCode"]) if clocked else part.iloc[0:0]
-            out[m] = {"revenue": round(revenue, 2), "hcCost": round(cost_of(part), 2),
+            high_people, banded_people = band_people(part)
+            out[m] = {"highBandPeople": high_people, "bandedPeople": banded_people,"revenue": round(revenue, 2), "hcCost": round(cost_of(part), 2),
                       "actualDays": round(float(part["fteDays"].sum()), 2),
                       "workingDays": round(float(part["workingDaysShare"].sum()), 2),
                       "planDays": round(float(part["planDays"].sum()), 2),
@@ -773,6 +813,8 @@ def build(store: Store, today: dt.date | None = None) -> dict:
     first_forecast = next((m for m in months if m not in billable_ur), None)
     hiring, hiring_notes = _hiring_needs(store, months, first_forecast)
     notes.extend(hiring_notes)
+    on_project, bench_notes = _on_project(store, months)
+    notes.extend(bench_notes)
 
     return {
         "version": 1, "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
@@ -783,6 +825,7 @@ def build(store: Store, today: dt.date | None = None) -> dict:
         "workingDays": working_days,
         "startingHeadcount": starting,
         "hiringNeeds": hiring,
+        "onProject": on_project,
         "actualFlows": flows,
         "revenue": revenue,
         "productivity": productivity,

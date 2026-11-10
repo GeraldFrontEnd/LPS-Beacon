@@ -59,6 +59,8 @@ PRODUCTIVITY = {
     "headcountBase": "delivery",
     # Productivity: how far below the company average (Revenue per FTE or GP per FTE, the worse of the two) an
     # agency may be (DRAFT placeholders until Ethan confirms). Utilisation: the clocked-days rule below.
+    # (10 Nov 2026: Finance's benchmarks, revenue per FTE $122K and GP per FTE $30K, below = red, were tried and put
+    # back; Derek keeps this rule for now.)
     "flags": {
         "draft": True,
         # GP per FTE is shown for every agency but not in the rule yet: it is a small difference of two big numbers,
@@ -72,6 +74,11 @@ PRODUCTIVITY = {
         # per head.
         "utilisation": {"fullMonthManDays": 18, "urTarget": 0.85, "redBelowDays": 15.3, "redAboveDays": 18.0},
         "minFte": 1.0,          # agencies with less delivery FTE than this are listed but not flagged
+        # Band mix (10 Nov 2026 review, Finance): the % of the people on a project or agency (headcount, not FTE)
+        # who are in band 7 or 8, in a month. 10 people with one band 7 and one band 8 = 20 %. People without a band
+        # are left out of both sides. No benchmark: it should fall month on month as BAU work matures, so a rise is
+        # highlighted. Not part of the red / green flag.
+        "bandMix": {"highBands": [7, 8]},
     },
 }
 

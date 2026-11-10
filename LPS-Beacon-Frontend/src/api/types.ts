@@ -106,7 +106,7 @@ export interface CapacityPlan {
   notes?: string[]; // what to know about the plan (assumed settings, missing files, ...)
   settings?: Record<string, PlanFySettings>; // per fiscal year, e.g. settings["FY26"]
   cleared?: number; // after "Clear my edits": how many were removed
-  hires?: HiringNeeds | null; // the latest review's hiring gap: the default joiners
+  hires?: HiringNeeds | null; // the latest review's unfilled demand (shown in brackets after Joiners)
   productivity?: Productivity | null; // by agency and project, this FY to date (ABCD x SL x RP)
   revenueByMonth?: Record<string, { revenue: number; cost: number; actual: boolean }> | null; // ABCD, Singapore
   demandByMonth?: Record<string, { fte: number; project: number; quoteWon: number }> | null; // SL x RP, won + ongoing
@@ -158,6 +158,13 @@ export interface ProductivityFigures {
   billableUr?: number | null; // billable days ÷ working days (shared people split by their clocked days)
   adr?: number | null; // average daily revenue: revenue ÷ clocked billable days (= ÷ (FTE actual × 18)); actual only
   ratePerDay: number | null; // weighted rate card (iRate) of its people, USD a day
+  // Band mix (10 Nov 2026): % of its people in band 7 or 8 (rules.bandMix.highBands), in the period's last month.
+  // Headcount, not FTE; people without a band are left out.
+  bandMix?: number | null;
+  // The period's last month against the month before it, in percentage points (+0.021 = up 2.1 points). Finance wants
+  // it to fall month on month, so a rise is highlighted. null when either month has no band data.
+  bandMixChange?: number | null;
+  bandMixMonths?: [string, string] | null; // [the month before, the last month] that bandMixChange compares
   flag: Flag | null; // the worse of the productivity and utilisation flags; null = not flagged
   productivityFlag: Flag | null;
   utilisationFlag: Flag | null;
@@ -174,6 +181,8 @@ export interface ProductivityMonth {
   people: number; // distinct people on it
   clockedDays: number; // clocked billable days of those people, all their projects (each person once)
   clockedPeople: number; // how many of them clocked
+  highBandPeople?: number; // people in band 7 or 8 (pipeline after 10 Nov 2026)
+  bandedPeople?: number; // people with a known band
 }
 
 export interface ProjectProductivity extends ProductivityFigures {
@@ -193,6 +202,7 @@ export interface FlagRules {
   // Missing when inputs.json was built by a pipeline older than 4 Nov 2026: the page falls back to the agreed rule.
   utilisation?: { fullMonthManDays: number; urTarget: number; redBelowDays: number; redAboveDays: number };
   minFte: number;
+  bandMix?: { highBands: number[] }; // which bands count as high (pipeline after 10 Nov 2026): 7 and 8
 }
 
 export interface Productivity {

@@ -55,7 +55,7 @@ const STEPS_AFTER_CONFLICTS = FORECAST_STEP
      "Matching bench and roll-offs to won and ongoing projects"];
 const STEPS_AFTER_FORECAST = ["Calculating each resource's free capacity", "Matching demand to available resources"];
 const STEPS_AFTER_MATCHING = [
-  "Calculating hiring demand from unfilled roles",
+  "Calculating unfilled demand from roles nobody could fill",
   "Updating the Analysis and Dashboard pages",
 ];
 

@@ -23,8 +23,8 @@ const WORKING_DAYS = [21, 20, 22, 22, 21, 22, 21, 22, 20, 21, 22, 19, 22, 20, 23
 // How the quarter and year columns are worked out from the months.
 const AVERAGED = new Set(["billable-hc", "non-billable-hc"]); // capacity over the period: average
 const OPENING = new Set(["current-hc"]); // opening headcount: the first month's value
-const CLOSING = new Set(["ending-hc"]); // closing headcount: the last month's value
-const SUMMED = new Set(["joiners", "leavers", "revenue", "resource-cost", "gross-margin", "working-days"]);
+const CLOSING = new Set(["ending-hc", "bench"]); // closing headcount: the last month's value
+const SUMMED = new Set(["joiners", "leavers", "unfilled-demand", "revenue", "resource-cost", "gross-margin", "working-days"]);
 
 // The key under which an edited cell is remembered: "<row id>|<column key>", for example "joiners:b7|Oct'26".
 export function sampleEditKey(rid: string, columnKey: string): string {

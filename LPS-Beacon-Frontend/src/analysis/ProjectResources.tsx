@@ -1,15 +1,17 @@
 // src/analysis/ProjectResources.tsx
 // The people on one project, under its row on the Analysis page (5 Nov 2026: the resource list moved here from the
-// Dashboard). One row per person in the last month of the period, all in FTE:
-//   Position name     the standardised position
+// Dashboard). One row per person in the last month of the period, all in FTE.
+// No names (10 Nov 2026 review): a name next to a band and salary scale identifies the person (PDPA). Rows are sorted
+// by position and band instead.
+//   Position name     the standardised position, with the employment type under it
 //   Salary scale      H / M / L: no salary source yet, shown as "–"
 //   Planned FTE       their man-days on this project in the PM's plan ÷ 18
 //   Actual FTE        billable days they clocked to this project ÷ 18 (a forecast month has none)
 //   Average billable MD   billable man-days they clocked a month on all their projects; red below 15.3 or above 18
 // Over a quarter or the year every figure is an average a month over the period's months (6 Nov 2026, Crislyn: one
 // month swings with leave), from GET /dashboard ... &months=
-// Loaded from GET /dashboard?agency=&projectId=&month=&people=1 when the row is opened. Names are on it: the page is
-// Finance/HR only.
+// Loaded from GET /dashboard?agency=&projectId=&month=&people=1 when the row is opened. The API still sends names
+// (the chat's project lists use them); this list does not show them.
 
 import { useEffect, useState } from "react";
 import { getDashboardView } from "../api/client";
@@ -61,7 +63,10 @@ export default function ProjectResources({
   const error = loaded?.key === key ? loaded.error : null;
   if (error) return <p className="note">{error}</p>;
   if (project === undefined) return <p className="note">Loading the people…</p>;
-  const people = project?.people ?? [];
+  // Sorted by position, then band (highest first): the API sorts by name, and that order would point to who is who.
+  const people = [...(project?.people ?? [])].sort(
+    (a, b) => (a.skill ?? "~").localeCompare(b.skill ?? "~") || (b.band ?? 0) - (a.band ?? 0)
+  );
   if (!people.length) return <p className="note">Nobody is planned or clocked on this project in {monthName(month)}.</p>;
   const outside = people.filter(
     (p) => p.clockedDaysAllProjects != null && (p.clockedDaysAllProjects < RED_BELOW || p.clockedDaysAllProjects > RED_ABOVE)
@@ -80,7 +85,6 @@ export default function ProjectResources({
         <table className="people-table">
           <thead>
             <tr>
-              <th scope="col">Name</th>
               <th scope="col" title="Standardised position">Position name</th>
               <th scope="col" className="num">Band</th>
               <th scope="col" title="High / Medium / Low within the band. No salary source yet">Salary scale</th>
@@ -96,12 +100,11 @@ export default function ProjectResources({
               const all = p.clockedDaysAllProjects;
               const red = all != null && (all < RED_BELOW || all > RED_ABOVE);
               return (
-                <tr key={`${p.name}-${i}`}>
+                <tr key={i}>
                   <th scope="row">
-                    {p.name ?? "–"}
+                    {p.skill ?? "–"}
                     {p.employment && TYPE[p.employment] && <span className="people-sub">{TYPE[p.employment]}</span>}
                   </th>
-                  <td>{p.skill ?? "–"}</td>
                   <td className="num">{p.band ?? "–"}</td>
                   <td>{p.salaryScale ?? "–"}</td>
                   <td className="num">{fmt.dec1(p.planFte)}</td>

@@ -5,7 +5,9 @@
 //  2. Organisation actuals (fiscal year to date): Revenue per HC, GP per HC, Revenue per $ of HC cost and the weighted cost per FTE per day,
 //     this fiscal year to date (annualised) against last fiscal year. Each shows how it is worked out.
 //  3. Agencies and projects: every agency at a glance; a dropdown narrows it to the agencies picked; a row opens to
-//     show its projects (the Project View), with HC, FTE actual (clocked) and days per head.
+//     show its projects (the Project View), with HC, FTE actual (clocked) and days per head. Band mix (10 Nov 2026,
+//     Finance): % of the people in band 7 or 8 in the period's last month, with the change on the month before; a
+//     rise is red.
 //  4. Management target: Finance's P&L summary, full year and quarters (ManagementTarget.tsx).
 // Naming: HC = people (names); FTE = clocked days / 18 (MSPO clocking via the UR report).
 
@@ -133,6 +135,7 @@ function figures(f: ProductivityFigures) {
         {fmt.dec1(days)}
       </td>
       <td className="num">{fmt.pct(f.billableUr)}</td>
+      <BandMixCell f={f} />
       {/* The metric behind a productivity flag is highlighted, red or amber (6 Nov 2026, Crislyn). */}
       <td className={`num${f.productivityFlag === "red" ? " days-red" : f.productivityFlag === "amber" ? " days-amber" : ""}`}
         title={f.productivityFlag === "red" || f.productivityFlag === "amber" ? f.flagReason : undefined}>
@@ -144,7 +147,30 @@ function figures(f: ProductivityFigures) {
   );
 }
 
-function figureHeads() {
+// Band mix and its change on the month before (10 Nov 2026). Any rise is red, a fall shows plain.
+function BandMixCell({ f }: { f: ProductivityFigures }) {
+  const change = f.bandMixChange;
+  const up = change != null && change >= 0.001;
+  const down = change != null && change <= -0.001;
+  const months = f.bandMixMonths;
+  const title =
+    change != null && months
+      ? `${monthName(months[1])} vs ${monthName(months[0])}: ${change > 0 ? "+" : ""}${(change * 100).toFixed(1)} points${up ? " (rising: it should fall)" : ""}`
+      : undefined;
+  return (
+    <td className={`num${up ? " days-red" : ""}`} title={title}>
+      {fmt.pct(f.bandMix)}
+      {(up || down) && (
+        <span className="band-mix-change" aria-label={up ? "up on the month before" : "down on the month before"}>
+          {" "}
+          {up ? "▲" : "▼"}
+        </span>
+      )}
+    </td>
+  );
+}
+
+function figureHeads(highBand: string) {
   return (
     <>
       <th scope="col" className="num" title="Revenue in the period picked (ABCD report)">Revenue</th>
@@ -155,6 +181,9 @@ function figureHeads() {
       </th>
       <th scope="col" className="num" title="Billable days ÷ working days, totalled (not an average of each person's %). A person on several projects counts in each by the share of days they clocked to it">
         Billable UR
+      </th>
+      <th scope="col" className="num" title={`% of the people on it in band ${highBand}, in the period's last month (headcount; people without a band left out). The arrow compares that month with the month before: Finance wants it to fall month on month, so a rise is red. No benchmark`}>
+        Band mix
       </th>
       <th scope="col" className="num">Revenue per FTE</th>
       <th scope="col" className="num">GP per FTE</th>
@@ -226,6 +255,24 @@ function AgencyExplorer({
   const annual = 12 / view.months.length;
   const avg = view.companyAverage;
   const revPerFte = total.fte ? (total.revenue * annual) / total.fte : null;
+  // Band mix of the agencies shown, over the period, and their last month against the month before.
+  // Agencies are added up, so a person on projects of two agencies counts in both.
+  const highBand = (p.rules.bandMix?.highBands ?? [7, 8]).join(" or ");
+  const mixInMonth = (m: string | undefined) => {
+    if (!m) return null;
+    let high = 0;
+    let banded = 0;
+    for (const a of shown) {
+      high += a.byMonth?.[m]?.highBandPeople ?? 0;
+      banded += a.byMonth?.[m]?.bandedPeople ?? 0;
+    }
+    return banded ? high / banded : null;
+  };
+  const orgMix = mixInMonth(lastMonth);
+  const monthBefore = p.months[p.months.indexOf(lastMonth) - 1] as string | undefined;
+  const orgNow = mixInMonth(lastMonth);
+  const orgThen = mixInMonth(monthBefore);
+  const orgChange = orgNow !== null && orgThen !== null ? orgNow - orgThen : null;
   const toggle = (name: string) =>
     setOpenList((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
   const r = p.rules;
@@ -305,6 +352,19 @@ function AgencyExplorer({
           <span className="prod-summary-value">{fmt.usdK(revPerFte)}</span>
           <span className="prod-summary-label">revenue per FTE (company {fmt.usdK(avg.revenuePerFte)})</span>
         </div>
+        <div>
+          <span className="prod-summary-value">{fmt.pct(orgMix)}</span>
+          <span className="prod-summary-label">
+            band mix (band {highBand}, {monthName(lastMonth).slice(0, 3)})
+            {orgChange !== null && monthBefore && (
+              <span className={orgChange >= 0.001 ? "people-flag" : undefined}>
+                {" "}
+                · {monthName(lastMonth)} {orgChange > 0 ? "+" : ""}
+                {(orgChange * 100).toFixed(1)} pts on {monthName(monthBefore).slice(0, 3)}
+              </span>
+            )}
+          </span>
+        </div>
       </div>
 
       <div className="prod-scroll">
@@ -313,7 +373,7 @@ function AgencyExplorer({
             <tr>
               <th scope="col">Agency</th>
               <th scope="col">Status</th>
-              {figureHeads()}
+              {figureHeads(highBand)}
             </tr>
           </thead>
           <tbody>
@@ -339,7 +399,7 @@ function AgencyExplorer({
                   </tr>
                   {isOpen && (
                     <tr className="prod-detail">
-                      <td colSpan={10}>
+                      <td colSpan={11}>
                         <p className="prod-reason">
                           <strong>Why:</strong> {a.flagReason}.
                         </p>
@@ -348,7 +408,7 @@ function AgencyExplorer({
                             <tr>
                               <th scope="col">Project</th>
                               <th scope="col">Status</th>
-                              {figureHeads()}
+                              {figureHeads(highBand)}
                             </tr>
                           </thead>
                           <tbody>
@@ -374,7 +434,7 @@ function AgencyExplorer({
                                   </tr>
                                   {projectOpen && lastMonth && (
                                     <tr className="prod-resources">
-                                      <td colSpan={10}>
+                                      <td colSpan={11}>
                                         <ProjectResources agency={a.agency} projectId={pr.projectId} month={lastMonth} months={view.months} />
                                       </td>
                                     </tr>
@@ -411,6 +471,11 @@ function AgencyExplorer({
             Red on productivity: {r.metrics.map((m) => (m === "revenuePerFte" ? "revenue per FTE" : "GP per FTE")).join(" or ")}{" "}
             more than {pct(r.productivity.redBelowPct)} below the company average. Amber: {pct(r.productivity.amberBelowPct)} to{" "}
             {pct(r.productivity.redBelowPct)} below. Green: neither.
+          </li>
+          <li>
+            Band mix: % of the people on it in band {highBand} in the period&apos;s last month (headcount, people without a
+            band left out). It is not part of the flag and has no benchmark. Finance wants it to fall month on month as BAU
+            work needs fewer senior people, so a rise on the month before is shown red with ▲.
           </li>
           <li>
             HC counts names, FTE counts clocked days: a person on two projects counts once in each project&apos;s HC, and their

@@ -14,8 +14,14 @@ Formulas per band and month (all money in USD):
   Current HC        first month: the UR report's first month (or the staff list), editable; later months: the
                     previous month's Ending HC
   Joiners, Leavers  months with a Workday new hire / leaver report: its counts (inputs "actualFlows"); other
-                    months: joiners from the latest review's hiring gap (inputs "hiringNeeds"), leavers 0. Editable.
+                    months: 0 until someone types them in. Editable.
+  Unfilled demand   the latest review's demand nobody could be matched to (inputs "hiringNeeds"), per start month
+                    and band. Shown in brackets after Joiners on the page ("5 (+3)"); NOT in Ending HC: nobody has been
+                    hired for it (10 Nov 2026 review; until then it was the default joiners)
   Ending HC         Current HC + Joiners - Leavers
+  Bench HC          Ending HC - the people on a project that month (inputs "onProject": clocked billable days in
+                    actual months, SL x RP plan days after), never below 0. Empty for a month with no project data.
+                    The total row is Ending HC - everyone on a project (people with no band count there only)
   Billable UR       actual months: the UR report; forecast months: the fiscal year's target (editable)
   Billable HC       Ending HC x Billable UR;  Non-Billable HC = Ending HC - Billable HC
   Resource Cost     Ending HC x rate card (iRate, internal cost per day) x working days
@@ -46,15 +52,15 @@ import datetime as dt
 BANDS = ("b9", "b8", "b7", "b6", "b5", "b4", "b3")
 MONTH_NAMES = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
-SECTIONS = ("current-hc", "joiners", "leavers", "ending-hc", "revenue", "resource-cost",
+SECTIONS = ("current-hc", "joiners", "leavers", "ending-hc", "bench", "unfilled-demand", "revenue", "resource-cost",
             "gross-margin", "gross-margin-pct", "revenue-per-hc", "gp-per-hc", "revenue-per-hc-cost",
             "billable-ur", "billable-hc", "non-billable-hc", "working-days", "joiners-pct", "leavers-pct")
-BAND_SECTIONS = {"current-hc", "joiners", "leavers", "ending-hc", "resource-cost",
+BAND_SECTIONS = {"current-hc", "joiners", "leavers", "ending-hc", "bench", "unfilled-demand", "resource-cost",
                  "billable-ur", "billable-hc", "non-billable-hc", "joiners-pct", "leavers-pct"}
 AVERAGED = {"billable-hc", "non-billable-hc"}
 OPENING = {"current-hc"}   # quarter / year column = the first month's value
-CLOSING = {"ending-hc"}    # quarter / year column = the last month's value
-SUMMED = {"joiners", "leavers", "revenue", "resource-cost", "gross-margin", "working-days"}
+CLOSING = {"ending-hc", "bench"}    # quarter / year column = the last month's value
+SUMMED = {"joiners", "leavers", "unfilled-demand", "revenue", "resource-cost", "gross-margin", "working-days"}
 MONEY = {"revenue", "resource-cost", "gross-margin", "revenue-per-hc", "gp-per-hc"}
 
 # What a person may type (the same rule as isEditableCell in the web app), and the allowed range.
@@ -136,6 +142,7 @@ def build(inputs: dict, edits: dict[str, float]) -> dict[str, dict[str, float | 
     hires = (inputs.get("hiringNeeds") or {}).get("byMonth") or {}
     flows = inputs.get("actualFlows") or {}
     revenue_by_month = inputs.get("revenue") or {}
+    on_project = inputs.get("onProject") or {}
 
     for index, m in enumerate(months):
         month, fy = m["month"], m["fiscalYear"]
@@ -146,7 +153,8 @@ def build(inputs: dict, edits: dict[str, float]) -> dict[str, dict[str, float | 
         default_days = days_actual.get(month) if m.get("actual") and month in days_actual else weekdays(month)
         days = edited("working-days", col)
         days = float(default_days) if days is None else days
-        total = dict.fromkeys(("cur", "join", "leave", "end", "rev", "cost", "bill"), 0.0)
+        total = dict.fromkeys(("cur", "join", "leave", "end", "rev", "cost", "bill", "unfilled", "bench"), 0.0)
+        working = on_project.get(month)     # {"all": n, "b7": n, ...} or None: no project data for the month
 
         for b in BANDS:
             cur = previous_end[b]
@@ -155,8 +163,8 @@ def build(inputs: dict, edits: dict[str, float]) -> dict[str, dict[str, float | 
             flow = flows.get(month)
             join = edited(f"joiners:{b}", col)
             if join is None:
-                join = (float((flow.get("joiners") or {}).get(b, 0)) if flow else
-                        float(((hires.get(month) or {}).get(b) or {}).get("heads", 0)))
+                join = float((flow.get("joiners") or {}).get(b, 0)) if flow else 0.0
+            unfilled = float(((hires.get(month) or {}).get(b) or {}).get("heads", 0))
             leave = edited(f"leavers:{b}", col)
             if leave is None:
                 leave = float((flow.get("leavers") or {}).get(b, 0)) if flow else 0.0
@@ -167,7 +175,9 @@ def build(inputs: dict, edits: dict[str, float]) -> dict[str, dict[str, float | 
                 ur = actual_ur if actual_ur is not None else targets.get(b, targets.get("all", 0.0))
             billable = end * ur
             cost = end * rates[b] * days
+            bench = max(end - float(working.get(b, 0)), 0.0) if working is not None else None
             for section, v in (("current-hc", cur), ("joiners", join), ("leavers", leave), ("ending-hc", end),
+                               ("bench", bench), ("unfilled-demand", unfilled),
                                ("billable-ur", ur), ("billable-hc", billable), ("non-billable-hc", end - billable),
                                ("resource-cost", cost),
                                ("joiners-pct", join / end if end else 0.0),
@@ -175,7 +185,7 @@ def build(inputs: dict, edits: dict[str, float]) -> dict[str, dict[str, float | 
                 put(f"{section}:{b}", col, v)
             previous_end[b] = end
             for k, v in (("cur", cur), ("join", join), ("leave", leave), ("end", end),
-                         ("cost", cost), ("bill", billable)):
+                         ("cost", cost), ("bill", billable), ("unfilled", unfilled)):
                 total[k] += v
 
         all_ur = (ur_actual.get(month) or {}).get("all") if m.get("actual") else None
@@ -186,8 +196,9 @@ def build(inputs: dict, edits: dict[str, float]) -> dict[str, dict[str, float | 
             revenue = float(known) if known is not None else float(settings["revenuePerMonthUsd"])
         margin = revenue - total["cost"]
         end_hc = total["end"]
+        bench_all = max(total["end"] - float(working.get("all", 0)), 0.0) if working is not None else None
         for section, v in (("current-hc", total["cur"]), ("joiners", total["join"]), ("leavers", total["leave"]),
-                           ("ending-hc", total["end"]),
+                           ("ending-hc", total["end"]), ("bench", bench_all), ("unfilled-demand", total["unfilled"]),
                            ("revenue-per-hc", revenue / end_hc if end_hc else 0.0),
                            ("gp-per-hc", margin / end_hc if end_hc else 0.0),
                            ("revenue-per-hc-cost", revenue / total["cost"] if total["cost"] else 0.0),
@@ -219,6 +230,8 @@ def build(inputs: dict, edits: dict[str, float]) -> dict[str, dict[str, float | 
                 suffix = row[len(section):]
                 if section in OPENING:
                     v = values[row][cols[0]] or 0.0
+                elif section == "bench":
+                    v = values[row][cols[-1]]          # None when the last month has no project data
                 elif section in CLOSING:
                     v = values[row][cols[-1]] or 0.0
                 elif section in AVERAGED:

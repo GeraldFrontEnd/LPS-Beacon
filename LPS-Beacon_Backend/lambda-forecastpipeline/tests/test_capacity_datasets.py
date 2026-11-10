@@ -297,6 +297,27 @@ class ClockingTests(Base):
         self.assertEqual((p2["headcount"], p2["daysPerHead"], p2["utilisationFlag"]), (2, 14.0, "red"))
         self.assertIn("Under-utilised", p2["flagReason"])
 
+    def test_band_mix_is_the_share_of_people_in_band_7_or_8(self):
+        """10 Nov 2026: headcount, not FTE. Oct: A (band 7), B and C (band 5) -> 1 of 3."""
+        abcd = pd.DataFrame([("P1", "Helpdesk", "Agency X", "2026-10", 300_000.0, True),
+                             ("P2", "Network", "Agency X", "2026-10", 100_000.0, True)],
+                            columns=["Project_ID", "Project_Name", "End_Customer", "Month", "Revenue", "Actual"])
+        prod, _ = capacity._productivity(self.store, abcd, {"FY26": plan_settings.resolve("FY26")},
+                                         {"2026-10": 22.0}, {"2026-10"})
+        a = prod["agencies"][0]
+        self.assertAlmostEqual(a["bandMix"], round(1 / 3, 4))
+        oct_ = a["byMonth"]["2026-10"]
+        self.assertEqual((oct_["highBandPeople"], oct_["bandedPeople"]), (1, 3), "B counted once though on 2 projects")
+        p1 = next(p for p in a["projects"] if p["projectId"] == "P1")
+        self.assertEqual(p1["bandMix"], 0.5, "A and B")
+        self.assertEqual(prod["rules"]["bandMix"], {"highBands": [7, 8]})
+
+    def test_people_on_a_project_for_the_bench(self):
+        """Clocked months: clocked billable days (C has no clocking, so their plan counts); later: the plan."""
+        on, _ = capacity._on_project(self.store, ["2026-10", "2026-11"])
+        self.assertEqual(on["2026-10"], {"all": 3, "b5": 2, "b7": 1})
+        self.assertEqual(on["2026-11"], {"all": 1, "b7": 1})
+
 
 class MspoClockingTests(Base):
     """4 Nov 2026: FTE actual from the MSPO clocking export (hours by person, project and month), when uploaded."""
@@ -375,7 +396,7 @@ class CapacityInputsTests(Base):
         self.assertTrue(any("FY27 has no settings" in n for n in inputs["notes"]))
         self.assertEqual(inputs["sources"]["bu_ur"]["file"], "abc-BU_UR.xlsx")
 
-    def test_joiners_come_from_the_latest_reviews_hiring_gap(self):
+    def test_unfilled_demand_comes_from_the_latest_review(self):
         import lambda_function
         self.store.write_json("results/latest.json", {"runId": "r1", "prefix": "results/r1/",
                                                       "publishedAt": "2026-10-22T09:00:00+00:00"})
@@ -394,11 +415,11 @@ class CapacityInputsTests(Base):
                          "needed in an actual month (Apr): counted in the first forecast month (Jun)")
         self.assertEqual(hires["byMonth"]["2026-07"]["b7"],
                          {"heads": 3, "roles": {"Cloud Engineer L2": 2, "DCOps": 1}})
-        self.assertNotIn("2026-08", hires["byMonth"], "no band, so not a joiner")
+        self.assertNotIn("2026-08", hires["byMonth"], "no band, so left out")
         notes = " ".join(self.store.read_json(capacity.KEY)["notes"])
-        self.assertIn("default to the 4 people", notes)
-        self.assertIn("1 hires have no band", notes)
-        self.assertIn("1 hires fall after the plan", notes)
+        self.assertIn("unfilled demand: 4 people", notes)
+        self.assertIn("1 of the unfilled demand has no band", notes)
+        self.assertIn("1 of the unfilled demand falls after the plan", notes)
 
     def test_on_demand_with_nothing_uploaded(self):
         import lambda_function

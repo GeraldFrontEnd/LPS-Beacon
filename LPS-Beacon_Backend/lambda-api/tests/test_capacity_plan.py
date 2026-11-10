@@ -87,7 +87,7 @@ class WorkdayAndRevenueTests(unittest.TestCase):
         data["revenue"] = {"2026-04": {"revenue": 6_500_000, "cost": 4_000_000, "actual": True}}
         data["hiringNeeds"] = {"byMonth": {"2026-05": {"b9": {"heads": 7}}}}
         v = cp.build(data, {})
-        self.assertEqual(v["joiners:b9"]["May'26"], 3, "Workday wins over the hiring gap in its months")
+        self.assertEqual(v["joiners:b9"]["May'26"], 3, "Workday wins in its months")
         self.assertEqual(v["leavers:b9"]["May'26"], 1)
         self.assertEqual(v["ending-hc:b9"]["May'26"], 4)
         self.assertEqual(v["revenue"]["Apr'26"], 6_500_000, "ABCD revenue")
@@ -97,16 +97,38 @@ class WorkdayAndRevenueTests(unittest.TestCase):
         self.assertAlmostEqual(v["revenue-per-hc"]["Q1'26"], (6_500_000 + 8_000_000) / ((2 + 5) / 2), places=1)
 
 
-class HiringGapTests(unittest.TestCase):
-    def test_joiners_default_to_the_hiring_gap(self):
+class UnfilledDemandTests(unittest.TestCase):
+    """10 Nov 2026: the review's unfilled demand is its own row, shown "5 (+3)" after Joiners, and not in Ending HC."""
+
+    def test_unfilled_demand_is_not_a_joiner(self):
         i = inputs()
         i["hiringNeeds"] = {"runId": "r1", "byMonth": {"2026-05": {"b9": {"heads": 2, "roles": {"Architect": 2}}}}}
         v = cp.build(i, {})
-        self.assertEqual(v["joiners:b9"]["May'26"], 2)
-        self.assertEqual(v["ending-hc:b9"]["May'26"], 4)
-        self.assertEqual(v["joiners"]["May'26"], 2, "the total row adds them up")
-        self.assertEqual(cp.build(i, {"joiners:b9|May'26": 0})["joiners:b9"]["May'26"], 0, "a typed 0 overrides")
-        self.assertEqual(cp.build(i, {"joiners:b9|May'26": 1})["ending-hc:b9"]["May'26"], 3)
+        self.assertEqual(v["joiners:b9"]["May'26"], 0, "nobody hired yet")
+        self.assertEqual(v["unfilled-demand:b9"]["May'26"], 2)
+        self.assertEqual(v["unfilled-demand"]["May'26"], 2, "the total row adds them up")
+        self.assertEqual(v["unfilled-demand"]["Q1'26"], 2, "quarters add the months up")
+        self.assertEqual(v["ending-hc:b9"]["May'26"], 2, "unfilled demand is not in Ending HC")
+        typed = cp.build(i, {"joiners:b9|May'26": 5})
+        self.assertEqual(typed["joiners:b9"]["May'26"], 5)
+        self.assertEqual(typed["unfilled-demand:b9"]["May'26"], 2, "still shown next to typed joiners")
+        self.assertEqual(typed["ending-hc:b9"]["May'26"], 7)
+
+
+class BenchTests(unittest.TestCase):
+    def test_bench_is_ending_hc_minus_people_on_a_project(self):
+        i = inputs()
+        i["onProject"] = {"2026-04": {"all": 1, "b9": 1}, "2026-05": {"all": 5, "b9": 5}}
+        v = cp.build(i, {"joiners:b9|May'26": 1})
+        self.assertEqual(v["bench:b9"]["Apr'26"], 1, "2 people, 1 on a project")
+        self.assertEqual(v["bench"]["Apr'26"], 1)
+        self.assertEqual(v["bench:b9"]["May'26"], 0, "never below 0")
+        self.assertEqual(v["bench"]["Q1'26"], 0, "a quarter: its last month, like Ending HC")
+
+    def test_no_project_data_leaves_bench_empty(self):
+        v = cp.build(inputs(), {})
+        self.assertIsNone(v["bench"]["Apr'26"])
+        self.assertIsNone(v["bench:b9"]["Q1'26"])
 
 
 class EditRuleTests(unittest.TestCase):
