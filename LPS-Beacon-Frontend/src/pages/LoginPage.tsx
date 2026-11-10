@@ -175,7 +175,7 @@ export default function LoginPage() {
 
           {/* Purple banner joined to the top of the card, with the slogan. */}
           <div className="login-logo">
-            <​span className="login-logo-slogan">Workforce Analytics Agent<​/span>
+            <span className="login-logo-slogan">Workforce Analytics Agent</span>
           </div>
 
           <div className="login-card">
@@ -205,7 +205,7 @@ export default function LoginPage() {
                   </Link>
                 </div>
                 {/* The eye button sits inside the box, on the right. */}
-                <​span className="password-wrap">
+                <span className="password-wrap">
                   <input
                     id="login-password"
                     type={showPassword ? "text" : "password"}
@@ -224,7 +224,7 @@ export default function LoginPage() {
                   >
                     {showPassword ? <EyeOffIcon /> : <EyeIcon />}
                   </button>
-                <​/span>
+                </span>
               </div>
 
               {error && (
@@ -253,13 +253,13 @@ export default function LoginPage() {
                 <div className="login-progress-status" aria-live="polite">
                   {/* Three small bars that bounce up and down while the sign-in runs, echoing the beacon logo. */}
                   {phase === "loading" && (
-                    <​span className="login-bounce" aria-hidden="true">
-                      <​span />
-                      <​span />
-                      <​span />
-                    <​/span>
+                    <span className="login-bounce" aria-hidden="true">
+                      <span />
+                      <span />
+                      <span />
+                    </span>
                   )}
-                  {phase !== "idle" && <​span>{progressText}<​/span>}
+                  {phase !== "idle" && <span>{progressText}</span>}
                 </div>
               </div>
             </form>
@@ -271,9 +271,9 @@ export default function LoginPage() {
                 <ul>
                   {DEMO_ACCOUNTS.map((a) => (
                     <li key={a.email}>
-                      <​span>
+                      <span>
                         {ROLE_LABELS[a.role]}: {a.email}
-                      <​/span>
+                      </span>
                       <button
                         type="button"
                         className="link-button"
