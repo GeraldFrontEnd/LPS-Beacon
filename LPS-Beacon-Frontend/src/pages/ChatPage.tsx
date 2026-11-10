@@ -335,8 +335,8 @@ export default function ChatPage() {
           </button>
           <div className="chat-header-text">
             {activeProject && <p className="chat-breadcrumb">{activeProject.name} ›</p>}
-            <h1>{openProject ? openProject.name : (activeChat?.title ?? "Workforce Analytics Virtual Assistant")}</h1>
-            {!activeChat && !openProject && <p>Uncover Insights Into LPS Workforce Allocation.</p>}
+            <h1>{openProject ? openProject.name : (activeChat?.title ?? "Workforce Analytics Agent")}</h1>
+            {!activeChat && !openProject && <p>Empowering Smarter Workforce Decisions Across LPS Technology.</p>}
           </div>
           {activeChat && (
             <ActionMenu
