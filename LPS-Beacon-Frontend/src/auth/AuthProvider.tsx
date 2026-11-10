@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react"; // ReactNode = "anything React can display"
 import { AuthContext } from "./authContext";
 import {
+  completeNewPassword as serviceCompleteNewPassword,
   getFreshToken,
   loadSession,
   setSignOutNotice,
@@ -55,6 +56,11 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     setSession(newSession);
   }
 
+  // First sign-in: sets the user's own password, then signs them in.
+  async function completeNewPassword(newPassword: string) {
+    setSession(await serviceCompleteNewPassword(newPassword));
+  }
+
   // Logs out. We clear the screen state first so the UI reacts immediately.
   async function signOut() {
     clearPageState(); // the remembered filters and open chat belong to the person signing out
@@ -68,6 +74,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     token: session?.token ?? null,
     isLoading,
     signIn,
+    completeNewPassword,
     signOut,
   };
 

@@ -56,6 +56,8 @@
   --plan-input-line: #3d6a96;
   --chip-ink: #9cc0e4;
   --chart-1: #6fa6d6;
+  --nav-indicator: #ffffff; /* underline under the current tab */
+  --prompt-placeholder: #c3cad4; /* hint text in the chat box: lighter than muted, dimmer than typed text */
   color-scheme: dark;
 }
 
@@ -84,6 +86,8 @@
     --plan-input-line: #3d6a96;
     --chip-ink: #9cc0e4;
     --chart-1: #6fa6d6;
+    --nav-indicator: #ffffff; /* underline under the current tab */
+    --prompt-placeholder: #c3cad4; /* hint text in the chat box: lighter than muted, dimmer than typed text */
     color-scheme: dark;
   }
 }
@@ -134,12 +138,19 @@ body {
   text-decoration: none;
   font-weight: 500;
   border-bottom: 2px solid transparent;
+  transition: border-color 0.2s ease, color 0.2s ease;
 }
 
-/* The link for the page you are on. */
+/* The link for the page you are on. Blue underline in light mode, white in dark mode. */
 .nav-link.active {
   color: var(--ink);
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--nav-indicator, var(--accent));
+}
+
+/* Hint text in the chat box: muted grey in light mode, a lighter grey in dark mode. */
+.prompt-box textarea::placeholder {
+  color: var(--prompt-placeholder, var(--muted));
+  opacity: 1;
 }
 
 /* Both pages are a centred column that fills the space under the navigation bar.
@@ -219,6 +230,66 @@ body {
 .message-pending {
   color: var(--muted);
   font-style: italic;
+}
+
+/* "Thinking" indicator: four small purple dots, no bubble, rising and falling like a wave.
+   brand-ink is the send-button purple in light mode and a lighter purple in dark mode,
+   so the dots stand out against the page background in both themes. */
+.typing-dots {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 4px;
+}
+
+.typing-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand-ink);
+  animation: typing-wave 1.2s ease-in-out infinite;
+}
+
+.typing-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.typing-dots span:nth-child(4) {
+  animation-delay: 0.45s;
+}
+
+@keyframes typing-wave {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.55;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+/* Respect users who ask for less motion: keep the dots but only pulse them. */
+@media (prefers-reduced-motion: reduce) {
+  .typing-dots span {
+    animation-name: typing-pulse;
+  }
+  @keyframes typing-pulse {
+    0%,
+    100% {
+      opacity: 0.45;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
 }
 
 /* Assistant replies rendered from Markdown. Normal wrapping replaces pre-wrap, which would add stray blank lines. */
@@ -330,7 +401,127 @@ body {
 
 .prompt-actions {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.prompt-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---- The "+" button at the bottom left of the prompt box, and its Add to project menu ---- */
+
+.add-menu {
+  position: relative;
+}
+
+/* Same size, corners and purple as the send button, but outlined so Send stays the main action. */
+.add-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  color: var(--brand-ink);
+  background: var(--brand-soft);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.add-button:hover,
+.add-button[aria-expanded="true"] {
+  color: #ffffff;
+  background: var(--brand-purple);
+}
+
+.add-button:focus-visible {
+  outline: 2px solid var(--brand-ink);
+  outline-offset: 2px;
+}
+
+/* Opens upwards from the "+", since the prompt box is at the bottom of the screen. */
+.add-menu-panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 80;
+  width: 224px;
+  padding: 4px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  cursor: default;
+}
+
+.add-menu-row {
+  position: relative;
+}
+
+.add-menu-row > .action-menu-item[aria-expanded="true"] {
+  background: var(--hover);
+}
+
+.add-menu-chevron {
+  color: var(--muted);
+}
+
+/* The project list sits to the right of "Add to project", lined up with its bottom edge.
+   The invisible ::before strip fills the gap, so the hover survives the mouse crossing it. */
+.add-menu-sub {
+  bottom: -4px;
+  left: 100%;
+  width: 260px;
+  margin-left: 9px;
+}
+
+.add-menu-sub::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -14px;
+  width: 14px;
+}
+
+.add-menu-sub .action-menu-item {
+  gap: 10px;
+}
+
+.add-menu-sub .sidebar-folder-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.add-menu-list {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.add-menu-divider {
+  margin: 4px 8px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.add-menu-empty {
+  margin: 0;
+  padding: 6px 12px 8px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+/* Phones: no room on the right, so the project list opens above the first menu instead. */
+@media (max-width: 640px) {
+  .add-menu-sub {
+    bottom: calc(100% + 4px);
+    left: -4px;
+    margin-left: 0;
+  }
 }
 
 /* The round-cornered square with the up arrow. */
@@ -917,6 +1108,57 @@ body {
 
 .login-card .error-banner {
   margin: 0 0 18px;
+}
+
+/* Green confirmation: "we've emailed a code", "your password has been changed". */
+.success-banner {
+  margin: 0 0 18px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+/* The password rules under a new password, each turning green with a tick once met. */
+.password-rules {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 4px 16px;
+  margin: -8px 0 20px;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.password-rules li {
+  display: flex;
+  gap: 6px;
+}
+
+.password-rules li.is-met {
+  color: var(--success);
+}
+
+/* "Send a new code" and "Use a different email" under the reset button. */
+.login-alt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 14px 0 0;
+}
+
+.login-alt-actions .link-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.login-back {
+  margin: 22px 0 0;
+  text-align: center;
 }
 
 .login-card .primary-button {

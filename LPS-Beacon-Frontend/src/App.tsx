@@ -15,6 +15,7 @@ import AnalysisPage from "./pages/AnalysisPage";
 import CapacityPlanPage from "./pages/CapacityPlanPage";
 import ChatPage from "./pages/ChatPage";
 import DashboardPage from "./pages/DashboardPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import LoginPage from "./pages/LoginPage";
 import UploadPage from "./pages/UploadPage";
 import ReviewProvider from "./review/ReviewProvider";
@@ -37,8 +38,9 @@ export default function App() {
               <TooltipLayer />
               <PageErrorBoundary>
                 <Routes>
-                  {/* The login page is the only page that doesn't need a login. */}
+                  {/* The login and "Forgot your password?" pages are the only pages that don't need a login. */}
                   <Route path="/login" element={<LoginPage />} />
+                  <Route path="/forgot-password" element={<ForgotPasswordPage />} />
                   {/* RequireAuth wraps each page that needs a login. */}
                   <Route
                     path="/"

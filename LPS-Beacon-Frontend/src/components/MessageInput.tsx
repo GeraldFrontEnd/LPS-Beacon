@@ -3,14 +3,15 @@
 
 import { useLayoutEffect, useRef } from "react";
 import { usePageState } from "../lib/pageState";
-import type { FormEvent, KeyboardEvent } from "react";
+import type { FormEvent, KeyboardEvent, ReactNode } from "react";
 
 interface MessageInputProps {
   onSend: (text: string) => void; // function from the parent that handles a finished message
   disabled: boolean; // true while the assistant is replying, to prevent double sending
+  leftActions?: ReactNode; // buttons at the bottom left of the box (the "+" Add to project menu)
 }
 
-export default function MessageInput({ onSend, disabled }: MessageInputProps) {
+export default function MessageInput({ onSend, disabled, leftActions }: MessageInputProps) {
   // "text" holds what the user has typed so far; setText updates it.
   // A half-typed question survives leaving the Chat tab (remembered 30 minutes, lib/pageState.ts).
   const [text, setText] = usePageState("chat.draft", "");
@@ -62,9 +63,10 @@ export default function MessageInput({ onSend, disabled }: MessageInputProps) {
           value={text} // the box always shows the "text" state
           onChange={(e) => setText(e.target.value)} // update state on every keystroke
           onKeyDown={handleKeyDown}
-          placeholder="Ask about resource availability, skills, or capacity planning. For example: 'Show Cloud Engineer L2 availability for Q1' or 'List all available Cloud Engineer L2 resources for Q1 2027'."
+          placeholder="Ask about resource supply and demand. For example: 'Who is rolling off projects in the next 3 months?' or 'Which opportunities need resources in the next 3 months, and when do they start?'"
         />
         <div className="prompt-actions">
+          <div className="prompt-actions-left">{leftActions}</div>
           {/* Disabled when busy or when the box is empty. */}
           <button type="submit" className="send-button" disabled={disabled || text.trim() === ""} aria-label="Send">
             <svg

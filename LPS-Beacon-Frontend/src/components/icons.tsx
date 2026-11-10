@@ -127,7 +127,13 @@ export const MonitorIcon = makeIcon(
     <line x1="12" x2="12" y1="17" y2="21" />
   </>
 );
-export const CheckIcon = makeIcon(<path d="M20 6 9 17l-5-5" />);
+export const PlusIcon = makeIcon(
+  <>
+    <path d="M12 5v14" />
+    <path d="M5 12h14" />
+  </>,
+);
+export const CheckIcon =makeIcon(<path d="M20 6 9 17l-5-5" />);
 export const BellIcon = makeIcon(
   <>
     <path d="M10.27 21a2 2 0 0 0 3.46 0" />

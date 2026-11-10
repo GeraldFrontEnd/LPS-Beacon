@@ -25,5 +25,6 @@ export interface AuthContextValue {
   token: string | null; // null means nobody is logged in
   isLoading: boolean; // true while the app checks whether an earlier login is still valid
   signIn: (email: string, password: string) => Promise<void>; // throws an Error if login fails
+  completeNewPassword: (newPassword: string) => Promise<void>; // first sign-in: replaces the temporary password
   signOut: () => Promise<void>;
 }

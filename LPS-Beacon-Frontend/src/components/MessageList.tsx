@@ -38,7 +38,7 @@ function AssistantText({ text }: { text: string }) {
 interface MessageListProps {
   messages: ChatMessage[]; // the conversation so far
   isLoading: boolean; // true while we wait for the assistant's reply (or for an old chat to load)
-  pendingText?: string; // what the waiting bubble says; defaults to "Looking that up…"
+  pendingText?: string; // what the waiting bubble says; without it the bubble shows animated dots
 }
 
 export default function MessageList({ messages, isLoading, pendingText }: MessageListProps) {
@@ -64,7 +64,17 @@ export default function MessageList({ messages, isLoading, pendingText }: Messag
 
       {/* Only shown while waiting for the backend. */}
       {isLoading && (
-        <div className="message message-assistant message-pending">{pendingText ?? "Looking that up…"}</div>
+        pendingText ? (
+          <div className="message message-assistant message-pending">{pendingText}</div>
+        ) : (
+          // Four purple dots bouncing in a wave while the assistant thinks (no bubble around them).
+          <div className="typing-dots" role="status" aria-label="Looking that up">
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
+        )
       )}
 
       {/* Invisible marker at the bottom that we scroll to. */}

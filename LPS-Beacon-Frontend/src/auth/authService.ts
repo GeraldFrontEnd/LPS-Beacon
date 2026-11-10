@@ -6,7 +6,10 @@
 
 import { Amplify } from "aws-amplify";
 import {
+  confirmResetPassword, // forgot password, step 2: the emailed code and the new password
+  confirmSignIn, // first sign-in: answers Cognito's "choose a new password" step
   fetchAuthSession, // reads the current login (and refreshes it if it expired)
+  resetPassword, // forgot password, step 1: Cognito emails a code
   signIn as amplifySignIn, // renamed so it doesn't clash with our own signIn below
   signOut as amplifySignOut,
 } from "aws-amplify/auth";
@@ -126,14 +129,11 @@ async function cognitoSignIn(email: string, password: string): Promise<AuthSessi
     await amplifySignOut().catch(() => undefined); // clear any half-finished earlier login first
     const result = await amplifySignIn({ username: email.trim(), password });
 
-    // Cognito can ask for an extra step (for example choosing a new password). We don't support those yet.
+    // Cognito can ask for an extra step. A first sign-in with an administrator's temporary password must choose a
+    // new password: the sign-in page asks for it and finishes with completeNewPassword below.
     if (!result.isSignedIn) {
       const step = result.nextStep.signInStep;
-      if (step === "CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED") {
-        throw new Error(
-          "This account must choose a new password first. Ask an administrator to set a permanent password."
-        );
-      }
+      if (step === "CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED") throw new NewPasswordRequiredError();
       throw new Error(`An extra sign-in step is required (${step}). This app does not support it yet.`);
     }
 
@@ -141,8 +141,126 @@ async function cognitoSignIn(email: string, password: string): Promise<AuthSessi
     if (!session) throw new Error("Sign-in finished but no session was found. Try again.");
     return session;
   } catch (err) {
+    // The half-finished sign-in is kept for the new password step; anything else is cleared.
+    if (err instanceof NewPasswordRequiredError) throw err;
     await amplifySignOut().catch(() => undefined); // don't leave a half login behind
     throw friendlyError(err);
+  }
+}
+
+// ---------- Choosing a password: first sign-in and "Forgot your password?" ----------
+
+// Thrown by signIn when the account still has the temporary password an administrator set. Not an error to show:
+// the sign-in page switches to "Choose a new password".
+export class NewPasswordRequiredError extends Error {
+  constructor() {
+    super("Choose a new password to finish signing in.");
+    this.name = "NewPasswordRequiredError";
+  }
+}
+
+// The user pool's password policy (ap-southeast-1_46Sto9nIH, checked 10 Nov 2026). Shown as a checklist under the
+// new password box. If the policy changes in the Cognito console, change it here too; Cognito still has the final say.
+const COGNITO_SYMBOLS = /[\^$*.[\]{}()?"!@#%&/\\,><':;|_~`=+\- ]/;
+export const PASSWORD_RULES: { label: string; test: (p: string) => boolean }[] = [
+  { label: "At least 8 characters", test: (p) => p.length >= 8 },
+  { label: "An uppercase letter", test: (p) => /[A-Z]/.test(p) },
+  { label: "A lowercase letter", test: (p) => /[a-z]/.test(p) },
+  { label: "A number", test: (p) => /\d/.test(p) },
+  { label: "A symbol, such as ! @ # $ %", test: (p) => COGNITO_SYMBOLS.test(p) },
+];
+
+export function passwordMeetsRules(password: string): boolean {
+  return PASSWORD_RULES.every((r) => r.test(password)) && password.trim() === password;
+}
+
+// The code the mock "Forgot your password?" accepts (no email is sent in mock mode).
+export const MOCK_RESET_CODE = "123456";
+
+// Cognito's errors for the password steps, in words a person can act on.
+function passwordError(err: unknown, step: "request" | "confirm" | "new-password"): Error {
+  const name = err instanceof Error ? err.name : "";
+  const message = err instanceof Error ? err.message : "";
+  switch (name) {
+    case "CodeMismatchException":
+      return new Error("That code isn't right. Check the latest email from LPS-Beacon and try again.");
+    case "ExpiredCodeException":
+      return new Error("That code has expired. Send a new code and use the newest email.");
+    case "InvalidPasswordException":
+      return new Error("The new password doesn't meet the rules listed under it.");
+    case "LimitExceededException":
+    case "TooManyRequestsException":
+    case "TooManyFailedAttemptsException":
+      return new Error("Too many attempts. Wait 15 minutes, then try again.");
+    case "NotAuthorizedException":
+      if (step === "new-password") {
+        return new Error("This step took too long. Sign in again with your temporary password.");
+      }
+      // Cognito refuses a reset for an account that has never signed in, or one that is disabled.
+      return new Error(
+        "This account's password can't be reset here. If you have never signed in, use the temporary password " +
+          "from your invitation email; otherwise ask an administrator."
+      );
+    case "InvalidParameterException":
+      if (/verified/i.test(message)) {
+        return new Error("This account has no verified email to send a code to. Ask an administrator.");
+      }
+      return new Error("Check the details and try again.");
+    case "UserNotFoundException":
+      return new Error("That code isn't right. Check the latest email from LPS-Beacon and try again.");
+    case "NetworkError":
+      return new Error("Could not reach the sign-in service. Check your connection.");
+  }
+  return new Error(step === "new-password" ? "Could not set the new password. Try again." : "Could not reset the password. Try again.");
+}
+
+// First sign-in: sets the user's own password in place of the temporary one, then signs them in.
+async function cognitoCompleteNewPassword(newPassword: string): Promise<AuthSession> {
+  try {
+    const result = await confirmSignIn({ challengeResponse: newPassword });
+    if (!result.isSignedIn) {
+      throw new Error(`An extra sign-in step is required (${result.nextStep.signInStep}). This app does not support it yet.`);
+    }
+    const session = await readCognitoSession();
+    if (!session) throw new Error("Sign-in finished but no session was found. Try again.");
+    return session;
+  } catch (err) {
+    if (err instanceof Error && err.name === "InvalidPasswordException") throw passwordError(err, "new-password");
+    await amplifySignOut().catch(() => undefined);
+    // Our own messages (for example "not in a group yet") pass through; Cognito's are translated.
+    if (err instanceof Error && err.name === "Error") throw err;
+    throw passwordError(err, "new-password");
+  }
+}
+
+// Forgot password, step 1: Cognito emails a 6-digit code (through the lps-beacon-reset-audit trigger, which records
+// the request). With "prevent user existence errors" on, an unknown email looks the same as a known one, so the page
+// never says whether the account exists.
+export async function requestPasswordReset(email: string): Promise<void> {
+  if (IS_MOCK) {
+    await wait(500);
+    return;
+  }
+  if (!USER_POOL_ID || !CLIENT_ID) throw new Error("Cognito is not set up in this app.");
+  try {
+    await resetPassword({ username: email.trim() });
+  } catch (err) {
+    if (err instanceof Error && err.name === "UserNotFoundException") return; // same answer as a known email
+    throw passwordError(err, "request");
+  }
+}
+
+// Forgot password, step 2: the code from the email and the new password. Does not sign the user in.
+export async function confirmPasswordReset(email: string, code: string, newPassword: string): Promise<void> {
+  if (IS_MOCK) {
+    await wait(500);
+    if (code.trim() !== MOCK_RESET_CODE) throw passwordError({ name: "CodeMismatchException" } as Error, "confirm");
+    return; // practice accounts keep demo123: there is no server to store a new password
+  }
+  try {
+    await confirmResetPassword({ username: email.trim(), confirmationCode: code.trim(), newPassword });
+  } catch (err) {
+    throw passwordError(err, "confirm");
   }
 }
 
@@ -171,6 +289,12 @@ export async function loadSession(): Promise<AuthSession | null> {
 // Logs in. Returns the session, or throws an Error with a message to show.
 export async function signIn(email: string, password: string): Promise<AuthSession> {
   return IS_MOCK ? mockSignIn(email, password) : cognitoSignIn(email, password);
+}
+
+// Finishes a first sign-in by choosing a new password (after signIn threw NewPasswordRequiredError).
+export async function completeNewPassword(newPassword: string): Promise<AuthSession> {
+  if (IS_MOCK) throw new Error("Practice accounts already have a password.");
+  return cognitoCompleteNewPassword(newPassword);
 }
 
 // ---------- Keeping the login token valid ----------

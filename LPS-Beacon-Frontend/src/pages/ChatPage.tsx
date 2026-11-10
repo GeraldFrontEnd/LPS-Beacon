@@ -10,6 +10,7 @@ import MessageList from "../components/MessageList";
 import MessageInput from "../components/MessageInput";
 import Sidebar from "../components/Sidebar";
 import ActionMenu from "../components/ActionMenu";
+import AddToProjectMenu from "../components/AddToProjectMenu";
 import Dialog from "../components/Dialog";
 import type { DialogOptions } from "../components/Dialog";
 import type { MenuAction } from "../components/ActionMenu";
@@ -183,7 +184,8 @@ export default function ChatPage() {
 
   // ---- Project folders ----
 
-  function createProject() {
+  // "then" is given by the "+" menu: the new folder gets the chat instead of being opened.
+  function createProject(then?: (projectId: string, name: string) => void) {
     setDialog({
       title: "New project",
       input: { value: "", placeholder: "Project name" },
@@ -191,10 +193,24 @@ export default function ChatPage() {
       onConfirm: (name) => {
         const trimmed = name.trim();
         if (!trimmed) return;
-        show({ kind: "project", id: history.createProject(trimmed) });
+        const id = history.createProject(trimmed);
+        if (then) return then(id, trimmed);
+        show({ kind: "project", id });
         flash(`Project “${trimmed}” created`);
       },
     });
+  }
+
+  // The "+" menu's "Add to project": files the open chat in a folder. A chat not sent yet is filed
+  // there when its first question goes out (the same as "New chat in this project").
+  function addToProject(projectId: string, name = history.projects.find((p) => p.id === projectId)?.name) {
+    if (activeChat) {
+      history.moveChat(activeChat.id, projectId);
+      flash(`Added to “${name}”`);
+    } else {
+      setView({ kind: "new", projectId });
+      flash(`This chat will be saved in “${name}”`);
+    }
   }
 
   function renameProject(project: Project) {
@@ -310,7 +326,7 @@ export default function ChatPage() {
         onNewChat={() => show({ kind: "new", projectId: null })}
         onSelectChat={selectChat}
         onSelectProject={(id) => show({ kind: "project", id })}
-        onCreateProject={createProject}
+        onCreateProject={() => createProject()}
         onRenameProject={renameProject}
         onDeleteProject={deleteProject}
         onMoveChat={moveChat}
@@ -335,8 +351,9 @@ export default function ChatPage() {
           </button>
           <div className="chat-header-text">
             {activeProject && <p className="chat-breadcrumb">{activeProject.name} ›</p>}
-            <h1>{openProject ? openProject.name : (activeChat?.title ?? "Workforce Analytics Agent")}</h1>
-            {!activeChat && !openProject && <p>Empowering Smarter Workforce Decisions Across LPS Technology.</p>}
+            {/* The agent's name and slogan stay put once a chat starts; the chat's title is in the sidebar. */}
+            <h1>{openProject ? openProject.name : "Workforce Analytics Agent"}</h1>
+            {!openProject && <p>Empowering Smarter Workforce Decisions Across LPS Technology.</p>}
           </div>
           {activeChat && (
             <ActionMenu
@@ -424,7 +441,18 @@ export default function ChatPage() {
               </p>
             )}
 
-            <MessageInput onSend={handleSend} disabled={isLoading} />
+            <MessageInput
+              onSend={handleSend}
+              disabled={isLoading}
+              leftActions={
+                <AddToProjectMenu
+                  projects={history.projects}
+                  currentProjectId={activeChat ? activeChat.projectId : view.kind === "new" ? view.projectId : null}
+                  onSelect={(id) => addToProject(id)}
+                  onCreateProject={() => createProject((id, name) => addToProject(id, name))}
+                />
+              }
+            />
           </>
         )}
       </main>
