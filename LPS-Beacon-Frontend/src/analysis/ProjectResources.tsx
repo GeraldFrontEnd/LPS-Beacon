@@ -10,8 +10,8 @@
 //   Average billable MD   billable man-days they clocked a month on all their projects; red below 15.3 or above 18
 // Over a quarter or the year every figure is an average a month over the period's months (6 Nov 2026, Crislyn: one
 // month swings with leave), from GET /dashboard ... &months=
-// Loaded from GET /dashboard?agency=&projectId=&month=&people=1 when the row is opened. The API still sends names
-// (the chat's project lists use them); this list does not show them.
+// Loaded from GET /dashboard?agency=&projectId=&month=&people=1 when the row is opened. The API sends no names
+// either, already sorted by position and band.
 
 import { useEffect, useState } from "react";
 import { getDashboardView } from "../api/client";

@@ -1447,12 +1447,12 @@ def selection_people(roster, project_ids, month=None):
 def _people_over(project, months, full):
     """One project's people averaged a month over several months (6 Nov 2026, Crislyn: judge on a quarter, not one
     month): planned FTE over the months they are planned; actual FTE and their billable man-days (all their projects)
-    over the months they clocked."""
+    over the months they clocked. The name only matches a person across months; it is not sent (PDPA, _no_names)."""
     acc: dict[str, dict] = {}
     for m in months:
         for person in (((project.get("byMonth") or {}).get(m) or {}).get("people") or []):
             key = person.get("name") or person.get("position") or "?"
-            a = acc.setdefault(key, {"name": person.get("name"), "skill": person.get("position"), "band": person.get("band"),
+            a = acc.setdefault(key, {"skill": person.get("position"), "band": person.get("band"),
                                      "employment": person.get("employment"), "salaryScale": None,
                                      "plan": [], "actual": [], "days": []})
             a["plan"].append(float(person.get("planDays") or 0))
@@ -1467,7 +1467,13 @@ def _people_over(project, months, full):
         out.append({**a, "planFte": round((plan or 0) / full, 2),
                     "actualFte": None if actual is None else round(actual / full, 2),
                     "clockedDaysAllProjects": None if days is None else round(days, 2)})
-    return sorted(out, key=lambda r: str(r["name"] or "~"))
+    return sorted(out, key=_no_names)
+
+
+def _no_names(row):
+    """Sort key for a project's people list (10 Nov 2026 review, PDPA): no names are sent with band and salary scale,
+    and the order is position, then band (highest first), so it does not follow the names either."""
+    return (str(row.get("skill") or "~"), -(row.get("band") or 0))
 
 
 def agency_panels(roster, groups=None, month=None, sold=None, with_people=False, people_months=None):
@@ -1477,8 +1483,8 @@ def agency_panels(roster, groups=None, month=None, sold=None, with_people=False,
         as sold      quote line man-days / 18 (inputs.json asSold, pipeline/capacity.py _as_sold); None without it
         as planned   SL x RP man-days / 18 (the PM's plan)
         actual       billable days clocked to its projects / 18 (MSPO clocking); None in a month not clocked yet
-    with_people: each project also lists its people (name, skill = standardised position, band, employment, salary
-    scale (no source yet: None), planned and actual FTE, and the days they clocked on all their projects)."""
+    with_people: each project also lists its people (skill = standardised position, band, employment, salary scale
+    (no source yet: None), planned and actual FTE, and the days they clocked on all their projects). No names."""
     projects = (roster or {}).get("projects") or {}
     actual_months = (roster or {}).get("actualMonths") or []
     month = month or max(actual_months or [""]) or None
@@ -1516,13 +1522,13 @@ def agency_panels(roster, groups=None, month=None, sold=None, with_people=False,
                 row["people"] = _people_over(p, people_months, full)
             elif with_people:
                 row["people"] = sorted(({
-                    "name": person.get("name"), "skill": person.get("position"), "band": person.get("band"),
+                    "skill": person.get("position"), "band": person.get("band"),
                     "employment": person.get("employment"), "salaryScale": None,
                     "planFte": round(float(person.get("planDays") or 0) / full, 2),
                     "actualFte": (round(float(person["actualDays"]) / full, 2)
                                   if clocked and person.get("actualDays") is not None else None),
                     "clockedDaysAllProjects": person.get("clockedDaysAllProjects"),
-                } for person in people), key=lambda r: str(r["name"] or "~"))
+                } for person in people), key=_no_names)
             rows.append(row)
         if not rows:
             continue

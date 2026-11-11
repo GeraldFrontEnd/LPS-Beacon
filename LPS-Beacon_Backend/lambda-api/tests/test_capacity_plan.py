@@ -306,7 +306,9 @@ class RouteTests(unittest.TestCase):
         self.assertEqual([p["asSoldFte"] for p in x["projects"]], [3.0, None], "P2 has no quote line")
         self.assertNotIn("people", x["projects"][0], "the Dashboard summary carries no people")
         with_people = L.agency_panels(roster, {"Agency X": ["P1"]}, sold=sold, with_people=True)
-        amy = next(r for r in with_people["agencies"][0]["projects"][0]["people"] if r["name"] == "Amy")
+        p1_people = with_people["agencies"][0]["projects"][0]["people"]
+        self.assertTrue(all("name" not in r for r in p1_people), "no names next to band (PDPA)")
+        amy = next(r for r in p1_people if r["actualFte"] == 0.5)
         self.assertEqual((amy["planFte"], amy["actualFte"], amy["skill"], amy["salaryScale"]), (1.0, 0.5, "DBA", None))
         fc = L.agency_panels(roster, {"Agency Y": ["P3"]}, "2026-11")
         self.assertFalse(fc["clocked"])

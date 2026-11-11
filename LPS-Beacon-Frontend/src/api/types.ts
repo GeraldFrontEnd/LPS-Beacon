@@ -323,7 +323,7 @@ export interface AgencyPanelProject {
 }
 
 export interface AgencyPanelPerson {
-  name: string | null;
+  // No name (10 Nov 2026 review, PDPA): the API sends band and salary scale, never with a name.
   skill: string | null; // the standardised position, until a per-person skill source exists
   band: number | null;
   employment: string | null;
