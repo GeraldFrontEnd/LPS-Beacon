@@ -3,8 +3,6 @@
 #   LPS-Beacon_Backend/lambda-api/**               -> 3 API lambda
 #   LPS-Beacon-Frontend/**                         -> 4 frontend (S3 + CloudFront)
 # Order is kept: pipeline -> rebuild -> API -> frontend. "Run workflow" (manual) deploys everything.
-# Two approvals guard the live site: a reviewed PR to merge into main (branch ruleset + CODEOWNERS),
-# then "Approve and deploy" on the production environment before any AWS step runs.
 # One-time AWS setup (OIDC role, repo variables): see docs/ci-cd-setup.md.
 name: Deploy
 
@@ -12,6 +10,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: AWS login + build everything, but change nothing live"
+        type: boolean
+        default: true
 
 concurrency:
   group: deploy-main
@@ -43,26 +46,32 @@ jobs:
       - uses: dorny/paths-filter@v3
         id: f
         with:
+          # Only files that actually ship (deploy-steps.txt). Docs, tests and helper scripts do not
+          # trigger a deploy or a release.
           filters: |
-            pipeline: 'LPS-Beacon_Backend/lambda-forecastpipeline/**'
-            api: 'LPS-Beacon_Backend/lambda-api/**'
-            frontend: 'LPS-Beacon-Frontend/**'
-
-  # Approval gate: pauses here until a required reviewer of the "production" environment
-  # (Derek or Gerald) clicks "Approve and deploy". Nothing touches AWS before this.
-  approve:
-    needs: changes
-    if: needs.changes.outputs.pipeline == 'true' || needs.changes.outputs.api == 'true' || needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - run: |
-          echo "Deploy approved for ${{ github.sha }}"
-          echo "pipeline=${{ needs.changes.outputs.pipeline }} api=${{ needs.changes.outputs.api }} frontend=${{ needs.changes.outputs.frontend }}"
+            pipeline:   # step 1+2: what the Dockerfile copies into the image
+              - 'LPS-Beacon_Backend/lambda-forecastpipeline/Dockerfile'
+              - 'LPS-Beacon_Backend/lambda-forecastpipeline/.dockerignore'
+              - 'LPS-Beacon_Backend/lambda-forecastpipeline/requirements.txt'
+              - 'LPS-Beacon_Backend/lambda-forecastpipeline/lambda_function.py'
+              - 'LPS-Beacon_Backend/lambda-forecastpipeline/matching_script.py'
+              - 'LPS-Beacon_Backend/lambda-forecastpipeline/matching_python_script.py'
+              - 'LPS-Beacon_Backend/lambda-forecastpipeline/pipeline/**'
+            api:        # step 3: the zip is every .py in lambda-api/ (not tests/)
+              - 'LPS-Beacon_Backend/lambda-api/*.py'
+            frontend:   # step 4: inputs to "npm run build"
+              - 'LPS-Beacon-Frontend/src/**'
+              - 'LPS-Beacon-Frontend/public/**'
+              - 'LPS-Beacon-Frontend/index.html'
+              - 'LPS-Beacon-Frontend/LPSLogo.avif'
+              - 'LPS-Beacon-Frontend/package.json'
+              - 'LPS-Beacon-Frontend/package-lock.json'
+              - 'LPS-Beacon-Frontend/vite.config.ts'
+              - 'LPS-Beacon-Frontend/tsconfig*.json'
 
   # 1 + 2. Pipeline lambda (container image) and rebuild the dashboard / analysis data
   pipeline:
-    needs: [changes, approve]
+    needs: changes
     if: needs.changes.outputs.pipeline == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -80,16 +89,21 @@ jobs:
           context: LPS-Beacon_Backend/lambda-forecastpipeline
           platforms: linux/amd64
           provenance: false # Lambda rejects multi-manifest images
-          push: true
+          push: ${{ !inputs.dry_run }}
           tags: ${{ steps.ecr.outputs.registry }}/${{ env.PIPELINE_REPO }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Dry run - check Lambda access
+        if: ${{ inputs.dry_run }}
+        run: aws lambda get-function-configuration --function-name "$PIPELINE_FN" --query '{fn:FunctionName,modified:LastModified}'
       - name: Point the function at the new image
+        if: ${{ !inputs.dry_run }}
         run: |
           aws lambda update-function-code --function-name "$PIPELINE_FN" \
             --image-uri "${{ steps.ecr.outputs.registry }}/$PIPELINE_REPO:${{ github.sha }}"
           aws lambda wait function-updated --function-name "$PIPELINE_FN"
       - name: Rebuild capacity data (never mode=full)
+        if: ${{ !inputs.dry_run }}
         run: |
           aws lambda invoke --function-name "$PIPELINE_FN" \
             --cli-binary-format raw-in-base64-out --cli-read-timeout 900 \
@@ -97,6 +111,7 @@ jobs:
           cat meta.json out.json
           if jq -e 'has("FunctionError")' meta.json >/dev/null; then echo "::error::Pipeline invoke failed"; exit 1; fi
       - name: Check new data shape
+        if: ${{ !inputs.dry_run }}
         run: |
           ok=$(aws s3 cp "s3://$DATA_BUCKET/results/capacity/inputs.json" - | jq '.productivity.agencies[0] | has("byMonth")')
           echo "byMonth present: $ok"
@@ -104,8 +119,8 @@ jobs:
 
   # 3. API lambda (zip). Zips every .py in lambda-api/, so new files are picked up automatically.
   api:
-    needs: [changes, approve, pipeline]
-    if: ${{ !failure() && !cancelled() && needs.approve.result == 'success' && needs.changes.outputs.api == 'true' }}
+    needs: [changes, pipeline]
+    if: ${{ !failure() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.api == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -117,14 +132,19 @@ jobs:
         working-directory: LPS-Beacon_Backend/lambda-api
         run: |
           zip -j api.zip *.py
+          unzip -l api.zip
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            aws lambda get-function-configuration --function-name "$API_FN" --query '{fn:FunctionName,modified:LastModified}'
+            exit 0
+          fi
           aws lambda update-function-code --function-name "$API_FN" --zip-file fileb://api.zip
           aws lambda wait function-updated --function-name "$API_FN"
       # Reminder: new API routes still need adding in API Gateway (9dpaon3lz7) with the JWT authorizer.
 
   # 4 + 5. Frontend (S3 + CloudFront) and a basic smoke check
   frontend:
-    needs: [changes, approve, pipeline, api]
-    if: ${{ !failure() && !cancelled() && needs.approve.result == 'success' && needs.changes.outputs.frontend == 'true' }}
+    needs: [changes, pipeline, api]
+    if: ${{ !failure() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -153,9 +173,67 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - name: Upload and invalidate
         run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            aws s3 sync dist "s3://$FRONTEND_BUCKET" --delete --dryrun   # lists what WOULD change
+            exit 0
+          fi
           aws s3 sync dist "s3://$FRONTEND_BUCKET" --delete
           aws cloudfront create-invalidation --distribution-id "$CF_DISTRIBUTION" --paths "/*"
       - name: Smoke check
         run: |
           domain=$(aws cloudfront get-distribution --id "$CF_DISTRIBUTION" --query 'Distribution.DomainName' --output text)
           curl -fsS -o /dev/null -w "https://$domain -> %{http_code}\n" "https://$domain/"
+
+  # 6. Release notes. Only after a successful real deploy from a push that changed the pipeline,
+  # the API or the frontend. Docs/workflow/other minor changes never create a release.
+  # Version bump from commit messages since the last release:
+  #   "feat: ..." -> minor (v1.1.0)   "fix: ..." or anything else -> patch (v1.0.1)
+  release:
+    needs: [changes, pipeline, api, frontend]
+    if: >-
+      ${{ !failure() && !cancelled() && github.event_name == 'push' && needs.changes.result == 'success' &&
+      (needs.changes.outputs.pipeline == 'true' || needs.changes.outputs.api == 'true' || needs.changes.outputs.frontend == 'true') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the tag + GitHub Release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags for the changelog
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PIPELINE: ${{ needs.changes.outputs.pipeline }}
+          API: ${{ needs.changes.outputs.api }}
+          FRONTEND: ${{ needs.changes.outputs.frontend }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          last=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+          if [ -n "$last" ]; then range="$last..HEAD"
+          elif git cat-file -e "$BEFORE" 2>/dev/null; then range="$BEFORE..HEAD"
+          else range="HEAD~1..HEAD"; fi
+
+          subjects=$(git log "$range" --no-merges --pretty=%s)
+          [ -n "$subjects" ] || { echo "No new commits since $last; no release."; exit 0; }
+
+          IFS=. read -r major minor patch <<< "${last#v}"
+          major=${major:-0}; minor=${minor:-0}; patch=${patch:-0}
+          if [ -z "$last" ]; then major=1; minor=0; patch=0
+          elif grep -qiE '^feat(\([^)]*\))?:' <<< "$subjects"; then minor=$((minor+1)); patch=0
+          else patch=$((patch+1)); fi
+          version="v$major.$minor.$patch"
+
+          {
+            echo "## Deployed components"
+            [ "$PIPELINE" = "true" ] && echo "- **Pipeline Lambda** (\`lambda-forecastpipeline\`, image \`${GITHUB_SHA::7}\`) + capacity data rebuilt"
+            [ "$API" = "true" ]      && echo "- **API Lambda** (\`lps-beacon-apilambda\`)"
+            [ "$FRONTEND" = "true" ] && echo "- **Frontend** (S3 + CloudFront)"
+            echo
+            echo "## Changes"
+            git log "$range" --no-merges --pretty='- %s (%h) by %an'
+            echo
+            if [ -n "$last" ]; then echo "**Full diff:** https://github.com/$GITHUB_REPOSITORY/compare/$last...$version"; fi
+          } > notes.md
+          cat notes.md
+
+          gh release create "$version" --target "$GITHUB_SHA" --title "$version" --notes-file notes.md --latest

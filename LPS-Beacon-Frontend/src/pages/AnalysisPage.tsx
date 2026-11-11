@@ -61,9 +61,9 @@ export default function AnalysisPage() {
       <header className="page-header">
         <h1>Analysis</h1>
         <p>
-          How many FTE a revenue target needs (or the revenue an FTE count brings), the organisation's actuals so far,
-          which agencies and projects need attention and who works on them, and where we stand against the management target. All amounts in USD. The month-by-month numbers are on the{" "}
-          <Link to="/capacity-plan">Capacity plan</Link> tab.
+          Size FTE against revenue, track actuals, spot the agencies and projects that need attention, and measure
+          progress against the management target. All amounts in USD; monthly figures are on the{" "}
+          <Link to="/capacity-plan">Capacity plan</Link>.
         </p>
       </header>
       {error && (

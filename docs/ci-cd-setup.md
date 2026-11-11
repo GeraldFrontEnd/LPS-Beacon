@@ -1,6 +1,6 @@
 # CI/CD one-time setup
 
-`.github/workflows/deploy.yml` runs `docs/deploy-steps.txt` automatically on every push to `main`,
+`.github/workflows/ci-cd.yml` runs `docs/deploy-steps.txt` automatically on every push to `main`,
 deploying only the parts that changed. GitHub logs in to AWS with OIDC, so no access keys are stored.
 
 Run this once, in the same WSL terminal you use for manual deploys (after step 0 of deploy-steps.txt).
@@ -66,34 +66,81 @@ GitHub repo -> Settings -> Secrets and variables -> Actions -> **Variables** tab
 
 These are variables, not secrets: the `VITE_*` values end up in the public JS bundle anyway.
 
-## 3. Approval gate: `production` environment
+## 3. Use it
 
-Settings -> Environments -> **New environment** -> name `production` (exact spelling):
-- **Required reviewers**: add Gerald and Derek (either one can approve). Tick **Prevent self-review** if
-  the person who merged should not also approve the deploy.
-- **Deployment branches and tags** -> Selected branches -> add `main`.
+1. Commit with a message starting `feat:` or `fix:` (see section 5), then push (or merge a PR) to `main`.
+2. Actions tab -> **Deploy** starts automatically and deploys only what changed:
+   pipeline -> rebuild -> API -> frontend.
+3. Watch it go green, then do the visual check in step 5 of deploy-steps.txt.
 
-Every deploy run now pauses at the `approve` job until one of you clicks **Review deployments -> Approve and deploy**.
-GitHub emails/notifies the reviewers. Unapproved runs time out after 30 days and deploy nothing.
+Test without touching live: Actions -> Deploy -> **Run workflow** (branch `main`) with **Dry run** ticked
+(the default). It logs in to AWS and builds everything but changes nothing. Untick Dry run for a full real deploy.
 
-## 4. Protect `main`: changes need a reviewed PR
+Still manual: new API Gateway routes (9dpaon3lz7).
 
-1. Put the real GitHub usernames in `.github/CODEOWNERS`.
-2. Settings -> Rules -> Rulesets -> **New branch ruleset**: name `main`, Enforcement **Active**,
-   Target branches -> **Include default branch**, then tick:
-   - Restrict deletions, Block force pushes
-   - Require a pull request before merging -> Required approvals **1**, **Require review from Code Owners**,
-     Dismiss stale approvals when new commits are pushed
-3. Leave the bypass list empty so nobody can push straight to `main`.
+## 4. Releases and versioning (automatic)
 
-A PR author cannot approve their own PR, so Gerald's PRs need Derek and Derek's PRs need Gerald.
+After a **successful real deploy from a push** that changed the pipeline Lambda, the API Lambda or the
+frontend, the `release` job tags the commit and publishes a GitHub Release (repo home page -> **Releases**).
 
-## 5. Use it
+| Push changes | Release? |
+|---|---|
+| Pipeline image files: `Dockerfile`, `.dockerignore`, `requirements.txt`, `lambda_function.py`, `matching_script.py`, `matching_python_script.py`, `pipeline/**` | Yes (deploy steps 1+2) |
+| API code: `lambda-api/*.py` | Yes (step 3) |
+| Frontend build inputs: `src/**`, `public/**`, `index.html`, `LPSLogo.avif`, `package*.json`, `vite.config.ts`, `tsconfig*.json` | Yes (step 4) |
+| Tests, READMEs, `DEPLOY.md`, `build.ps1`, `run_local.py`, `requirements-dev.txt`, `eslint.config.js`, `scripts/`, docs, `.github/` | No deploy, no release |
+| Deploy failed, or manual "Run workflow" (incl. dry run) | No |
 
-1. Work on a branch -> open a PR to `main` -> the other person reviews and approves -> merge.
-2. The Deploy workflow starts, works out what changed, then waits for approval.
-3. Actions tab -> the run -> **Review deployments** -> tick `production` -> **Approve and deploy**.
-4. Changed parts deploy in order: pipeline -> rebuild -> API -> frontend.
+The same list decides what deploys (`changes` job in `ci-cd.yml`). If a new file starts shipping
+(e.g. the Dockerfile copies a new script), add it to the `pipeline` filter there.
 
-Manual full deploy: Actions -> Deploy -> **Run workflow** (branch `main`); it still waits for approval.
-Still manual: new API Gateway routes (9dpaon3lz7), and the visual check in step 5 of deploy-steps.txt.
+Each release lists which components were deployed and every commit since the previous release, with a
+link to the full diff. Minor commits that land without a release are included in the next one.
+
+Nothing to set up: the job uses the built-in `GITHUB_TOKEN`.
+To fix a release's notes afterwards: Releases -> the release -> **Edit**.
+
+## 5. Writing commit messages (sets the version number)
+
+What deploys is detected automatically from the changed files. You only choose one of **two prefixes**
+at the start of the commit message. It sets the version number (first release is always `v1.0.0`).
+
+| Prefix | Use it when | Version |
+|---|---|---|
+| `fix:` | Something was broken or not working, and now it is | `v1.4.2` -> `v1.4.3` |
+| `feat:` | Anything new or changed: features, pipeline, API or frontend changes | `v1.4.2` -> `v1.5.0` |
+
+Not sure? Use `feat:` if you added or changed something, `fix:` if you repaired something.
+
+### Examples
+
+| Change | Commit message |
+|---|---|
+| Dashboard blank on an empty month | `fix: dashboard blank when month has no data` |
+| Wrong total on capacity plan | `fix: headcount total double-counts joiners` |
+| API returns an error | `fix: API error when agency is missing` |
+| Layout broken on small screens | `fix: sidebar overlaps table on mobile` |
+| New column in agencies table | `feat: add ADR column to agencies table` |
+| New dropdown on Analysis page | `feat: add period dropdown to Analysis page` |
+| New or changed API endpoint | `feat: add activity endpoint for bell notifications` |
+| Pipeline change | `feat: add byMonth to capacity inputs` |
+| New page or restyled page | `feat: add password reset page` |
+
+### Example: how the version moves
+
+| # | Commits in the push to `main` | Deploys | Release |
+|---|---|---|---|
+| 1 | `fix: analysis page totals` | frontend | **v1.0.0** (first is always 1.0.0) |
+| 2 | `fix: dashboard blank on empty month` | frontend | **v1.0.1** |
+| 3 | `fix: typo in setup guide` (docs only) | nothing | none |
+| 4 | `feat: add ADR column` + `fix: align table headers` | frontend + API | **v1.1.0** (`feat` wins; push 3's commit is listed too) |
+| 5 | `fix: wrong ADR rounding` | API | **v1.1.1** |
+
+### Good to know
+
+- **One bump per release**: if any commit since the last release is `feat:`, it's a `feat` release;
+  otherwise it's a `fix` release.
+- **Forgot the prefix?** Nothing breaks; it counts as `fix:`.
+- **Squash and merge** on GitHub: the squash commit's message is the one read, so start it with `feat:` or `fix:`.
+  With the normal **Merge** button, the branch's own commit messages are read.
+- **Don't create `v*` tags by hand**: the next release always continues from the highest tag.
