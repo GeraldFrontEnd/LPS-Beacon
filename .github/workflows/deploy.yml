@@ -1,0 +1,161 @@
+# Automates docs/deploy-steps.txt. Runs on every push to main and only deploys the parts that changed:
+#   LPS-Beacon_Backend/lambda-forecastpipeline/**  -> 1 pipeline image + 2 rebuild capacity data
+#   LPS-Beacon_Backend/lambda-api/**               -> 3 API lambda
+#   LPS-Beacon-Frontend/**                         -> 4 frontend (S3 + CloudFront)
+# Order is kept: pipeline -> rebuild -> API -> frontend. "Run workflow" (manual) deploys everything.
+# Two approvals guard the live site: a reviewed PR to merge into main (branch ruleset + CODEOWNERS),
+# then "Approve and deploy" on the production environment before any AWS step runs.
+# One-time AWS setup (OIDC role, repo variables): see docs/ci-cd-setup.md.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # OIDC login to AWS, no stored access keys
+  contents: read
+
+env:
+  AWS_REGION: ap-southeast-1
+  AWS_PAGER: ""
+  PIPELINE_FN: lambda-forecastpipeline
+  PIPELINE_REPO: lambda-forecastpipeline
+  API_FN: lps-beacon-apilambda
+  DATA_BUCKET: lps-beacon-data
+  FRONTEND_BUCKET: lps-beacon-frontend
+  CF_DISTRIBUTION: E2AFF4J4V920FW
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      pipeline: ${{ github.event_name == 'workflow_dispatch' || steps.f.outputs.pipeline == 'true' }}
+      api: ${{ github.event_name == 'workflow_dispatch' || steps.f.outputs.api == 'true' }}
+      frontend: ${{ github.event_name == 'workflow_dispatch' || steps.f.outputs.frontend == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: f
+        with:
+          filters: |
+            pipeline: 'LPS-Beacon_Backend/lambda-forecastpipeline/**'
+            api: 'LPS-Beacon_Backend/lambda-api/**'
+            frontend: 'LPS-Beacon-Frontend/**'
+
+  # Approval gate: pauses here until a required reviewer of the "production" environment
+  # (Derek or Gerald) clicks "Approve and deploy". Nothing touches AWS before this.
+  approve:
+    needs: changes
+    if: needs.changes.outputs.pipeline == 'true' || needs.changes.outputs.api == 'true' || needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - run: |
+          echo "Deploy approved for ${{ github.sha }}"
+          echo "pipeline=${{ needs.changes.outputs.pipeline }} api=${{ needs.changes.outputs.api }} frontend=${{ needs.changes.outputs.frontend }}"
+
+  # 1 + 2. Pipeline lambda (container image) and rebuild the dashboard / analysis data
+  pipeline:
+    needs: [changes, approve]
+    if: needs.changes.outputs.pipeline == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: LPS-Beacon_Backend/lambda-forecastpipeline
+          platforms: linux/amd64
+          provenance: false # Lambda rejects multi-manifest images
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/${{ env.PIPELINE_REPO }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Point the function at the new image
+        run: |
+          aws lambda update-function-code --function-name "$PIPELINE_FN" \
+            --image-uri "${{ steps.ecr.outputs.registry }}/$PIPELINE_REPO:${{ github.sha }}"
+          aws lambda wait function-updated --function-name "$PIPELINE_FN"
+      - name: Rebuild capacity data (never mode=full)
+        run: |
+          aws lambda invoke --function-name "$PIPELINE_FN" \
+            --cli-binary-format raw-in-base64-out --cli-read-timeout 900 \
+            --payload '{"mode":"capacity_inputs"}' out.json > meta.json
+          cat meta.json out.json
+          if jq -e 'has("FunctionError")' meta.json >/dev/null; then echo "::error::Pipeline invoke failed"; exit 1; fi
+      - name: Check new data shape
+        run: |
+          ok=$(aws s3 cp "s3://$DATA_BUCKET/results/capacity/inputs.json" - | jq '.productivity.agencies[0] | has("byMonth")')
+          echo "byMonth present: $ok"
+          [ "$ok" = "true" ] || { echo "::error::inputs.json is still old-shape"; exit 1; }
+
+  # 3. API lambda (zip). Zips every .py in lambda-api/, so new files are picked up automatically.
+  api:
+    needs: [changes, approve, pipeline]
+    if: ${{ !failure() && !cancelled() && needs.approve.result == 'success' && needs.changes.outputs.api == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Deploy API
+        working-directory: LPS-Beacon_Backend/lambda-api
+        run: |
+          zip -j api.zip *.py
+          aws lambda update-function-code --function-name "$API_FN" --zip-file fileb://api.zip
+          aws lambda wait function-updated --function-name "$API_FN"
+      # Reminder: new API routes still need adding in API Gateway (9dpaon3lz7) with the JWT authorizer.
+
+  # 4 + 5. Frontend (S3 + CloudFront) and a basic smoke check
+  frontend:
+    needs: [changes, approve, pipeline, api]
+    if: ${{ !failure() && !cancelled() && needs.approve.result == 'success' && needs.changes.outputs.frontend == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: LPS-Beacon-Frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: LPS-Beacon-Frontend/package-lock.json
+      - run: npm ci
+      - name: Build
+        run: npm run build
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          VITE_COGNITO_USER_POOL_ID: ${{ vars.VITE_COGNITO_USER_POOL_ID }}
+          VITE_COGNITO_CLIENT_ID: ${{ vars.VITE_COGNITO_CLIENT_ID }}
+          VITE_USE_MOCK: ${{ vars.VITE_USE_MOCK || 'false' }}
+          VITE_USE_MOCK_AUTH: ${{ vars.VITE_USE_MOCK_AUTH || 'false' }}
+          VITE_USE_SAMPLE_PLAN: ${{ vars.VITE_USE_SAMPLE_PLAN || 'false' }}
+          VITE_USE_SAMPLE_REVIEW: ${{ vars.VITE_USE_SAMPLE_REVIEW || 'false' }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Upload and invalidate
+        run: |
+          aws s3 sync dist "s3://$FRONTEND_BUCKET" --delete
+          aws cloudfront create-invalidation --distribution-id "$CF_DISTRIBUTION" --paths "/*"
+      - name: Smoke check
+        run: |
+          domain=$(aws cloudfront get-distribution --id "$CF_DISTRIBUTION" --query 'Distribution.DomainName' --output text)
+          curl -fsS -o /dev/null -w "https://$domain -> %{http_code}\n" "https://$domain/"

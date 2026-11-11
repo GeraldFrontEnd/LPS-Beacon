@@ -1,0 +1,3 @@
+# Every change to main needs approval from one of these (set "Require review from Code Owners" in the main ruleset).
+# Replace the placeholders with the real GitHub usernames before committing.
+* @ @DEREK_GITHUB_USERNAME
