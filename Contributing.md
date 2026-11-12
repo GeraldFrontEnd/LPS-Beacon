@@ -84,8 +84,10 @@ Tips:
 
 - **Small, focused changes** are easier to review than one huge change.
 - **Write the commit message for a teammate**: what changed and why.
-- **Keep `main` working.** There is no automatic check (CI) yet, so run `npm run lint` and `npm run build` before you
-  push. If you changed the backend, also run its tests: `python -m unittest discover -s tests -v` in
+- **Start the commit message with `feat:` or `fix:`.** It sets the release version (see
+  [CI/CD in the README](README.md#automatic-deploys-and-releases-cicd)).
+- **Keep `main` working.** Every push to `main` deploys to AWS automatically, and nothing runs lint or tests first, so
+  run `npm run lint` and `npm run build` before you push. If you changed the backend, also run its tests: `python -m unittest discover -s tests -v` in
   `LPS-Beacon_Backend/lambda-forecastpipeline/`.
 - **Line endings:** the repository stores LF. On Windows, Git can turn files into CRLF, and they then show as changed
   even though you didn't edit them. Don't commit those: discard them (`git restore <file>`, or **Discard changes** in

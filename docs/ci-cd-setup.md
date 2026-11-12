@@ -10,6 +10,9 @@ Run this once, in the same WSL terminal you use for manual deploys (after step 0
 ```bash
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 REPO=GeraldFrontEnd/LPS-Beacon
+# GitHub may send the repo with its numeric IDs ("owner@id/repo@id"), so the role accepts both forms.
+# IDs from: https://api.github.com/repos/GeraldFrontEnd/LPS-Beacon (owner.id, id)
+REPO_IDS=GeraldFrontEnd@104344360/LPS-Beacon@1409645821
 
 # Skip if it already exists (error "EntityAlreadyExists" is fine)
 aws iam create-open-id-connect-provider \
@@ -24,7 +27,8 @@ cat > /tmp/trust.json <<EOF
   "Condition": {
     "StringEquals": {
       "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-      "token.actions.githubusercontent.com:sub": "repo:$REPO:ref:refs/heads/main"
+      "token.actions.githubusercontent.com:sub": ["repo:$REPO:ref:refs/heads/main",
+                                                   "repo:$REPO_IDS:ref:refs/heads/main"]
     } } }] }
 EOF
 

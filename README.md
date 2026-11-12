@@ -3,7 +3,7 @@
 **Resource Planning Forecast Chatbot** — an AI-powered assistant that turns messy project, pipeline, workforce and
 financial planning files into headcount forecasts, supply-versus-demand analysis, resource matching, profit and loss
 views and monthly forecast reports, all through a natural-language chat interface.
-
+    
 > Upload your planning files, ask questions in plain English, and get cleaned data, forecasts, charts and
 > downloadable reports back in the same conversation.
 
@@ -31,10 +31,11 @@ views and monthly forecast reports, all through a natural-language chat interfac
 16. [Estimated cost](#estimated-cost)
 17. [Design decisions](#design-decisions)
 18. [Getting started](#getting-started)
-19. [Repository layout](#repository-layout)
-20. [Data handling](#data-handling)
-21. [Known limitations](#known-limitations)
-22. [Roadmap](#roadmap)
+19. [Automatic deploys and releases (CI/CD)](#automatic-deploys-and-releases-cicd)
+20. [Repository layout](#repository-layout)
+21. [Data handling](#data-handling)
+22. [Known limitations](#known-limitations)
+23. [Roadmap](#roadmap)
 
 ---
 
@@ -58,6 +59,7 @@ infrastructure-as-code.
 | Monthly refresh of the capacity plan inputs and Dashboard insights | Built (EventBridge) | [Triggers](#triggers) |
 | Chats deleted 90 days after their last message (DynamoDB TTL) | Built | [Chat history model](#chat-history-model) |
 | Leavers, and joiners for past months, from Workday | Built; the sandbox uses synthetic monthly reports (real ones not received) | `pipeline/clean.py`, `tools/synthesize_to_oct26.py` |
+| Automatic deploy on every push to `main` (only the parts that changed), plus versioned GitHub Releases | Built (GitHub Actions) | `.github/workflows/ci-cd.yml`, [CI/CD](#automatic-deploys-and-releases-cicd) |
 | "Run forecast" on demand (`POST /runs/runForecast`, `GET /runs/{id}`) | Not built (the routes answer 501) | `lambda-api/lambda_function.py` |
 | Charts inside chat answers, what-if scenarios, email notifications, daily chat limit | Not built | [Roadmap](#roadmap) |
 | Authenticator-app (TOTP) MFA setup in the sign-in form | Not supported | [Known limitations](#known-limitations) |
@@ -78,8 +80,10 @@ files: change the code, push, and everyone else pulls the update.
 | **Make a quick edit to a file** | Open the file on GitHub and press the pencil icon, or press `.` for the browser editor. Commit to a new branch and open a pull request. (This edits files; it does not run the app.) |
 | **Get the latest changes someone else made** | `git pull` (or **Fetch / Pull** in GitHub Desktop). |
 
-There is no automatic check (CI) on pushes or pull requests, so run `npm run lint` and `npm run build`, and the
-backend tests if you changed the backend, before you push. Full instructions are in [Contributing.md](Contributing.md).
+**A push to `main` goes live.** GitHub Actions deploys the changed parts to AWS automatically (see
+[CI/CD](#automatic-deploys-and-releases-cicd)), but it does not run lint or tests first. So run `npm run lint` and
+`npm run build`, and the backend tests if you changed the backend, before you push. Full instructions are in
+[Contributing.md](Contributing.md).
 
 ---
 
@@ -592,7 +596,11 @@ Sign in with a practice account: `finance@demo.com` (Finance/HR) or `restricted@
 
 ### Deploy the backend
 
-Everything was set up by hand in the AWS console (Singapore, `ap-southeast-1`).
+**Normally you don't need to do this by hand:** once the one-time setup is done, pushing to `main` deploys the
+pipeline Lambda, the API Lambda and the web app for you (see
+[CI/CD](#automatic-deploys-and-releases-cicd)). The manual steps below, and `docs/deploy-steps.txt`, are the fallback.
+
+The AWS resources themselves were set up by hand in the AWS console (Singapore, `ap-southeast-1`).
 
 - **Pipeline Lambda:** build the container image and follow
   [`DEPLOY.md`](LPS-Beacon_Backend/lambda-forecastpipeline/DEPLOY.md). Pushing a new tag to ECR does not update the
@@ -631,6 +639,88 @@ The API Lambda has its own tests in `LPS-Beacon_Backend/lambda-api/tests/`.
 
 ---
 
+## Automatic deploys and releases (CI/CD)
+
+**In one sentence:** when code is pushed (or a pull request is merged) to `main`, GitHub automatically puts the
+changed parts live on AWS and publishes a numbered release, so nobody has to deploy by hand.
+
+The workflow is [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml). The full setup commands are in
+[`docs/ci-cd-setup.md`](docs/ci-cd-setup.md); this section explains it in plain terms.
+
+### What happens when you push to `main`
+
+1. GitHub looks at which files changed.
+2. It signs in to AWS with a short-lived login (OIDC). No AWS passwords or access keys are stored in GitHub.
+3. It deploys **only the parts that changed**, always in this order:
+
+   | If you changed… | GitHub does this |
+   |---|---|
+   | The pipeline (`lambda-forecastpipeline/pipeline/**`, `Dockerfile`, `requirements.txt`, the matching scripts…) | Builds a new container image, points the pipeline Lambda at it, then rebuilds the capacity plan data |
+   | The API (`lambda-api/*.py`) | Zips the Python files and updates the API Lambda |
+   | The web app (`src/**`, `public/**`, `index.html`, `package*.json`, Vite/TypeScript config) | Builds the app, uploads it to S3, clears the CloudFront cache and checks the site answers |
+   | Only docs, tests, READMEs, scripts or `.github/` | Nothing: no deploy and no release |
+
+4. If the deploy succeeds, it creates a **GitHub Release** (repo home page → **Releases**) with a version number,
+   the parts that were deployed and the list of commits.
+
+You can watch every run in the repo's **Actions** tab → **Deploy**. Green means live; red means something failed and
+the step's log says why. A failed run creates no release.
+
+### One-time setup (already done once; only repeat for a new AWS account or a new repo)
+
+You need admin access to the AWS account and to the GitHub repository. It takes about 10 minutes.
+
+1. **Let GitHub sign in to AWS.** In a terminal where the AWS CLI is signed in, run the commands in
+   [step 1 of `docs/ci-cd-setup.md`](docs/ci-cd-setup.md#1-create-the-oidc-provider-and-deploy-role). They create a
+   deploy role (`github-deploy-lps-beacon`) that only pushes to `main` can use, and that can only touch this project's
+   Lambdas, ECR repository, web bucket and CloudFront distribution. The last command prints the role's ARN: copy it.
+2. **Tell GitHub the settings.** On GitHub: repo → **Settings** → **Secrets and variables** → **Actions** →
+   **Variables** tab → **New repository variable**. Add:
+
+   | Name | Value |
+   |---|---|
+   | `AWS_DEPLOY_ROLE_ARN` | The ARN printed in step 1 |
+   | `VITE_API_URL`, `VITE_COGNITO_USER_POOL_ID`, `VITE_COGNITO_CLIENT_ID` | The same values as in your `LPS-Beacon-Frontend/.env` |
+
+   These are *variables*, not *secrets*: the `VITE_*` values end up in the public web app anyway. The
+   `VITE_USE_MOCK*` and `VITE_USE_SAMPLE_*` variables are optional and default to `false`.
+3. **Test it safely.** Actions → **Deploy** → **Run workflow** (branch `main`) with **Dry run** ticked (the
+   default). It signs in to AWS and builds everything but changes nothing live. If it goes green, the setup works.
+
+### Day to day
+
+1. Start your commit message with `feat:` or `fix:` (see below).
+2. Push to `main`, or merge a pull request into `main`.
+3. Watch the **Deploy** run in the Actions tab go green, then open the app and check your change.
+
+To redeploy everything without a code change, use **Run workflow** with **Dry run** unticked. Manual runs never
+create a release.
+
+### Commit messages set the version number
+
+| Start the message with | When | Version change |
+|---|---|---|
+| `fix:` | You repaired something that was broken | `v1.4.2` → `v1.4.3` |
+| `feat:` | You added or changed anything else (features, pages, API, pipeline) | `v1.4.2` → `v1.5.0` |
+
+Examples: `fix: dashboard blank when month has no data`, `feat: add period dropdown to Analysis page`.
+
+- Not sure? `feat:` if you added or changed something, `fix:` if you repaired something.
+- Forgot the prefix? Nothing breaks; it counts as `fix:`.
+- Several commits in one push: if any is `feat:`, the version gets a `feat` bump. Docs-only pushes make no release;
+  their commits appear in the next release.
+- With **Squash and merge**, the squash commit's message is the one that counts, so start it with `feat:` or `fix:`.
+- The first release is `v1.0.0`. Don't create `v*` tags by hand.
+
+### Still manual
+
+- **New API routes** must still be added in API Gateway (`9dpaon3lz7`) with the JWT authorizer.
+- **No lint or tests run** in the workflow: run them yourself before pushing.
+- **A new file the pipeline image needs** (for example a new script the `Dockerfile` copies) must be added to the
+  `pipeline` file list in `ci-cd.yml`, or changes to it won't trigger a deploy.
+
+---
+
 ## Repository layout
 
 ```
@@ -638,9 +728,12 @@ LPS-Beacon/
 ├── README.md
 ├── Contributing.md               # how to edit, share and review changes
 ├── .gitignore                    # secrets, planning data (Excel, CSV), Node, Python, editors
+├── .github/workflows/ci-cd.yml   # automatic deploy + release on push to main
 ├── docs/
 │   ├── architecture.svg          # original design diagram
 │   ├── architecture.drawio       # editable version
+│   ├── ci-cd-setup.md            # one-time CI/CD setup (AWS role, GitHub variables)
+│   ├── deploy-steps.txt          # manual deploy steps (fallback)
 │   ├── vite-template-notes.md    # the original Vite template README
 │   └── Project_2_POC_UserStories_UseCases_v0.7.docx
 ├── LPS-Beacon-Frontend/          # the web app (React 19, TypeScript, Vite)
@@ -705,7 +798,8 @@ This project processes HR headcount, staff cost and project revenue data.
 - **No email notifications:** no SNS topic is configured.
 - **No daily chat limit or Bedrock budget alert** yet.
 - **No mobile layout.**
-- **No automatic checks (CI)** on pushes or pull requests.
+- **No automatic lint or tests:** pushes to `main` deploy automatically, but nothing checks the code first, and pull
+  requests are not checked at all.
 - Practice accounts (`DEMO_ACCOUNTS`) should be removed before a production release.
 
 ---
@@ -719,7 +813,7 @@ This project processes HR headcount, staff cost and project revenue data.
 - "Run forecast" on demand.
 - Charts in chat answers and what-if scenarios.
 - Email notifications (an SNS topic and `ALERT_TOPIC_ARN`).
-- An automatic check (CI) that runs lint, type-check, build and the backend tests on every pull request.
+- Lint, type-check, build and the backend tests on every pull request, and before each deploy.
 - Glue/Athena (or another warehouse) if batches grow beyond what Lambda handles comfortably.
 - A Bedrock Knowledge Base if the assistant needs to cite policy documents and rate cards.
 - Moving the agent to Bedrock AgentCore if the client later needs managed agent hosting.
