@@ -1,0 +1,4 @@
+{
+  "about": "What each release changes, for the people using LPS-Beacon (the GitHub Release notes, under What's new). Add an entry with every change people should know about, at the end of the list, in the same pull request as the change: type major (a major feature), minor (a minor feature) or fix (bug fixes). The next version follows the biggest new entry: major 2.0.0, minor 1.1.0, fix 1.0.1. audience platform: shown under Platform team only (deploys, AWS, CI/CD, security patches). Never edit or remove an entry once it is released. No figures, customer or staff names. Check it with: python tools/release_notes.py check",
+  "entries": []
+}

@@ -43,6 +43,12 @@ jobs:
       frontend: ${{ github.event_name == 'workflow_dispatch' || steps.f.outputs.frontend == 'true' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags, to compare release-notes.json with the last release
+      # A broken release-notes.json (bad JSON, unknown type, a released entry edited or removed) stops the
+      # run here, before anything deploys. Same check as running it locally.
+      - name: Check release-notes.json
+        run: python3 tools/release_notes.py check
       - uses: dorny/paths-filter@v3
         id: f
         with:
@@ -186,8 +192,9 @@ jobs:
 
   # 6. Release notes. Only after a successful real deploy from a push that changed the pipeline,
   # the API or the frontend. Docs/workflow/other minor changes never create a release.
-  # Version bump from commit messages since the last release:
-  #   "feat: ..." -> minor (v1.1.0)   "fix: ..." or anything else -> patch (v1.0.1)
+  # Version bump: from the entries added to release-notes.json since the last release (the biggest wins):
+  #   major -> v2.0.0   minor -> v1.1.0   fix -> v1.0.1
+  # No new entries: from commit messages, "feat: ..." -> minor, "fix: ..." or anything else -> patch.
   release:
     needs: [changes, pipeline, api, frontend]
     if: >-
@@ -216,14 +223,25 @@ jobs:
           subjects=$(git log "$range" --no-merges --pretty=%s)
           [ -n "$subjects" ] || { echo "No new commits since $last; no release."; exit 0; }
 
+          # Entries in release-notes.json that were not in it at the last release
+          level=$(python3 tools/release_notes.py bump --base "$last")
+          if [ "$level" = "none" ]; then
+            if grep -qiE '^feat(\([^)]*\))?:' <<< "$subjects"; then level=minor; else level=fix; fi
+            echo "No new release-notes.json entries; bump from commit messages: $level"
+          else
+            echo "Bump from release-notes.json entries: $level"
+          fi
+
           IFS=. read -r major minor patch <<< "${last#v}"
           major=${major:-0}; minor=${minor:-0}; patch=${patch:-0}
           if [ -z "$last" ]; then major=1; minor=0; patch=0
-          elif grep -qiE '^feat(\([^)]*\))?:' <<< "$subjects"; then minor=$((minor+1)); patch=0
+          elif [ "$level" = "major" ]; then major=$((major+1)); minor=0; patch=0
+          elif [ "$level" = "minor" ]; then minor=$((minor+1)); patch=0
           else patch=$((patch+1)); fi
           version="v$major.$minor.$patch"
 
           {
+            python3 tools/release_notes.py notes --base "$last"
             echo "## Deployed components"
             [ "$PIPELINE" = "true" ] && echo "- **Pipeline Lambda** (\`lambda-forecastpipeline\`, image \`${GITHUB_SHA::7}\`) + capacity data rebuilt"
             [ "$API" = "true" ]      && echo "- **API Lambda** (\`lps-beacon-apilambda\`)"
@@ -232,8 +250,17 @@ jobs:
             echo "## Changes"
             git log "$range" --no-merges --pretty='- %s (%h) by %an'
             echo
-            if [ -n "$last" ]; then echo "**Full diff:** https://github.com/$GITHUB_REPOSITORY/compare/$last...$version"; fi
+            # GitHub's compare page: every changed file, removed lines red, added lines green.
+            # First release: compare from the commit before this push.
+            if [ -n "$last" ]; then from="$last"; else from=$(git rev-parse --short "${range%%..*}" 2>/dev/null || true); fi
+            if [ -n "$from" ]; then echo "**Full Changelog:** https://github.com/$GITHUB_REPOSITORY/compare/$from...$version"; fi
           } > notes.md
           cat notes.md
 
-          gh release create "$version" --target "$GITHUB_SHA" --title "$version" --notes-file notes.md --latest
+          # Title, e.g. "LPS-Beacon v1.5.0 (minor feature): feat: add period dropdown to Analysis page"
+          case "$level" in major) kind="major feature";; minor) kind="minor feature";; *) kind="bug fixes";; esac
+          newest=$(git log "$range" --no-merges --pretty=%s -1)
+          title="LPS-Beacon $version ($kind): $newest"
+          [ ${#title} -le 120 ] || title="${title:0:117}..."
+
+          gh release create "$version" --target "$GITHUB_SHA" --title "$title" --notes-file notes.md --latest

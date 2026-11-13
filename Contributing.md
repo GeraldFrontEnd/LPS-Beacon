@@ -84,8 +84,10 @@ Tips:
 
 - **Small, focused changes** are easier to review than one huge change.
 - **Write the commit message for a teammate**: what changed and why.
-- **Start the commit message with `feat:` or `fix:`.** It sets the release version (see
-  [CI/CD in the README](README.md#automatic-deploys-and-releases-cicd)).
+- **Add a `release-notes.json` entry** (at the end, `type` `major`, `minor` or `fix`) for anything people should
+  know about, then run `python tools/release_notes.py check`. The biggest new entry sets the release version (see
+  [Release notes in the README](README.md#release-notes-set-the-version-number)). Never edit a released entry.
+- **Start the commit message with `feat:` or `fix:`.** It sets the version when a release has no new entries.
 - **Keep `main` working.** Every push to `main` deploys to AWS automatically, and nothing runs lint or tests first, so
   run `npm run lint` and `npm run build` before you push. If you changed the backend, also run its tests: `python -m unittest discover -s tests -v` in
   `LPS-Beacon_Backend/lambda-forecastpipeline/`.

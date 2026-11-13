@@ -92,22 +92,32 @@ frontend, the `release` job tags the commit and publishes a GitHub Release (repo
 | Pipeline image files: `Dockerfile`, `.dockerignore`, `requirements.txt`, `lambda_function.py`, `matching_script.py`, `matching_python_script.py`, `pipeline/**` | Yes (deploy steps 1+2) |
 | API code: `lambda-api/*.py` | Yes (step 3) |
 | Frontend build inputs: `src/**`, `public/**`, `index.html`, `LPSLogo.avif`, `package*.json`, `vite.config.ts`, `tsconfig*.json` | Yes (step 4) |
-| Tests, READMEs, `DEPLOY.md`, `build.ps1`, `run_local.py`, `requirements-dev.txt`, `eslint.config.js`, `scripts/`, docs, `.github/` | No deploy, no release |
+| Tests, READMEs, `DEPLOY.md`, `build.ps1`, `run_local.py`, `requirements-dev.txt`, `eslint.config.js`, `scripts/`, docs, `.github/`, `release-notes.json`, `tools/` | No deploy, no release (new release-note entries go out with the next release) |
 | Deploy failed, or manual "Run workflow" (incl. dry run) | No |
 
 The same list decides what deploys (`changes` job in `ci-cd.yml`). If a new file starts shipping
 (e.g. the Dockerfile copies a new script), add it to the `pipeline` filter there.
 
-Each release lists which components were deployed and every commit since the previous release, with a
-link to the full diff. Minor commits that land without a release are included in the next one.
+Each release is titled with its version, the size of the change and the newest commit message, e.g.
+`LPS-Beacon v1.5.0 (minor feature): feat: add period dropdown to Analysis page` (`major feature`,
+`minor feature` or `bug fixes`). It lists which components were deployed and every commit since the previous
+release, with a **Full Changelog** link to GitHub's compare page (changed files, removed lines red, added green). Minor commits that land without a release are included in the next one.
 
 Nothing to set up: the job uses the built-in `GITHUB_TOKEN`.
 To fix a release's notes afterwards: Releases -> the release -> **Edit**.
 
-## 5. Writing commit messages (sets the version number)
+## 5. Release notes and commit messages (set the version number)
 
+**First choice: `release-notes.json`.** The `release` job compares the file with the one at the last `v*` tag.
+The biggest new entry sets the bump (`major` → `v2.0.0`, `minor` → `v1.1.0`, `fix` → `v1.0.1`), and the new
+entries open the release notes (What's new, then Platform team for `"audience": "platform"`). The `changes` job runs
+`python3 tools/release_notes.py check` first, so a broken file or an edited released entry stops the run before
+anything deploys. Field rules are in the
+[README](../README.md#release-notes-set-the-version-number).
+
+**Fallback: commit prefixes**, used only when no entries were added since the last release.
 What deploys is detected automatically from the changed files. You only choose one of **two prefixes**
-at the start of the commit message. It sets the version number (first release is always `v1.0.0`).
+at the start of the commit message (first release is always `v1.0.0`).
 
 | Prefix | Use it when | Version |
 |---|---|---|

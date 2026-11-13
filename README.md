@@ -661,7 +661,7 @@ The workflow is [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml). Th
    | Only docs, tests, READMEs, scripts or `.github/` | Nothing: no deploy and no release |
 
 4. If the deploy succeeds, it creates a **GitHub Release** (repo home page → **Releases**) with a version number,
-   the parts that were deployed and the list of commits.
+   the new [release notes](#release-notes-set-the-version-number), the parts that were deployed and the list of commits.
 
 You can watch every run in the repo's **Actions** tab → **Deploy**. Green means live; red means something failed and
 the step's log says why. A failed run creates no release.
@@ -689,14 +689,44 @@ You need admin access to the AWS account and to the GitHub repository. It takes 
 
 ### Day to day
 
-1. Start your commit message with `feat:` or `fix:` (see below).
+1. Add a [`release-notes.json`](#release-notes-set-the-version-number) entry for anything people should know about,
+   and start your commit message with `feat:` or `fix:`.
 2. Push to `main`, or merge a pull request into `main`.
 3. Watch the **Deploy** run in the Actions tab go green, then open the app and check your change.
 
 To redeploy everything without a code change, use **Run workflow** with **Dry run** unticked. Manual runs never
 create a release.
 
-### Commit messages set the version number
+### Release notes set the version number
+
+[`release-notes.json`](release-notes.json) at the repository root says what each release changes, in words for the
+people using the app. It is the first thing the `release` job reads:
+
+1. **Add an entry** at the end of `entries`, in the same pull request as the change people should know about:
+
+   ```json
+   { "id": "analysis-period-dropdown", "type": "minor", "text": "The Analysis page has a period dropdown: pick a quarter or the full year." }
+   ```
+
+   | Field | Meaning |
+   |---|---|
+   | `id` | Short, unique, lowercase words joined by hyphens. Never reused. |
+   | `type` | `major` (a major feature), `minor` (a minor feature) or `fix` (bug fixes). |
+   | `text` | One or two plain sentences on what changed for the reader. No figures, customer or staff names. |
+   | `audience` | Optional. `platform` puts it under **Platform team** (deploys, AWS, CI/CD, security patches) instead of **What's new**. |
+
+2. **The biggest new entry sets the version** (entries added since the last release): `major` → `v2.0.0`,
+   `minor` → `v1.5.0`, `fix` → `v1.4.3`. A push with no new entries falls back to the commit prefixes below.
+3. **The release notes start with the new entries**: What's new (New and changed, Fixes), then Platform team, then
+   the deployed components and the commit list as before.
+4. **Released entries never change.** To correct one, add a new entry. Run `python tools/release_notes.py check`
+   before you push: it lists the new entries and the bump, and fails on bad JSON, an unknown `type`, a repeated `id`,
+   or a released entry that was edited, moved or removed. The workflow runs the same check first and **deploys
+   nothing** if it fails.
+
+Changing only `release-notes.json` doesn't deploy or release. Its new entries go out with the next release.
+
+### Commit messages (fallback when there are no new release-note entries)
 
 | Start the message with | When | Version change |
 |---|---|---|
@@ -727,6 +757,8 @@ Examples: `fix: dashboard blank when month has no data`, `feat: add period dropd
 LPS-Beacon/
 ├── README.md
 ├── Contributing.md               # how to edit, share and review changes
+├── release-notes.json            # what each release changes; sets the version number
+├── tools/release_notes.py        # checks release-notes.json, builds the release notes
 ├── .gitignore                    # secrets, planning data (Excel, CSV), Node, Python, editors
 ├── .github/workflows/ci-cd.yml   # automatic deploy + release on push to main
 ├── docs/
