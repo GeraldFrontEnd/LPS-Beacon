@@ -92,7 +92,7 @@ frontend, the `release` job tags the commit and publishes a GitHub Release (repo
 | Pipeline image files: `Dockerfile`, `.dockerignore`, `requirements.txt`, `lambda_function.py`, `matching_script.py`, `matching_python_script.py`, `pipeline/**` | Yes (deploy steps 1+2) |
 | API code: `lambda-api/*.py` | Yes (step 3) |
 | Frontend build inputs: `src/**`, `public/**`, `index.html`, `LPSLogo.avif`, `package*.json`, `vite.config.ts`, `tsconfig*.json` | Yes (step 4) |
-| Tests, READMEs, `DEPLOY.md`, `build.ps1`, `run_local.py`, `requirements-dev.txt`, `eslint.config.js`, `scripts/`, docs, `.github/`, `release-notes.json`, `tools/` | No deploy, no release (new release-note entries go out with the next release) |
+| Tests, READMEs, `DEPLOY.md`, `build.ps1`, `run_local.py`, `requirements-dev.txt`, `eslint.config.js`, `scripts/`, docs, `.github/`, `release-notes.json`, `tools/`, `AGENTS.md`, `CLAUDE.md`, `work/`, `.claude/`, `.githooks/` | No deploy, no release (new release-note entries go out with the next release) |
 | Deploy failed, or manual "Run workflow" (incl. dry run) | No |
 
 The same list decides what deploys (`changes` job in `ci-cd.yml`). If a new file starts shipping
@@ -105,6 +105,13 @@ release, with a **Full Changelog** link to GitHub's compare page (changed files,
 
 Nothing to set up: the job uses the built-in `GITHUB_TOKEN`.
 To fix a release's notes afterwards: Releases -> the release -> **Edit**.
+
+### Handover check (warning only)
+
+On a push to `main`, the `changes` job also runs `python3 tools/handover.py gap --ci`. When commits on `main` have
+no entry in `work/HANDOVER.md`, the run's summary page shows a **Handover missing** warning naming whose commits they
+are. It never fails the run or stops a deploy. Manual runs skip it. See
+[the README](../README.md#handovers-between-work-sessions-catch-up-and-handover).
 
 ## 5. Release notes and commit messages (set the version number)
 

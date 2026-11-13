@@ -49,6 +49,10 @@ jobs:
       # run here, before anything deploys. Same check as running it locally.
       - name: Check release-notes.json
         run: python3 tools/release_notes.py check
+      # Warning only (shows on the run's summary page); never stops a deploy.
+      - name: Handover check
+        if: github.event_name == 'push'
+        run: python3 tools/handover.py gap --ci || true
       - uses: dorny/paths-filter@v3
         id: f
         with:

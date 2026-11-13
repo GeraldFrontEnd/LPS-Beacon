@@ -1,0 +1,22 @@
+#!/bin/sh
+# Warns (never blocks) when a push to main carries no handover entry in work/HANDOVER.md.
+# Turn on once per clone:  git config core.hooksPath .githooks
+# Skip once:               SKIP_HANDOVER_CHECK=1 git push
+
+[ -n "$SKIP_HANDOVER_CHECK" ] && exit 0
+zero=0000000000000000000000000000000000000000
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$remote_ref" = "refs/heads/main" ] || continue
+  [ "$local_sha" = "$zero" ] && continue            # deleting main: not our business
+  if [ "$remote_sha" = "$zero" ]; then range="$local_sha"; else range="$remote_sha..$local_sha"; fi
+  if [ -z "$(git log --format=%h "$range" -- work/HANDOVER.md 2>/dev/null)" ]; then
+    n=$(git rev-list --count "$range" 2>/dev/null || echo "?")
+    echo ""
+    echo "  Handover reminder: this push sends $n commit(s) to main without a work/HANDOVER.md entry."
+    echo "  Teammates will see a HANDOVER GAP. Run /handover (or: python tools/handover.py draft),"
+    echo "  commit the entry and push again. Pushing anyway; nothing was blocked."
+    echo ""
+  fi
+done
+exit 0

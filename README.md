@@ -32,10 +32,11 @@ views and monthly forecast reports, all through a natural-language chat interfac
 17. [Design decisions](#design-decisions)
 18. [Getting started](#getting-started)
 19. [Automatic deploys and releases (CI/CD)](#automatic-deploys-and-releases-cicd)
-20. [Repository layout](#repository-layout)
-21. [Data handling](#data-handling)
-22. [Known limitations](#known-limitations)
-23. [Roadmap](#roadmap)
+20. [Handovers between work sessions (catch-up and handover)](#handovers-between-work-sessions-catch-up-and-handover)
+21. [Repository layout](#repository-layout)
+22. [Data handling](#data-handling)
+23. [Known limitations](#known-limitations)
+24. [Roadmap](#roadmap)
 
 ---
 
@@ -60,6 +61,7 @@ infrastructure-as-code.
 | Chats deleted 90 days after their last message (DynamoDB TTL) | Built | [Chat history model](#chat-history-model) |
 | Leavers, and joiners for past months, from Workday | Built; the sandbox uses synthetic monthly reports (real ones not received) | `pipeline/clean.py`, `tools/synthesize_to_oct26.py` |
 | Automatic deploy on every push to `main` (only the parts that changed), plus versioned GitHub Releases | Built (GitHub Actions) | `.github/workflows/ci-cd.yml`, [CI/CD](#automatic-deploys-and-releases-cicd) |
+| Handovers between work sessions: a "what changed" summary when a Claude Code session starts, `/catch-up` and `/handover`, reminders when a handover is missing | Built (repository tooling; not part of the app) | `AGENTS.md`, `work/`, `tools/handover.py`, `.claude/`, [Handovers](#handovers-between-work-sessions-catch-up-and-handover) |
 | "Run forecast" on demand (`POST /runs/runForecast`, `GET /runs/{id}`) | Not built (the routes answer 501) | `lambda-api/lambda_function.py` |
 | Charts inside chat answers, what-if scenarios, email notifications, daily chat limit | Not built | [Roadmap](#roadmap) |
 | Authenticator-app (TOTP) MFA setup in the sign-in form | Not supported | [Known limitations](#known-limitations) |
@@ -79,6 +81,8 @@ files: change the code, push, and everyone else pulls the update.
 | **Work on my own computer** | Clone the repository, then run `npm ci` and `npm run dev` in `LPS-Beacon-Frontend/`. Save a file and the browser updates instantly. |
 | **Make a quick edit to a file** | Open the file on GitHub and press the pencil icon, or press `.` for the browser editor. Commit to a new branch and open a pull request. (This edits files; it does not run the app.) |
 | **Get the latest changes someone else made** | `git pull` (or **Fetch / Pull** in GitHub Desktop). |
+| **See what changed since I last worked, and why** | Open a Claude Code session in the repository (a summary loads by itself), or type `/catch-up`. Without Claude: `python tools/handover.py since --fetch`. See [Handovers](#handovers-between-work-sessions-catch-up-and-handover). |
+| **Leave notes for whoever works next** | Type `/handover` at the end of your session and commit the entry it writes with your work. |
 
 **A push to `main` goes live.** GitHub Actions deploys the changed parts to AWS automatically (see
 [CI/CD](#automatic-deploys-and-releases-cicd)), but it does not run lint or tests first. So run `npm run lint` and
@@ -751,6 +755,100 @@ Examples: `fix: dashboard blank when month has no data`, `feat: add period dropd
 
 ---
 
+## Handovers between work sessions (catch-up and handover)
+
+**In one sentence:** when you start working, you're told what teammates changed since the last handover; when you
+stop, you leave a short note saying what you did, what you checked and what comes next.
+
+Several people work on this repository, each with an AI assistant, and nobody can read anyone else's chat history.
+Git records *what* changed. The handover notes record *why*, what was checked and what is unfinished. This is
+repository tooling for the team: it isn't part of the web app, and none of these files deploy or create a release.
+
+### The pieces
+
+| Piece | What it is |
+|---|---|
+| [`AGENTS.md`](AGENTS.md) | The guide every AI assistant reads first: rules, start of a session, end of a session. `CLAUDE.md` loads it into Claude Code. |
+| [`work/HANDOVER.md`](work/HANDOVER.md) | One short entry per work session, oldest first. Read the last one before you start. |
+| [`work/PROGRESS.md`](work/PROGRESS.md) | The current snapshot: objective, active work, next actions. |
+| [`tools/handover.py`](tools/handover.py) | Works out what changed since the last handover (`since`), drafts the next entry (`draft`) and checks for missing handovers (`gap`). Reads only; never changes anything. |
+| `.claude/` | The Claude Code part: the start-of-session summary (`settings.json`), the **handover** agent and the `/catch-up` and `/handover` commands. Loads automatically when Claude Code opens this folder. |
+| [`.githooks/pre-push`](.githooks/pre-push) | Optional reminder when you push to `main` without a handover entry. |
+
+### A normal day
+
+1. **Open the repository** in VS Code (File → Open Folder → `LPS-Beacon`) and start Claude Code. A summary loads by
+   itself, with:
+   - every commit since the last handover, and who made it;
+   - which areas those commits touched, and whether they deploy;
+   - whether you need to `git pull`;
+   - teammates' branches that aren't on `main` yet;
+   - your own unpushed or uncommitted work;
+   - the release-notes status.
+2. **For more detail, type `/catch-up`.** It reads the commits and explains what changed in behaviour, then the open
+   items and the next action from the last handover. If you're new, add a note:
+   `/catch-up I'm new to the repo, include an orientation`.
+3. **Work as usual.**
+4. **Before you stop, type `/handover`**, optionally with a line on what you did, for example
+   `/handover fixed the dashboard blank month; lint and build passed`. It appends an entry to `work/HANDOVER.md`,
+   updates `work/PROGRESS.md` if needed and shows you the entry.
+5. **Commit the entry in the same push as your work.** That commit then marks everything before it as handed over.
+
+Without Claude Code, the same steps work by hand: `python tools/handover.py since --fetch` at the start, and
+`python tools/handover.py draft` at the end (fill in the `<...>` parts and paste it at the end of `work/HANDOVER.md`).
+
+### What a handover entry looks like
+
+```markdown
+## 2026-11-14 — Dashboard empty-month fix
+
+- Author: Derek (with Claude Code). Time: 16:20 SGT.
+- Up to: `7fbc3b9` on `origin/main`. Commits read since the last entry: none.
+- Objective: the Dashboard went blank for a month with no data.
+- Changed: frontend: LPS-Beacon-Frontend/src/dashboard/...
+- Deploy and release: Deploys on push to main: frontend. release-notes.json: 1 new entry; next bump: fix
+- Checks run: npm run lint: no errors. npm run build: succeeded.
+- Not checked: the live site after the deploy.
+- Waiting on a person: none.
+- Next action: open the live Dashboard on an empty month and confirm it renders.
+```
+
+Write real results under "Checks run" and never claim a check that wasn't run. Leave out secrets, `.env` values,
+real figures and staff or customer names.
+
+### If someone forgets the handover
+
+Nothing is lost: their commits still show up, because the summary reads git. Three reminders make a missed handover
+visible, and none of them blocks anything:
+
+| Where | What you see |
+|---|---|
+| **Your terminal, when you push to `main`** | "Handover reminder: this push sends N commit(s) to main without a work/HANDOVER.md entry." Needs the one-time setup below. |
+| **GitHub → Actions → the Deploy run** | A **Handover missing** warning on the run's summary page. |
+| **Everyone's next session** | A **HANDOVER GAP** line naming whose commits have no entry, for example `HANDOVER GAP: no handover entry covers these 1 commit(s) yet: Derek (1).` |
+
+To close a gap, ask the author what was left unfinished, or let `/catch-up` write a **backfilled** entry from the git
+history. It is marked as backfilled, and anything it can't know is written as "not recorded".
+
+### One-time setup
+
+1. **Python** must be installed (`python --version`); the scripts use only its standard library.
+2. **Open the `LPS-Beacon` folder itself** in VS Code. The summary and commands load only when it's the main folder,
+   not when it's added beside another one. Accept the one-time prompt to trust the project.
+3. **Optional push reminder:** run `git config core.hooksPath .githooks` once in your clone. To silence it for one
+   push: `SKIP_HANDOVER_CHECK=1 git push`. To turn it off: `git config --unset core.hooksPath`.
+
+### Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| No summary at the start of a session | The session's main folder isn't `LPS-Beacon`: reopen the folder and start a new session. Type `/hooks` to check the `SessionStart` entry is there. |
+| "fetch failed; may be stale" | A network or GitHub sign-in problem. Run `git fetch` yourself, then `/catch-up`. |
+| `/catch-up` or `/handover` not listed | Run `git pull` so `.claude/` is present, then start a new session. |
+| The summary says "Tip: run `git config core.hooksPath .githooks`" | The push reminder is off in your clone. Turn it on, or ignore the tip. |
+
+---
+
 ## Repository layout
 
 ```
@@ -759,6 +857,11 @@ LPS-Beacon/
 ├── Contributing.md               # how to edit, share and review changes
 ├── release-notes.json            # what each release changes; sets the version number
 ├── tools/release_notes.py        # checks release-notes.json, builds the release notes
+├── AGENTS.md, CLAUDE.md          # guide for AI assistants (CLAUDE.md loads AGENTS.md into Claude Code)
+├── work/                         # HANDOVER.md (one entry per session) and PROGRESS.md (current snapshot)
+├── tools/handover.py             # what changed since the last handover; drafts the next entry
+├── .claude/                      # Claude Code: start-of-session summary, handover agent, /catch-up, /handover
+├── .githooks/pre-push            # optional reminder when pushing to main without a handover
 ├── .gitignore                    # secrets, planning data (Excel, CSV), Node, Python, editors
 ├── .github/workflows/ci-cd.yml   # automatic deploy + release on push to main
 ├── docs/
